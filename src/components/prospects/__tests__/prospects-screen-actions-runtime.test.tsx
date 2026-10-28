@@ -183,13 +183,13 @@ describe('ProspectsScreenActions — con las acciones «En la pantalla»', () =>
   });
 });
 
-describe('ProspectsScreenActions — un BD (sin prospección masiva)', () => {
-  it('no ofrece ni la IA ni importar: el BD agrega empresas a mano desde Empresas', () => {
+describe('ProspectsScreenActions — un BD (sin lo masivo)', () => {
+  it('tiene Rumbo como todos, pero no importar archivos (dueña 28-10)', () => {
     renderActions(true, false);
 
-    assert.equal(screen.queryByRole('button', { name: /Generar con Rumbo IA/ }), null);
-    assert.equal(screen.queryByRole('button', { name: 'Importar archivo' }), null);
-    assert.equal(screen.queryByRole('button', { name: 'Crear a mano' }), null);
+    assert.ok(screen.queryByRole('button', { name: /Generar con Rumbo IA/ }) !== null, 'Rumbo es de todos');
+    assert.ok(screen.queryByRole('button', { name: 'Importar archivo' }) === null, 'importar es de lo masivo');
+    assert.ok(screen.queryByRole('button', { name: 'Crear a mano' }) === null);
     assert.deepEqual(openDialogs(), []);
   });
 });

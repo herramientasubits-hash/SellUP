@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/modules/access/actions";
-import { isGrowthRole } from "@/modules/access/capabilities";
 
-/** El inicio de cada quien: Growth a su mesa de trabajo, el resto al Pipeline. */
+/** El inicio de todos es el Pipeline: Growth es un vendedor más (dueña 28-10). */
 export default async function HomePage() {
-  const user = await getCurrentUser().catch(() => null);
-  redirect(isGrowthRole(user?.role_key ?? null) ? "/growth" : "/pipeline");
+  redirect("/pipeline");
 }

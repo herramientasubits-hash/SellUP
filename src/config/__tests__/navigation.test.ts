@@ -71,10 +71,10 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.ok(visible.includes('/pipeline'), 'Pipeline must stay visible');
   });
 
-  it('Prospección masiva is for Growth and admins, never for seller_bd', () => {
-    assert.ok(!hrefs(getVisibleNavItems(mainNavItems, sellerCtx)).includes(GROWTH_ROUTE));
-    assert.ok(hrefs(getVisibleNavItems(mainNavItems, { isAdmin: false, roleKey: 'growth' })).includes(GROWTH_ROUTE));
-    assert.ok(hrefs(getVisibleNavItems(mainNavItems, adminCtx)).includes(GROWTH_ROUTE));
+  it('Prospección masiva is no longer a module: it lives in Empresas (dueña 28-10)', () => {
+    for (const ctx of [sellerCtx, adminCtx, { isAdmin: false, roleKey: 'growth' }]) {
+      assert.ok(!hrefs(getVisibleNavItems(mainNavItems, ctx)).includes(GROWTH_ROUTE));
+    }
   });
 
   it('the ROI calculator is public and sits right after the source catalog', () => {

@@ -384,6 +384,7 @@ describe('Menú lateral — secciones plegables', () => {
       within(group).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')]),
       [
         ['Empresas', '/accounts?tab=empresas'],
+        ['Búsquedas', '/accounts?tab=busquedas'],
         ['Por revisar', '/accounts?tab=prospectos'],
         ['Descartadas', '/accounts?tab=prospectos&view=descartadas'],
       ],
@@ -436,7 +437,6 @@ describe('Menú lateral — secciones plegables', () => {
         'Flujo de prospección',
         'Empresas',
         'Contactos',
-        'Prospección masiva',
         'Uso de IA y costos',
         'Catálogo de fuentes',
         'Calculadora de ROI',
@@ -518,6 +518,7 @@ describe('Menú lateral — contraído', () => {
       within(menu).getAllByRole('menuitem').map((item) => [item.textContent, item.getAttribute('href')]),
       [
         ['Empresas', '/accounts?tab=empresas'],
+        ['Búsquedas', '/accounts?tab=busquedas'],
         ['Por revisar', '/accounts?tab=prospectos'],
         ['Descartadas', '/accounts?tab=prospectos&view=descartadas'],
       ],

@@ -85,7 +85,7 @@ describe('Menú lateral — Configuración no es un módulo', () => {
     const nav = buildSidebarNav(MEMBER);
     assert.deepEqual(
       nav.find((root) => root.href === '/accounts')?.children?.map((child) => child.label),
-      ['Empresas', 'Por revisar', 'Descartadas'],
+      ['Empresas', 'Búsquedas', 'Por revisar', 'Descartadas'],
     );
     assert.deepEqual(
       nav.find((root) => root.href === '/contacts')?.children?.map((child) => child.label),

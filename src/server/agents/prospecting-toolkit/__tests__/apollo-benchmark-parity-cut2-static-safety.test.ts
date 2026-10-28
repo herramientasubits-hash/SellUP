@@ -765,7 +765,7 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
     // ROLE-GROWTH-1 declara la 158 (fila `growth` en el catálogo de roles; sin tablas, teléfonos,
     // contactos, presupuesto ni HubSpot). No es de este corte; la ventana sube a la 159, y el barrido
     // de AUTORÍA se ENSANCHA para incluir la 158.
-    assert.equal(migrations.filter((f) => f.startsWith('160')).length, 0);
+    assert.equal(migrations.filter((f) => f.startsWith('161')).length, 0);
     for (const file of migrations.filter(
       (f) =>
         f.startsWith('124') ||
@@ -803,7 +803,8 @@ describe('CUT-2 § 19 · sin flags, sin migraciones, sin llamadas de pago', () =
         f.startsWith('156') ||
         f.startsWith('157') ||
         f.startsWith('158') ||
-        f.startsWith('159'),
+        f.startsWith('159') ||
+        f.startsWith('160'),
     )) {
       assert.equal(
         read(path.join('supabase/migrations', file)).includes('BENCHMARK-PARITY'),

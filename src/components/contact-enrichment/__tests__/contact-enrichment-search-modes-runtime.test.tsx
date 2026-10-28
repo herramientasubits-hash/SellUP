@@ -216,13 +216,17 @@ describe('Panel del agente · modos de búsqueda (F1)', () => {
 
     // La empresa en curso termina.
     open();
+    // El reporte se oculta mientras se escribe el mensaje final: se espera a ese mensaje y
+    // luego al reporte, sin suponer que ya están en pantalla (en CI, más lento, no lo estaban).
+    await rtl.screen.findByText(/Lote cancelado\. Procesé 1 empresa y no inicié 2 empresas/, undefined, {
+      timeout: 5000,
+    });
     await rtl.screen.findByTestId('hubspot-id-batch-cancelled-badge', undefined, { timeout: 5000 });
     assert.deepEqual(mockRunItem.mock.calls.map((c) => c.arguments[0]), ['111']);
-    const report = rtl.screen.getByTestId('hubspot-id-batch-report');
+    const report = await rtl.screen.findByTestId('hubspot-id-batch-report', undefined, { timeout: 5000 });
     assert.match(report.textContent ?? '', /Empresa 111/);
-    const notStarted = rtl.screen.getByTestId('hubspot-id-batch-not-started');
+    const notStarted = await rtl.screen.findByTestId('hubspot-id-batch-not-started', undefined, { timeout: 5000 });
     assert.match(notStarted.textContent ?? '', /222, 333/);
-    await rtl.screen.findByText(/Lote cancelado\. Procesé 1 empresa y no inicié 2 empresas/);
 
     // El siguiente clic abre la conversación nueva en «Por empresa».
     rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-new'));

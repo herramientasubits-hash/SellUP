@@ -1465,7 +1465,8 @@ describe('CUT D — the transport, and the recorded contracts', () => {
     // Not BR-SOURCE, Receita/CNPJ or the catalog.
     // ROLE-GROWTH-1 moves the ceiling to 158 (the `growth` row in the roles catalog; no phones, contacts, budget or HubSpot).
     // GROWTH-BULK-SEARCH-1 moves the ceiling to 159 (Growth bulk searches; no phones, contacts, budget or HubSpot).
-    assert.equal(numbered[numbered.length - 1], '159_growth_bulk_prospect_searches.sql');
+    // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
+    assert.equal(numbered[numbered.length - 1], '160_wizard_reservation_without_pilot_limits.sql');
     // Control NEGATIVO del filtro, sobre un nombre SINTÉTICO.
     assert.equal(/^\d{3}_/.test('LOCAL_example_unnumbered.sql'), false);
     assert.equal(/^\d{3}_/.test(MIGRATION_FILE), true);

@@ -10,10 +10,9 @@ import { ControlledPanelSlot } from './controlled-panel-slot';
 
 type ProspectsScreenActionsProps = Partial<GenerateProspectsAgent> & {
   /**
-   * ¿Puede traer empresas en masa (IA, archivo)? Lo decide el servidor
-   * (`checkCapability('prospectarMasivo')`). Sin la capacidad —un BD con las
-   * reglas por rol encendidas— la pantalla no ofrece ninguna de las dos: el
-   * BD agrega empresas a mano desde Empresas.
+   * ¿Puede importar archivos? Lo decide el servidor (`checkCapability('prospectarMasivo')`).
+   * Sin la capacidad —un BD con las reglas por rol encendidas— no hay «Importar archivo»;
+   * Rumbo sigue a la vista para todos.
    */
   canProspectBulk?: boolean;
 };
@@ -38,7 +37,8 @@ export function ProspectsScreenActions({
   const [openPanel, setOpenPanel] = React.useState<OpenPanel>(null);
 
   const generateAction = useGenerateProspectsAgentAction(isGenerateAvailable, () => setOpenPanel('generate'));
-  const agent = canProspectBulk && generateDrawer ? generateAction : null;
+  // Rumbo es de todos (dueña 28-10); sólo «Importar archivo» depende de lo masivo.
+  const agent = generateDrawer ? generateAction : null;
 
   // Una sola manera de crear a mano en toda la app: «Agregar empresa» en
   // Empresas, con su revisión de duplicados. Aquí solo se trae en masa.

@@ -14,32 +14,36 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..'
 const read = (path: string) => readFileSync(join(SRC, path), 'utf8');
 
 const PANEL = read('components/prospects/prospects-module-panel.tsx');
-const GROWTH = read('app/(sellup)/growth/page.tsx');
+const ACTIVE_STEP = read('components/prospect-batches/chat-wizard/wizard-active-step.tsx');
+const REDUCER = read('modules/prospect-batches/chat-wizard/wizard-reducer.ts');
 const SUMMARY = read('components/prospect-batches/chat-wizard/wizard-conversation-summary.tsx');
 const WIZARD = read('components/prospect-batches/chat-wizard/prospect-chat-wizard.tsx');
 const LAUNCH = read('components/prospect-batches/bulk-search/bulk-search-launch.tsx');
 
 describe('quién la ve', () => {
-  it('solo Prospección masiva la pide', () => {
-    assert.ok(GROWTH.includes('loadGenerateProspectsAgent({ bulkSearch: true })'));
+  it('es la quinta forma de Rumbo, en el mismo asistente de Empresas (dueña 28-10)', () => {
+    assert.ok(ACTIVE_STEP.includes('state.bulkSearchEnabled === true'));
+    assert.ok(ACTIVE_STEP.includes("dispatch({ type: 'SELECT_BULK_SEARCH' })"));
+    assert.ok(WIZARD.includes('bulkSearchEnabled: bulkSearch !== null'));
   });
 
-  it('las pestañas de Empresas siguen sin ella (el BD no ve el paso de cantidad)', () => {
-    assert.ok(PANEL.includes('? await resolveGenerateProspectsAgent()'), 'Por revisar la pide sin búsqueda masiva');
-    assert.ok(PANEL.includes('generateAgent={loadGenerateProspectsAgent()}'), 'Descartadas la pide sin búsqueda masiva');
-    assert.ok(PANEL.includes('options.bulkSearch ? await resolveBulkSearchSurfaceForCurrentUser() : null'));
+  it('el reductor sólo la acepta si el servidor la ofreció, y la monta sobre «por criterios»', () => {
+    assert.ok(REDUCER.includes("state.bulkSearchEnabled !== true) return state;"));
+    assert.ok(REDUCER.includes("{ type: 'SELECT_SEARCH_MODE', mode: 'exploratory' }"));
   });
 
   it('la superficie la resuelve el servidor (bandera y rol), no la pantalla', () => {
     assert.ok(PANEL.includes("from '@/modules/prospect-batches/bulk-search/bulk-search-service.server'"));
+    assert.ok(PANEL.includes('const bulkSearch = await resolveBulkSearchSurfaceForCurrentUser();'));
   });
 });
 
 describe('el resumen', () => {
-  it('se ofrece con las MISMAS condiciones que «Generar prospectos», solo por criterios', () => {
+  it('se ofrece con las MISMAS condiciones que «Generar prospectos», sólo en su forma', () => {
     const start = SUMMARY.indexOf('const showBulkSearch =');
     const rule = SUMMARY.slice(start, SUMMARY.indexOf(';', start));
     for (const condition of [
+      'isBulkIntent',
       'bulkSearch !== null',
       '!isCompetitorSearch',
       '!useLushaFinalSearch',
@@ -52,8 +56,8 @@ describe('el resumen', () => {
     }
   });
 
-  it('la búsqueda normal sigue a mano, en segundo plano', () => {
-    assert.ok(SUMMARY.includes("variant={showBulkSearch ? 'outline' : 'default'}"));
+  it('con «Muchas empresas» elegida no se ofrece la búsqueda normal', () => {
+    assert.ok(SUMMARY.includes('{!isBulkIntent &&\n        !useLushaFinalSearch &&'));
     assert.ok(SUMMARY.includes('Generar prospectos'));
   });
 });

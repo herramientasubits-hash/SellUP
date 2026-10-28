@@ -2,6 +2,7 @@ import type { LucideIcon } from "@/icons";
 import { Activity, HardDrive, Layers, Users } from "@/icons";
 import {
   ACCOUNTS_EMPRESAS_ROUTE,
+  EMPRESAS_SEARCHES_ROUTE,
   CONTACTS_APPROVED_ROUTE,
   CONTACTS_CANDIDATES_ROUTE,
   CONTACTS_REJECTED_ROUTE,
@@ -44,6 +45,8 @@ export interface SidebarNavRoot {
 const MODULE_VIEWS: Readonly<Record<string, readonly SidebarNavChild[]>> = {
   "/accounts": [
     { id: "accounts-empresas", label: "Empresas", href: ACCOUNTS_EMPRESAS_ROUTE },
+    // El detalle de una búsqueda (`/prospect-batches/…`) también es de esta vista.
+    { id: "accounts-busquedas", label: "Búsquedas", href: EMPRESAS_SEARCHES_ROUTE, aliases: ["/prospect-batches"] },
     { id: "accounts-por-revisar", label: "Por revisar", href: PROSPECTOS_TAB_ROUTE },
     { id: "accounts-descartadas", label: "Descartadas", href: PROSPECTOS_DISCARDED_TAB_ROUTE },
   ],
@@ -93,9 +96,12 @@ function splitHref(href: string): { path: string; params: URLSearchParams } {
 /** Cuántos parámetros del destino coinciden con la URL; -1 si alguno no. */
 function childSpecificity(child: SidebarNavChild, pathname: string, search: URLSearchParams): number {
   const { path, params } = splitHref(child.href);
-  const inPath =
-    matchesPath(pathname, path) ||
-    Boolean(child.aliases?.some((alias) => matchesPath(pathname, alias)));
+  // Un alias es otra ruta de la misma vista (el detalle de una búsqueda): cuenta
+  // sin mirar los parámetros, que son de la ruta principal.
+  if (!matchesPath(pathname, path) && child.aliases?.some((alias) => matchesPath(pathname, alias))) {
+    return params.size;
+  }
+  const inPath = matchesPath(pathname, path);
   if (!inPath) return -1;
   let matched = 0;
   for (const [key, value] of params) {

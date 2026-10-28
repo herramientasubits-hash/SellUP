@@ -23,6 +23,8 @@ export type InitialStateParams = {
   defaultRequestedCount: number;
   /** AGENT1-SUPPLIER-SEARCH-1 — resuelto en el servidor; ausente = apagado. */
   supplierSearchEnabled?: boolean;
+  /** GROWTH-BULK-SEARCH-1 — resuelto en el servidor; ausente = apagado. */
+  bulkSearchEnabled?: boolean;
 };
 
 /**
@@ -65,6 +67,8 @@ export function createInitialProspectWizardState(
     referenceCompanyName: null,
     referenceCompany: null,
     supplierSearchEnabled: params.supplierSearchEnabled === true,
+    bulkSearchEnabled: params.bulkSearchEnabled === true,
+    bulkIntent: false,
     countryCode: null,
     industryId: null,
     subindustryIds: [],
@@ -154,8 +158,20 @@ export function prospectWizardReducer(
     }
 
     // ── SELECT_SEARCH_MODE ──────────────────────────────────────────────────
+    // GROWTH-BULK-SEARCH-1 — «Muchas empresas por criterios»: las preguntas de
+    // «Empresas por criterios» y, al final, la cantidad y el tope.
+    case 'SELECT_BULK_SEARCH': {
+      if (state.currentStep !== 'search_type' || state.bulkSearchEnabled !== true) return state;
+      const next = prospectWizardReducer(state, { type: 'SELECT_SEARCH_MODE', mode: 'exploratory' });
+      return next === state ? state : { ...next, bulkIntent: true };
+    }
+
     case 'SELECT_SEARCH_MODE': {
       if (state.currentStep !== 'search_type') return state;
+      // Elegir una de las cuatro formas deja de ser la búsqueda masiva.
+      if (state.bulkIntent === true) {
+        return prospectWizardReducer({ ...state, bulkIntent: false }, action);
+      }
       const modeDef = resolveSearchModeDefinitions(state).find((d) => d.mode === action.mode);
       if (!modeDef) return state;
 
@@ -717,6 +733,7 @@ export function prospectWizardReducer(
           catalogVersion: state.catalogVersion,
           defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
           supplierSearchEnabled: state.supplierSearchEnabled,
+          bulkSearchEnabled: state.bulkSearchEnabled,
         });
       }
       return { ...state, restartConfirmationRequired: true };
@@ -733,6 +750,7 @@ export function prospectWizardReducer(
         catalogVersion: state.catalogVersion,
         defaultRequestedCount: EXPLORATORY_SEARCH_LIMITS.requestedCount.default,
         supplierSearchEnabled: state.supplierSearchEnabled,
+        bulkSearchEnabled: state.bulkSearchEnabled,
       });
     }
 

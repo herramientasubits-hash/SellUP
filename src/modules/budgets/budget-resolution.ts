@@ -26,6 +26,7 @@ import type {
   UsdCostTruth,
 } from './types';
 import { getPeriodBounds } from './periods';
+import { decideConfiguredLimit, type ConfiguredLimitDecision } from './configured-limit-gate';
 import { collectGroupSubtreeIds } from '@/modules/access/group-tree';
 import {
   getAdminClient,
@@ -449,6 +450,31 @@ export async function checkProviderQuotaAvailable(
     periodStart,
     periodEnd,
   };
+}
+
+/**
+ * ¿Puede `userId` gastar `requiredCredits` de `providerKey`? Lo deciden SÓLO los
+ * créditos del proveedor y los límites de Configuración (ver `configured-limit-gate`).
+ * Lanza si no se pudo leer: quien gasta lo trata como bloqueo (falla cerrado).
+ */
+export async function checkConfiguredProviderLimit(
+  providerKey: string,
+  userId: string,
+  requiredCredits: number,
+): Promise<ConfiguredLimitDecision> {
+  const [quota, rule] = await Promise.all([
+    checkProviderQuotaAvailable(providerKey),
+    checkBudget(providerKey, userId, { credits: requiredCredits }),
+  ]);
+  return decideConfiguredLimit({
+    quota,
+    rule: {
+      allowed: rule.allowed,
+      remainingCredits: rule.remainingCredits,
+      enforces: rule.matchedRule !== null && rule.matchedRule.onExceed !== 'alert',
+    },
+    requiredCredits,
+  });
 }
 
 /**

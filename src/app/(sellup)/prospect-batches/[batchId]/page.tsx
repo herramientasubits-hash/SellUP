@@ -63,6 +63,11 @@ import {
 } from '@/modules/prospect-batches/industry-reassigned';
 import { getIcpSizeGateSummaryUiState } from '@/components/prospect-batches/icp-size-gate-ui';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { SearchAssignButton } from '@/components/searches/search-assign-button';
+import { createClient as createSessionClient } from '@/lib/supabase/server';
+import { getActiveUsers } from '@/modules/accounts/actions';
+import { hasCandidateAssignmentColumn } from '@/modules/assignment/assignment.server';
+import { isBatchInScope } from '@/modules/prospect-discards/batch-in-scope.server';
 import { competitorSearchTitle, readCompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 
 const BATCH_SOURCE_VENDOR_LABELS: Partial<Record<BatchSource, string>> = {
@@ -94,14 +99,23 @@ export const maxDuration = 300;
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates, isAdmin, latestContinuation, viewer, bulkEnrich] = await Promise.all([
+  const [batch, candidates, isAdmin, latestContinuation, viewer, bulkEnrich, canAssignSearch] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
     isCurrentUserAdmin(),
     readLatestContinuationJob(batchId),
     requireActiveUser(),
     checkCapability('enriquecerMasivo'),
+    // «Asignar a…» la búsqueda entera: quien la lanzó o es responsable (él o su equipo),
+    // con la columna de asignación en la base.
+    Promise.all([
+      isBatchInScope(batchId).catch(() => false),
+      createSessionClient()
+        .then((supabase) => hasCandidateAssignmentColumn(supabase))
+        .catch(() => false),
+    ]).then(([inScope, column]) => inScope && column),
   ]);
+  const assignableUsers = canAssignSearch ? await getActiveUsers().catch(() => []) : [];
 
   if (!batch) notFound();
 
@@ -274,6 +288,9 @@ export default async function BatchDetailPage({ params }: Props) {
             {/* Las empresas que esta búsqueda ya creó, directo a la búsqueda masiva de contactos. */}
             {bulkEnrich.ok && counts.converted > 0 && (
               <BatchBulkEnrichmentButton batchId={batch.id} convertedCount={counts.converted} />
+            )}
+            {assignableUsers.length > 0 && counts.needs_review > 0 && (
+              <SearchAssignButton searchId={batch.id} searchName={batch.name} users={assignableUsers} />
             )}
             {isAdmin &&
               batch.metadata?.batch_type === 'structured' &&

@@ -61,6 +61,11 @@ export const ACCOUNTS_ROUTE = "/accounts";
 export const ACCOUNTS_EMPRESAS_ROUTE = "/accounts?tab=empresas";
 export const PROSPECTOS_TAB_ROUTE = "/accounts?tab=prospectos";
 /**
+ * Empresas › Búsquedas (dueña 28-10): todas las búsquedas de Rumbo, archivos y
+ * fuentes (lo que antes eran «lotes»). Reemplaza a la antigua Prospección masiva.
+ */
+export const EMPRESAS_SEARCHES_ROUTE = "/accounts?tab=busquedas";
+/**
  * AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — "Descartadas" sub-tab inside
  * Prospectos (issue #389). Sibling pill to the default "Por revisar" view,
  * same module, same route, distinguished by the `view` query param so it
@@ -99,7 +104,11 @@ export const CONTACTS_REJECTED_ROUTE = "/contacts?tab=rejected";
 export const SOURCE_CATALOG_ROUTE = "/source-catalog";
 export const SOURCE_CATALOG_BATCHES_ROUTE = "/source-catalog/socrata-batches";
 
-/** Prospección masiva: la vista del equipo de Growth (rol `growth`, migración 158). */
+/**
+ * La antigua Prospección masiva (rol `growth`, migración 158). Ya no es un módulo:
+ * lo masivo vive en Empresas (la quinta forma de Rumbo y la vista Búsquedas) y esta
+ * ruta sólo redirige allí.
+ */
 export const GROWTH_ROUTE = "/growth";
 
 /** Calculadora de ROI de UBITS, solo el ejercicio de proyección de venta. */
@@ -135,14 +144,6 @@ export const mainNavItems: NavItem[] = [
     title: "Contactos",
     href: "/contacts",
     icon: Users,
-  },
-  {
-    title: "Prospección masiva",
-    href: GROWTH_ROUTE,
-    icon: Target,
-    // Del equipo de Growth (y admin): búsquedas con IA, importación y contactos
-    // en masa. El BD prospecta a mano desde Empresas y no ve este módulo.
-    access: "growth",
   },
   // Q3F-5AZ.2D-1 — "Revisión de prospectos" removed from the sidebar. Human
   // review now lives inside the official Prospectos surface

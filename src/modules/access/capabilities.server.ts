@@ -17,7 +17,7 @@ import {
   type CandidateReviewDecision,
 } from './capabilities';
 
-/** Bandera de despliegue de las reglas por rol (BD a mano / Growth en masa). */
+/** Bandera de despliegue de las reglas por rol (prospectar en masa = admin y Growth). */
 export const ROLE_CAPABILITIES_FLAG = 'ENABLE_ROLE_CAPABILITIES';
 
 /**
@@ -206,12 +206,11 @@ export async function findCandidatesNeedingAssignee(rows: readonly CandidateResp
 
 /**
  * ¿Puede quien pide APROBAR esta candidata? Dos preguntas, en orden:
- *  1. ¿le toca? Admin y Growth, siempre. Su dueño (con las reglas encendidas),
- *     solo si está limpia: un posible duplicado o una coincidencia con HubSpot
- *     pasa a Growth.
- *  2. ¿tiene responsable? Siempre, también para admin y Growth y con las reglas
- *     apagadas: lo de una búsqueda masiva se asigna antes de aprobarse, para que la
- *     empresa no quede a nombre de quien prospecta en masa.
+ *  1. ¿le toca? Admin, siempre. Su dueño (con las reglas encendidas), solo si
+ *     está limpia: un posible duplicado o una coincidencia con HubSpot pasa a admin.
+ *  2. ¿tiene responsable? Siempre, también para admin y con las reglas apagadas:
+ *     lo de una búsqueda de admin se asigna antes de aprobarse, para que la
+ *     empresa no quede a nombre del administrador.
  * Falla cerrado.
  */
 export async function checkCandidateApproval(candidateId: string): Promise<CandidateReviewDecision> {

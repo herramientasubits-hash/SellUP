@@ -157,7 +157,13 @@ export function DataListActionRail({
     });
 
   const labelOf = (action: RailActionSpec) => railActionLabel(action, selectedCount);
-  const forMode = railActionsFor(actions, selectedCount);
+  const forModeAll = railActionsFor(actions, selectedCount);
+  // Con filas marcadas, la acción de IA (Rumbo: «Buscar con Rumbo» sobre lo marcado)
+  // es la principal (dueña 28-10): cierra la barra con su nombre sobre el degradado,
+  // como el agente sin selección, en vez de ser un ícono más de la fila.
+  const selectionAgent =
+    selectedCount > 0 ? (forModeAll.find((action) => action.tone === "ai" && !action.menu) ?? null) : null;
+  const forMode = selectionAgent ? forModeAll.filter((action) => action !== selectionAgent) : forModeAll;
 
   // Sin selección: las de la pantalla en sus tres pesos —la principal cierra
   // la fila, las de a diario se quedan a la vista y lo que se configura una
@@ -243,6 +249,15 @@ export function DataListActionRail({
             {overflow.length > 0 && (
               <AnimatedActionItem animKey={animKey} staggerIndex={SELECTION_STAGGER_OFFSET + inline.length}>
                 <RailOverflowMenu items={overflow} onOpenChange={trackMenu("overflow")} />
+              </AnimatedActionItem>
+            )}
+            {selectionAgent && (
+              <AnimatedActionItem
+                animKey={animKey}
+                staggerIndex={SELECTION_STAGGER_OFFSET + inline.length + (overflow.length > 0 ? 1 : 0)}
+                skipColorFlash
+              >
+                <RailAgentButton agent={{ ...selectionAgent, label: labelOf(selectionAgent), variant: "ai" }} />
               </AnimatedActionItem>
             )}
           </>

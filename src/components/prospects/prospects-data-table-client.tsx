@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import * as React from 'react';
 import { useCorporateTreeAction } from '@/components/prospect-batches/corporate-tree/corporate-tree-search-panel';
 import { useRouter } from 'next/navigation';
@@ -14,7 +16,9 @@ import {
   Info,
   CheckCircle2,
   UserPlus,
+  Search,
 } from "@/icons";
+import { searchListHref } from '@/modules/prospect-batches/searches/search-rows';
 import { Alert, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
@@ -413,6 +417,7 @@ export function ProspectsDataTableClient({
           const officialSource = getOfficialSourceLabel(c);
 
           return (
+            <div className="flex min-w-0 flex-col">
             <div className="flex min-w-0 items-center gap-1">
               <RowTitleButton onClick={() => openCandidateDetail(c)} title={c.name}>
                 {c.name}
@@ -441,6 +446,17 @@ export function ProspectsDataTableClient({
                   label={`Abrir el LinkedIn de ${c.name}`}
                 />
               )}
+            </div>
+            {/* De qué búsqueda salió (dueña 28-10): lleva a esa búsqueda en Búsquedas. */}
+            {c.batch_id && c.batch?.name && (
+              <Link
+                href={searchListHref(c.batch_id)}
+                title={`Ver la búsqueda «${c.batch.name}»`}
+                className="truncate text-xs text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
+              >
+                {c.batch.name}
+              </Link>
+            )}
             </div>
           );
         },
@@ -667,6 +683,7 @@ export function ProspectsDataTableClient({
                 ? () => setAssignRows([row.original])
                 : undefined
             }
+            onViewSearch={row.original.batch_id ? () => router.push(searchListHref(row.original.batch_id)) : undefined}
           />
         ),
         size: 48,
@@ -677,7 +694,7 @@ export function ProspectsDataTableClient({
         meta: { label: 'Acciones', disableFilter: true, disableSort: true },
       },
     ],
-    [openCandidateDetail, responsibleFilterOptions, canAssign],
+    [openCandidateDetail, responsibleFilterOptions, canAssign, router],
   );
 
   // ── Context menu ──────────────────────────────────────────────
@@ -690,6 +707,16 @@ export function ProspectsDataTableClient({
           icon: Info,
           onClick: () => openCandidateDetail(row),
         },
+        ...(row.batch_id
+          ? [
+              {
+                id: 'view-search',
+                label: 'Ver búsqueda',
+                icon: Search,
+                onClick: () => router.push(searchListHref(row.batch_id)),
+              },
+            ]
+          : []),
         ...(canAssign && isAssignableCandidateStatus(row.status)
           ? [
               {
@@ -768,7 +795,7 @@ export function ProspectsDataTableClient({
           : []),
       ],
     }),
-    [openCandidateDetail, canAssign, corporateTreeMenuItem],
+    [openCandidateDetail, canAssign, corporateTreeMenuItem, router],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────

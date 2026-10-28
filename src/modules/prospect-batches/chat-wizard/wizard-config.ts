@@ -33,6 +33,28 @@ export const SEARCH_MODE_DEFINITIONS: ProspectSearchModeDefinition[] = [
 ];
 
 /**
+ * GROWTH-BULK-SEARCH-1 — la quinta forma de buscar, sólo para Growth y admin con la
+ * bandera encendida. No es un modo del motor: son las preguntas de «Empresas por
+ * criterios» (`exploratory`) y, al final, la cantidad y el tope de la búsqueda masiva.
+ */
+export const BULK_SEARCH_OPTION = {
+  value: 'bulk',
+  label: 'Muchas empresas por criterios',
+  description: 'Hasta 200 empresas de un país e industria, por rondas, con un tope de créditos que tú confirmas.',
+} as const;
+
+/** Cómo se nombra la forma elegida en el chat y en el resumen. */
+export function searchModeDisplayLabel(state: {
+  searchMode: ProspectSearchModeDefinition['mode'] | null;
+  bulkIntent?: boolean;
+  supplierSearchEnabled?: boolean;
+}): string | null {
+  if (state.bulkIntent === true) return BULK_SEARCH_OPTION.label;
+  if (state.searchMode === null) return null;
+  return resolveSearchModeDefinitions(state).find((d) => d.mode === state.searchMode)?.label ?? state.searchMode;
+}
+
+/**
  * AGENT1-SUPPLIER-SEARCH-1 — las formas de búsqueda para ESTA conversación. Con la
  * bandera del servidor encendida, «Proveedores de una empresa» queda disponible; el
  * resto, como siempre.

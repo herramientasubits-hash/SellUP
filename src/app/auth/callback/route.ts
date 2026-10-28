@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { openSlackDMForUser } from '@/server/services/slack-connection';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isGrowthRole } from '@/modules/access/capabilities';
 
 // The Slack DM sidecar below builds a service-role client via the shared
 // fail-closed factory (createSupabaseAdminClient), which reads the env-guard
@@ -94,10 +93,7 @@ export async function GET(request: Request) {
     active: '/pipeline',
   };
 
-  // El equipo de Growth entra directo a su mesa de trabajo (Prospección masiva).
-  const homePath = isGrowthRole(accessData?.[0]?.role_key ?? null) ? '/growth' : accessRedirects.active;
-  const redirectPath =
-    accessStatus === 'active' ? homePath : (accessRedirects[accessStatus] ?? '/access-pending');
+  const redirectPath = accessRedirects[accessStatus] ?? '/access-pending';
 
   return NextResponse.redirect(`${origin}${redirectPath}`);
 }

@@ -1,5 +1,5 @@
 import { isSubindustrySelectionEnabled } from '@/modules/macro-industry-catalog/discovery-taxonomy-capability';
-import { resolveSearchModeDefinitions } from './wizard-config';
+import { resolveSearchModeDefinitions, searchModeDisplayLabel } from './wizard-config';
 import { getSearchCountryCodes } from './wizard-selectors';
 import type {
   ProspectWizardState,
@@ -104,7 +104,7 @@ export function deriveWizardMessages(
         id: 'user-search-type-answer',
         role: 'user',
         messageType: 'selection_summary',
-        content: modeDef?.label ?? state.searchMode,
+        content: searchModeDisplayLabel(state) ?? state.searchMode,
         step: 'search_type',
       });
 

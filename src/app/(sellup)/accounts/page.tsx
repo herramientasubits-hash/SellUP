@@ -27,13 +27,16 @@ import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-sco
 import { getCurrentUser } from '@/modules/access/actions';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { checkCapability } from '@/modules/access/capabilities.server';
+import { SearchesPanel } from '@/components/searches/searches-panel';
 
 interface PageProps {
-  searchParams: Promise<{ tab?: string } & ProspectsPanelSearchParams>;
+  /** `focus`: en Búsquedas, la búsqueda que se pidió ver («Ver búsqueda» desde Por revisar). */
+  searchParams: Promise<{ tab?: string; focus?: string } & ProspectsPanelSearchParams>;
 }
 
 const SKELETON_NOUN: Record<ModuleTabId, string> = {
   empresas: 'empresas',
+  busquedas: 'búsquedas',
   prospectos: 'empresas por revisar',
   descartadas: 'empresas descartadas',
 };
@@ -43,9 +46,15 @@ export default async function AccountsPage({ searchParams }: PageProps) {
   // las que se llega desde el menú lateral: con `?tab=prospectos` se pinta su
   // panel de servidor en el sitio, sin cambiar de ruta. La página no lleva
   // pestañas: el título dice la vista y las migas, el módulo.
-  const { tab, ...prospectsParams } = await searchParams;
+  const { tab, focus, ...prospectsParams } = await searchParams;
   const activeTab: ModuleTabId =
-    tab !== 'prospectos' ? 'empresas' : prospectsParams.view === 'descartadas' ? 'descartadas' : 'prospectos';
+    tab === 'busquedas'
+      ? 'busquedas'
+      : tab !== 'prospectos'
+        ? 'empresas'
+        : prospectsParams.view === 'descartadas'
+          ? 'descartadas'
+          : 'prospectos';
 
   // Mientras llegan los datos se ve la pantalla con su forma (cabecera,
   // tabla fantasma) en vez de la pantalla anterior congelada.
@@ -65,7 +74,13 @@ export default async function AccountsPage({ searchParams }: PageProps) {
         />
       }
     >
-      {activeTab === 'empresas' ? <AccountsPanel /> : <ProspectsModulePanel params={prospectsParams} />}
+      {activeTab === 'empresas' ? (
+        <AccountsPanel />
+      ) : activeTab === 'busquedas' ? (
+        <SearchesPanel focusSearchId={focus ?? null} />
+      ) : (
+        <ProspectsModulePanel params={prospectsParams} />
+      )}
     </Suspense>
   );
 }

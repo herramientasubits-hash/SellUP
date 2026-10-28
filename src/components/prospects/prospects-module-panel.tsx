@@ -117,12 +117,10 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // El asistente «Generar con IA», con todo lo que el servidor resolvió para
   // él (flags, catálogo, proveedor, topes, presupuesto). Es la MISMA carga que
   // usan las otras dos pestañas del módulo para su agente de IA.
-  // Traer en masa (IA, archivo) es de Growth con las reglas por rol
-  // encendidas; apagadas, de cualquiera, como siempre.
+  // Rumbo es de todos; importar archivos es de Growth, líderes y admin con las
+  // reglas por rol encendidas (apagadas, de cualquiera, como siempre).
   const canProspectBulk = (await checkCapability('prospectarMasivo')).ok;
-  const { generateDrawer, isGenerateAvailable } = canProspectBulk
-    ? await resolveGenerateProspectsAgent()
-    : { generateDrawer: null, isGenerateAvailable: false };
+  const { generateDrawer, isGenerateAvailable } = await resolveGenerateProspectsAgent();
 
   const sourceId = params.sourceId ?? null;
 
@@ -225,17 +223,17 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         currentGroupId={params.groupId ?? ''}
         hasUrlFilters={hasUrlFilters}
         emptyActions={
-          canProspectBulk ? (
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {generateDrawer}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {generateDrawer}
+            {canProspectBulk && (
               <ImportCandidatesDrawer>
                 <Button type="button" variant="outline" size="sm">
                   <Upload aria-hidden="true" />
                   Importar un archivo
                 </Button>
               </ImportCandidatesDrawer>
-            </div>
-          ) : undefined
+            )}
+          </div>
         }
       />
     </DataTablePage>
@@ -254,13 +252,11 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
  * pinta el agente lo llama entonces «Búsqueda no disponible» (capa 4 del cerco
  * del camino heredado).
  *
- * `bulkSearch` (GROWTH-BULK-SEARCH-1) sólo lo pide Prospección masiva: suma al
- * resumen la búsqueda masiva de Growth («hasta N» empresas) si la bandera está
- * encendida y quien mira es Growth o admin. Las pestañas de Empresas no lo piden.
+ * GROWTH-BULK-SEARCH-1 — la búsqueda masiva («Muchas empresas por criterios») se
+ * ofrece como quinta forma en el mismo asistente si la bandera está encendida y quien
+ * mira es Growth o admin (lo decide `resolveBulkSearchSurfaceForCurrentUser`).
  */
-export async function resolveGenerateProspectsAgent(
-  options: { bulkSearch?: boolean } = {},
-): Promise<GenerateProspectsAgent> {
+export async function resolveGenerateProspectsAgent(): Promise<GenerateProspectsAgent> {
   // Feature flags: read server-side only — never NEXT_PUBLIC_
   // A1-LEGACY-PATH-FENCE-1 (P0-1): both flags are parsed through the canonical
   // server-only helpers (trim + toLowerCase). A strict `=== 'true'` here made
@@ -338,7 +334,7 @@ export async function resolveGenerateProspectsAgent(
   // flotante (que lo abre sin pintar su botón) y, con su propio botón, en el
   // vacío inicial («no hay prospectos por revisar»), para que la acción esté
   // también donde se la echa en falta.
-  const bulkSearch = options.bulkSearch ? await resolveBulkSearchSurfaceForCurrentUser() : null;
+  const bulkSearch = await resolveBulkSearchSurfaceForCurrentUser();
   const generateDrawer = (
     <GenerateAIBatchDrawer experience={experience} unavailableKind={unavailableKind} catalog={catalog} executionEnabled={wizardExecutionEnabled} lushaPreviewEnabled={enableLushaPreview} autoProviderCascade={autoProviderCascade} discoveryProvider={wizardDiscoveryProvider} providerOverrideCapability={wizardProviderOverrideCapability} apolloRunModeLimits={apolloRunModeLimits} budgetPreflight={wizardBudgetPreflight} supplierSearchEnabled={supplierSearchEnabled} bulkSearch={bulkSearch} />
   );
@@ -352,14 +348,11 @@ export async function resolveGenerateProspectsAgent(
  * caerse. «Por revisar» usa `resolveGenerateProspectsAgent` tal cual, como
  * siempre.
  */
-export async function loadGenerateProspectsAgent(
-  options: { bulkSearch?: boolean } = {},
-): Promise<GenerateProspectsAgent | null> {
-  // Sin la capacidad de prospectar en masa, la pestaña sale sin agente: el
-  // selector de Rumbo deja de ofrecer «Prospectar empresas».
-  if (!(await checkCapability('prospectarMasivo')).ok) return null;
+export async function loadGenerateProspectsAgent(): Promise<GenerateProspectsAgent | null> {
+  // Las cuatro formas de Rumbo son de cualquier usuario activo (dueña 28-10): el
+  // agente se carga para todos. Lo masivo se decide dentro (quinta forma, importar).
   try {
-    return await resolveGenerateProspectsAgent(options);
+    return await resolveGenerateProspectsAgent();
   } catch (error) {
     console.error('[empresas] No se pudo resolver el agente «Generar con IA»', error);
     return null;

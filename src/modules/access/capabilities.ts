@@ -1,27 +1,27 @@
 // Quién puede hacer qué, en un solo sitio y sin base de datos (se prueba solo).
 //
-// SellUp tiene dos formas de prospectar:
-//  - el BD (vendedor) prospecta A MANO: agrega empresas una a una, busca los
-//    contactos de las suyas y decide sobre las candidatas que son suyas;
-//  - el equipo de Growth prospecta EN MASA: búsquedas con IA por lotes,
-//    importación de archivos, enriquecimiento masivo, y revisa todo lo que esas
-//    búsquedas traen.
+// Growth es un vendedor más (dueña 28-10): ve lo suyo, busca con Rumbo, revisa
+// sus candidatas y busca contactos igual que cualquier BD. Lo ÚNICO que tiene de
+// más es prospectar EN MASA: la búsqueda masiva («Muchas empresas por criterios»)
+// e importar archivos. Revisar CUALQUIER candidata es sólo de admin.
 //
 // Las reglas viven detrás de `ENABLE_ROLE_CAPABILITIES` (ver
-// `capabilities.server.ts`). Apagada —lo de fábrica— todo se comporta como
-// antes: cualquier usuario activo lanza búsquedas e importa, y sólo un admin
-// decide sobre candidatas. Se enciende después de asignar el rol Growth a quien
-// corresponda; si no, nadie salvo admin podría prospectar en masa.
+// `capabilities.server.ts`). Apagada, todo se comporta como antes de las reglas:
+// cualquier usuario activo importa, y sólo un admin decide sobre candidatas.
 
 /** El rol del equipo que prospecta en masa (migración 158). */
 export const GROWTH_ROLE_KEY = 'growth';
 
 export type Capability =
-  /** Búsquedas con IA por lotes e importación de archivos. */
+  /**
+   * Traer empresas EN MASA: importar archivos y la búsqueda masiva («Muchas empresas
+   * por criterios»). Las cuatro formas normales de Rumbo son de cualquier usuario
+   * activo (dueña 28-10).
+   */
   | 'prospectarMasivo'
-  /** Buscar contactos de muchas empresas a la vez. */
+  /** Buscar contactos de muchas empresas a la vez: de cualquier usuario activo, como antes. */
   | 'enriquecerMasivo'
-  /** Aprobar, descartar o marcar duplicada CUALQUIER candidata. */
+  /** Aprobar, descartar o marcar duplicada CUALQUIER candidata: sólo admin. */
   | 'revisarTodasLasCandidatas';
 
 export interface AccessSnapshot {
@@ -45,8 +45,17 @@ export function isGrowthRole(roleKey: string | null): boolean {
 }
 
 /**
- * ¿Tiene esta persona la capacidad? Con las reglas apagadas responde lo de
- * siempre: lo masivo es de cualquier usuario activo, revisar todo es de admin.
+ * Quien, además de admin, trabaja en masa: sólo Growth (dueña 28-10: los líderes
+ * no). Búsqueda masiva, importar archivos y buscar contactos de muchas empresas.
+ */
+export function isBulkRole(roleKey: string | null): boolean {
+  return isGrowthRole(roleKey);
+}
+
+/**
+ * ¿Tiene esta persona la capacidad? Revisar todo es siempre de admin y buscar
+ * contactos en masa, de cualquiera. Prospectar en masa: con las reglas apagadas,
+ * de cualquiera (lo de siempre); encendidas, de admin y Growth.
  */
 export function hasCapability(
   access: AccessSnapshot,
@@ -55,13 +64,14 @@ export function hasCapability(
 ): boolean {
   if (!access.userId) return false;
   if (access.isAdmin) return true;
-  if (!enforced) return capability !== 'revisarTodasLasCandidatas';
-  return isGrowthRole(access.roleKey);
+  if (capability === 'revisarTodasLasCandidatas') return false;
+  if (capability === 'enriquecerMasivo' || !enforced) return true;
+  return isBulkRole(access.roleKey);
 }
 
 /**
  * ¿Puede decidir (aprobar, descartar, marcar duplicada) sobre ESTA candidata?
- * Admin y Growth, sobre cualquiera. Con las reglas encendidas, además, quien es
+ * Admin, sobre cualquiera. Con las reglas encendidas, además, quien es
  * su responsable o dueño de la búsqueda de la que salió: un BD decide sobre lo
  * suyo sin esperar a un admin.
  */
@@ -98,9 +108,9 @@ export type CandidateReviewDecision =
 
 /**
  * ¿Puede APROBAR esta candidata? Igual que `canReviewCandidate`, con una regla
- * más: el dueño que no es Growth ni admin solo aprueba lo limpio. Un posible
- * duplicado o una empresa que ya está en HubSpot la decide Growth — así el
- * mismo BD no confirma «no es duplicado» sobre lo suyo.
+ * más: el dueño que no es admin solo aprueba lo limpio. Un posible duplicado o
+ * una empresa que ya está en HubSpot la decide un administrador — así el mismo
+ * vendedor (o Growth) no confirma «no es duplicado» sobre lo suyo.
  */
 export function decideCandidateApproval(
   access: AccessSnapshot,
@@ -116,18 +126,17 @@ export function decideCandidateApproval(
 /** Lo que se le dice a quien intenta algo que no le toca. */
 export const CAPABILITY_DENIED_MESSAGE: Readonly<Record<Capability, string>> = {
   prospectarMasivo:
-    'La prospección masiva es del equipo de Growth. Desde tu vista puedes agregar empresas a mano y buscar sus contactos.',
-  enriquecerMasivo:
-    'Buscar contactos de muchas empresas a la vez es del equipo de Growth. Puedes buscar los contactos de cada empresa desde su ficha.',
+    'Importar archivos y la búsqueda masiva son del equipo de Growth. Puedes buscar empresas con Rumbo o agregarlas a mano.',
+  enriquecerMasivo: 'Tu sesión no está activa. Vuelve a entrar.',
   revisarTodasLasCandidatas: 'Solo puedes decidir sobre las candidatas que son tuyas.',
 };
 
-/** Cuando un BD intenta aprobar un posible duplicado propio. */
+/** Cuando un vendedor (o Growth) intenta aprobar un posible duplicado propio. */
 export const NEEDS_GROWTH_REVIEW_MESSAGE =
-  'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.';
+  'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide un administrador.';
 
 /**
- * Cuando una candidata de una búsqueda de Growth (o admin) no tiene responsable:
- * sin él, la empresa nacería a nombre de quien prospecta en masa y el BD no la vería.
+ * Cuando una candidata de una búsqueda de admin no tiene responsable: sin él, la
+ * empresa nacería a nombre del administrador y ningún vendedor la vería.
  */
 export const NEEDS_ASSIGNEE_MESSAGE = 'Asígnale un responsable primero.';

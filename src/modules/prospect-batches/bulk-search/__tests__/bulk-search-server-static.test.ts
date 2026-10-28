@@ -22,7 +22,7 @@ const ROUTES = [
 describe('quién puede', () => {
   it('Growth o admin, con la bandera encendida, sin depender de ENABLE_ROLE_CAPABILITIES', () => {
     assert.ok(SERVICE.includes('isGrowthBulkSearchEnabled()'));
-    assert.ok(SERVICE.includes('!access.isAdmin && !isGrowthRole(access.roleKey)'));
+    assert.ok(SERVICE.includes('!access.isAdmin && !isBulkRole(access.roleKey)'));
     assert.equal(SERVICE.includes('checkCapability('), false, 'checkCapability se abre a todos con su bandera apagada');
   });
 

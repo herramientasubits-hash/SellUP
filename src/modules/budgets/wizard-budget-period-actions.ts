@@ -38,7 +38,7 @@ import { revalidatePath } from 'next/cache';
 import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
 import { getAdminClient } from './queries';
 import { getPilotBudgetPeriodStart } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-reconciliation';
-import { WIZARD_BUDGET_TIMEZONE } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-preflight.server';
+import { WIZARD_BUDGET_TIMEZONE } from '@/modules/prospect-batches/chat-wizard-execution/wizard-budget-timezone';
 
 export interface WizardBudgetMutationResult {
   success: boolean;
