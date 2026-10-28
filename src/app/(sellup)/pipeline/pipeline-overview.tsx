@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "@/icons";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SurfaceCard } from "@/components/shared/surface-card";
 import { cn } from "@/lib/utils";
@@ -160,8 +161,28 @@ function AlertsPanel({ overview, activeSignals, isSignalFiltered, onToggleSignal
   const alerts = buildAlerts(overview.accounts).filter(
     (alert) => pressed.length === 0 || pressed.includes(alert.signal.id),
   );
-  const visible = showAll ? alerts : alerts.slice(0, ALERTS_PREVIEW);
-  const hidden = alerts.length - visible.length;
+  // Las primeras quedan a la vista; el resto se despliega con la altura animada.
+  const head = alerts.slice(0, ALERTS_PREVIEW);
+  const tail = alerts.slice(ALERTS_PREVIEW);
+  const renderAlert = ({ account, signal }: (typeof alerts)[number]) => {
+    const SignalIcon = SIGNAL_ICONS[signal.id];
+    return (
+      <ListItem
+        key={`${account.id}-${signal.id}`}
+        size="sm"
+        data-severity={signal.severity}
+        onClick={onSelectAccount ? () => onSelectAccount(account.id) : undefined}
+        leading={<IconTile size="sm" icon={<SignalIcon />} tone={SEVERITY_TILE[signal.severity]} />}
+        title={account.name}
+        description={
+          signal.detail && !signal.label.includes(signal.detail)
+            ? `${signal.label} · ${signal.detail}`
+            : signal.label
+        }
+        meta={STAGE_SHORT_LABELS[signal.stageId]}
+      />
+    );
+  };
 
   return (
     <SurfaceCard className="flex flex-col gap-4">
@@ -191,33 +212,24 @@ function AlertsPanel({ overview, activeSignals, isSignalFiltered, onToggleSignal
         </div>
       </div>
 
-      <ListItemGroup aria-label="Alertas del pipeline" className="-mx-1">
-        {visible.map(({ account, signal }) => {
-          const SignalIcon = SIGNAL_ICONS[signal.id];
-          return (
-            <ListItem
-              key={`${account.id}-${signal.id}`}
-              size="sm"
-              data-severity={signal.severity}
-              onClick={onSelectAccount ? () => onSelectAccount(account.id) : undefined}
-              leading={<IconTile size="sm" icon={<SignalIcon />} tone={SEVERITY_TILE[signal.severity]} />}
-              title={account.name}
-              description={
-                signal.detail && !signal.label.includes(signal.detail)
-                  ? `${signal.label} · ${signal.detail}`
-                  : signal.label
-              }
-              meta={STAGE_SHORT_LABELS[signal.stageId]}
-            />
-          );
-        })}
-      </ListItemGroup>
-
-      {(hidden > 0 || showAll) && alerts.length > ALERTS_PREVIEW && (
-        <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowAll((value) => !value)}>
-          {showAll ? "Ver menos" : `Ver todas las alertas (${alerts.length})`}
-        </Button>
-      )}
+      <Collapsible open={showAll} onOpenChange={setShowAll} className="flex flex-col">
+        <ListItemGroup aria-label="Alertas del pipeline" className="-mx-1">
+          {head.map(renderAlert)}
+        </ListItemGroup>
+        {tail.length > 0 && (
+          <>
+            {/* El margen negativo va en el panel: dentro, su overflow lo recortaba. */}
+            <CollapsibleContent className="-mx-1">
+              <ListItemGroup aria-label="Más alertas del pipeline" className="pt-2">
+                {tail.map(renderAlert)}
+              </ListItemGroup>
+            </CollapsibleContent>
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="mt-4 self-start" />}>
+              {showAll ? "Ver menos" : `Ver todas las alertas (${alerts.length})`}
+            </CollapsibleTrigger>
+          </>
+        )}
+      </Collapsible>
     </SurfaceCard>
   );
 }

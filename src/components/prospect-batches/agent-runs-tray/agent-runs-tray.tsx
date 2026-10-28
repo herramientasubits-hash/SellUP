@@ -9,8 +9,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Queue } from '@/icons';
+import { AlertCircle, CheckCircle2, ChevronDown, Queue } from '@/icons';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
 import { Text } from '@/components/typography';
@@ -341,96 +342,107 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
         aria-label={AGENT_RUNS_TRAY_COPY.processCenter}
         className="flex w-[min(340px,calc(100vw-1rem))] flex-col overflow-hidden p-0"
       >
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-muted text-muted-foreground">
-            <Queue className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <Text weight="semibold" className="leading-tight">
-              {AGENT_RUNS_TRAY_COPY.processCenter}
-            </Text>
-            {/* Sin truncar: con algo terminado y algo fallido el resumen pasa a dos líneas antes que cortarse. */}
-            <Text size="sm" tone="secondary" aria-live="polite" className="leading-snug">
-              {summary}
-            </Text>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.collapse}
-            title={isCollapsed ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.collapse}
-            onClick={() => setIsCollapsed((value) => !value)}
-          >
-            {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-          </Button>
-        </div>
-
-        {!isCollapsed && isEmpty && (
-          <div className="flex flex-col items-center gap-1 border-t border-dashed border-border/70 px-6 py-8 text-center">
-            <span className="mb-2 grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <Queue className="size-6" />
-            </span>
-            <Text weight="semibold">{AGENT_RUNS_TRAY_COPY.emptyTitle}</Text>
-            <Text size="sm" tone="secondary">
-              {AGENT_RUNS_TRAY_COPY.emptyHint}
-            </Text>
-          </div>
-        )}
-
-        {/* La continuación se CONDUCE aunque el centro esté plegado o cerrado:
-            por eso la lista se oculta con `hidden` y no se desmonta. */}
-        <ul
-          className="max-h-[min(360px,55vh)] overflow-y-auto border-t border-border/60"
-          hidden={isCollapsed || isEmpty}
+        {/* Plegar anima la altura (Collapsible). `keepMounted`: la continuación
+            se CONDUCE aunque el centro esté plegado o cerrado, así que la lista
+            se oculta y no se desmonta. */}
+        <Collapsible
+          open={!isCollapsed}
+          onOpenChange={(open) => setIsCollapsed(!open)}
+          className="flex min-h-0 flex-col"
         >
-          <WizardApolloContinuationPanel
-            variant="tray"
-            pausedRunSignal={pausedRunSignal}
-            onActiveChange={setContinuationActive}
-          />
-          <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
-          <ContactSearchRunRows runs={contactSearchRuns} onNavigate={close} />
-          {runs.map((run) => (
-            <ProcessRow
-              key={run.clientRequestId}
-              run={run}
-              live={live[run.clientRequestId]}
-              onOpen={openRun}
-              onOpenBatch={openBatch}
-            />
-          ))}
-        </ul>
-
-        {!isCollapsed && (
-          <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-surface-subtle px-4 py-2">
-            {/* Sólo mientras algo corre, y puede pasar a dos líneas: con «Limpiar»
-                al lado no cabe en una y cortado no se entiende. */}
-            <Text size="xs" tone="muted" className="min-w-0 leading-snug">
-              {running > 0 ? AGENT_RUNS_TRAY_COPY.keepRunning : ''}
-            </Text>
-            <div className="-mr-2 flex shrink-0 items-center gap-1">
-              {finished > 0 && (
-                <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => {
-                    store?.dismissFinished();
-                    getFirstContactRunsStore()?.dismissFinished();
-                    getContactSearchRunsStore()?.dismissFinished();
-                  }}>
-                  {AGENT_RUNS_TRAY_COPY.clearFinished}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                title={AGENT_RUNS_TRAY_COPY.openPage}
-                onClick={openHistory}
-                data-testid="shell-processes-history"
-              >
-                {AGENT_RUNS_TRAY_COPY.history}
-              </Button>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface-muted text-muted-foreground">
+              <Queue className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <Text weight="semibold" className="leading-tight">
+                {AGENT_RUNS_TRAY_COPY.processCenter}
+              </Text>
+              {/* Sin truncar: con algo terminado y algo fallido el resumen pasa a dos líneas antes que cortarse. */}
+              <Text size="sm" tone="secondary" aria-live="polite" className="leading-snug">
+                {summary}
+              </Text>
             </div>
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={isCollapsed ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.collapse}
+                  title={isCollapsed ? AGENT_RUNS_TRAY_COPY.expand : AGENT_RUNS_TRAY_COPY.collapse}
+                />
+              }
+            >
+              <ChevronDown
+                className={cn('size-4 transition-transform duration-200 ease-out', !isCollapsed && 'rotate-180')}
+              />
+            </CollapsibleTrigger>
           </div>
-        )}
+
+          <CollapsibleContent keepMounted>
+            {isEmpty && (
+              <div className="flex flex-col items-center gap-1 border-t border-dashed border-border/70 px-6 py-8 text-center">
+                <span className="mb-2 grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <Queue className="size-6" />
+                </span>
+                <Text weight="semibold">{AGENT_RUNS_TRAY_COPY.emptyTitle}</Text>
+                <Text size="sm" tone="secondary">
+                  {AGENT_RUNS_TRAY_COPY.emptyHint}
+                </Text>
+              </div>
+            )}
+
+            <ul
+              className="max-h-[min(360px,55vh)] overflow-y-auto border-t border-border/60"
+              hidden={isEmpty}
+            >
+              <WizardApolloContinuationPanel
+                variant="tray"
+                pausedRunSignal={pausedRunSignal}
+                onActiveChange={setContinuationActive}
+              />
+              <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
+              <ContactSearchRunRows runs={contactSearchRuns} onNavigate={close} />
+              {runs.map((run) => (
+                <ProcessRow
+                  key={run.clientRequestId}
+                  run={run}
+                  live={live[run.clientRequestId]}
+                  onOpen={openRun}
+                  onOpenBatch={openBatch}
+                />
+              ))}
+            </ul>
+
+            <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-surface-subtle px-4 py-2">
+              {/* Sólo mientras algo corre, y puede pasar a dos líneas: con «Limpiar»
+                  al lado no cabe en una y cortado no se entiende. */}
+              <Text size="xs" tone="muted" className="min-w-0 leading-snug">
+                {running > 0 ? AGENT_RUNS_TRAY_COPY.keepRunning : ''}
+              </Text>
+              <div className="-mr-2 flex shrink-0 items-center gap-1">
+                {finished > 0 && (
+                  <Button variant="ghost" size="sm" title={AGENT_RUNS_TRAY_COPY.closeAll} onClick={() => {
+                      store?.dismissFinished();
+                      getFirstContactRunsStore()?.dismissFinished();
+                      getContactSearchRunsStore()?.dismissFinished();
+                    }}>
+                    {AGENT_RUNS_TRAY_COPY.clearFinished}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title={AGENT_RUNS_TRAY_COPY.openPage}
+                  onClick={openHistory}
+                  data-testid="shell-processes-history"
+                >
+                  {AGENT_RUNS_TRAY_COPY.history}
+                </Button>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </PopoverContent>
     </Popover>
     </>

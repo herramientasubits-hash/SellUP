@@ -337,11 +337,21 @@ Un marco tenue (`rounded-2xl border border-border/60 bg-surface-muted/60 p-1`) q
 - La sombra va solo en el panel. El marco no tiene sombra.
 - `className` en `Frame` y `FramePanel` es solo layout (`flex-1 min-h-0`…), nunca color ni borde.
 
-### Movimiento — entradas y pestañas
+### Movimiento — entradas, pestañas y desplegables
 
-- Solo utilidades `animate-su-*` de `globals.css`; sin framer-motion.
-- El contenido de una pestaña entra con `animate-su-tab-in` (fundido + 4 px, 220 ms, `--ease-spring`).
-- Con `prefers-reduced-motion: reduce` todas las `animate-su-*` se apagan: el contenido aparece en su sitio.
+- Ritmo de flux-ui: 100 ms menús, listas y modales · 150 ms tooltips · 200 ms paneles y desplegables.
+- Sin framer-motion: utilidades `animate-su-*` de `globals.css` y las de tw-animate-css.
+- El contenido de una pestaña, de un paso de asistente o de otra vista entra con `animate-su-tab-in`
+  (fundido + 4 px, 220 ms, `--ease-spring`).
+- **Todo lo que se abre o se despliega** va con `Collapsible` (`@/components/ui/collapsible`): la altura viaja
+  al abrir y al cerrar y lo de abajo se desliza. Con `keepMounted` si el contenido debe seguir montado plegado
+  (Process Center, la pregunta del chat). El padding va en un hijo, nunca en `CollapsibleContent`.
+- Las listas largas usan `ShowMore` (`@/components/shared/show-more`).
+- Una sola flecha que gira (`transition-transform duration-200 ease-out` + `rotate-180`), nunca dos que se turnan.
+- Una fila de tabla no anima su alto: la que se suma entra con `animate-in fade-in-0`.
+- `check-design-system` lo vigila (regla 16): marca `{abierto && …}` o `hidden={…}` junto a su
+  `aria-expanded`, las flechas que cambian de dibujo y los `<details>`.
+- Con `prefers-reduced-motion: reduce` todo termina al instante en su estado final (los spinners siguen girando).
 
 ### MetricCard
 

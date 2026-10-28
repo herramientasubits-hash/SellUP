@@ -3,13 +3,13 @@
 import * as React from 'react';
 import { ArrowRightCircle, CheckCircle2, ClipboardCheck, Lightbulb, Search, Sparkles, Target } from '@/icons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { InfoHint } from '@/components/shared/info-hint';
 import type { ProspectCandidateWithReviewer } from '@/modules/prospect-batches/types';
 import { sanitizeTextForChile, type HubSpotSyncAudit } from './candidate-detail-helpers';
+import { ShowMore } from '@/components/shared/show-more';
 import { CompetitorCandidateActions } from './competitor-search/competitor-candidate-actions';
 
 interface CandidateFoundReasonSectionProps {
@@ -328,14 +328,11 @@ export function CandidateFitAnalysisSection({
 }
 
 /**
- * «Necesidades detectadas» y «Ángulos comerciales». El «ver todas» es estado
- * propio: quien lo monta le pone `key={candidate.id}` para que se reinicie al
- * cambiar de prospecto.
+ * «Necesidades detectadas» y «Ángulos comerciales». El «ver todas» (ShowMore)
+ * es estado propio: quien lo monta le pone `key={candidate.id}` para que se
+ * reinicie al cambiar de prospecto.
  */
 export function CandidateOpportunitySections({ candidate }: { candidate: ProspectCandidateWithReviewer }) {
-  const [showAllNeeds, setShowAllNeeds] = React.useState(false);
-  const [showAllAngles, setShowAllAngles] = React.useState(false);
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <DrawerSection title="Necesidades detectadas" icon={Lightbulb}>
@@ -345,29 +342,19 @@ export function CandidateOpportunitySections({ candidate }: { candidate: Prospec
           const needs = enrichmentData?.sellup_fit?.possible_needs as string[] | undefined;
           if (!needs || needs.length === 0)
             return <EmptyState variant="plain" title="Ninguna detectada" className="py-4" />;
-          const visibleNeeds = showAllNeeds ? needs : needs.slice(0, 3);
           return (
-            <div className="space-y-2">
-              <ul className="space-y-1.5">
-                {visibleNeeds.map((n, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 break-words">{n}</span>
-                  </li>
-                ))}
-              </ul>
-              {needs.length > 3 && (
-                <Button
-                  variant="link"
-                  size="xs"
-                  className="mt-1 px-0"
-                  onClick={() => setShowAllNeeds(!showAllNeeds)}
-                  type="button"
-                >
-                  {showAllNeeds ? 'Ver menos' : `Ver todas (${needs.length})`}
-                </Button>
+            <ShowMore
+              items={needs}
+              initial={3}
+              listClassName="space-y-1.5"
+              renderItem={(n, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm text-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 break-words">{n}</span>
+                </li>
               )}
-            </div>
+              moreLabel={(total) => `Ver todas (${total})`}
+            />
           );
         })()}
       </DrawerSection>
@@ -378,29 +365,19 @@ export function CandidateOpportunitySections({ candidate }: { candidate: Prospec
           const angles = enrichmentData?.commercial_angles as string[] | undefined;
           if (!angles || angles.length === 0)
             return <EmptyState variant="plain" title="Ninguno disponible" className="py-4" />;
-          const visibleAngles = showAllAngles ? angles : angles.slice(0, 3);
           return (
-            <div className="space-y-2">
-              <ul className="space-y-1.5">
-                {visibleAngles.map((ang, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-sm text-foreground font-medium">
-                    <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 break-words">{ang}</span>
-                  </li>
-                ))}
-              </ul>
-              {angles.length > 3 && (
-                <Button
-                  variant="link"
-                  size="xs"
-                  className="mt-1 px-0"
-                  onClick={() => setShowAllAngles(!showAllAngles)}
-                  type="button"
-                >
-                  {showAllAngles ? 'Ver menos' : `Ver todos (${angles.length})`}
-                </Button>
+            <ShowMore
+              items={angles}
+              initial={3}
+              listClassName="space-y-1.5"
+              renderItem={(ang, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-sm text-foreground font-medium">
+                  <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 break-words">{ang}</span>
+                </li>
               )}
-            </div>
+              moreLabel={(total) => `Ver todos (${total})`}
+            />
           );
         })()}
       </DrawerSection>

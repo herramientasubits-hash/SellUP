@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Folder, FolderOpen, ChevronDown, ChevronRight } from "@/icons";
+import { Folder, FolderOpen, ChevronRight } from "@/icons";
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import type { OrganizationGroup } from '@/modules/access/types';
@@ -55,22 +57,25 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
   const hasChildren = node.children.length > 0;
 
   return (
-    <div>
+    <Collapsible open={hasChildren && expanded} onOpenChange={setExpanded}>
       <div
         className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-surface-muted transition-colors cursor-default"
         style={{ paddingLeft: `${12 + level * 20}px` }}
       >
         {hasChildren ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? 'Contraer' : 'Expandir'} ${node.group.name}`}
-            onClick={() => setExpanded(v => !v)}
+          <CollapsibleTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`${expanded ? 'Contraer' : 'Expandir'} ${node.group.name}`}
+              />
+            }
           >
-            {expanded ? <ChevronDown /> : <ChevronRight />}
-          </Button>
+            {/* Una sola flecha: apunta a la derecha plegado y gira hacia abajo al abrir. */}
+            <ChevronRight className={cn('transition-transform duration-200 ease-out', expanded && 'rotate-90')} />
+          </CollapsibleTrigger>
         ) : (
           <span className="h-7 w-7 shrink-0" aria-hidden="true" />
         )}
@@ -87,14 +92,14 @@ function TreeNodeRow({ node, level }: TreeNodeRowProps) {
         </Badge>
       </div>
 
-      {hasChildren && expanded && (
-        <div>
+      {hasChildren && (
+        <CollapsibleContent>
           {node.children.map(child => (
             <TreeNodeRow key={child.group.id} node={child} level={level + 1} />
           ))}
-        </div>
+        </CollapsibleContent>
       )}
-    </div>
+    </Collapsible>
   );
 }
 
