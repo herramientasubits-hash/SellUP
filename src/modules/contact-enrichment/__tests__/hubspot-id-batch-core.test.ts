@@ -14,6 +14,7 @@ import {
   parseHubSpotIdBatchInput,
   pickCandidateForHubSpotId,
   processHubSpotIdBatchItem,
+  runHubSpotIdBatch,
   summarizeHubSpotIdBatch,
   type HubSpotIdBatchItemDeps,
 } from '../hubspot-id-batch-core';
@@ -281,5 +282,75 @@ describe('summarizeHubSpotIdBatch', () => {
     assert.equal(summary.errors.length, 1);
     assert.equal(summary.totalContactsFound, 3);
     assert.equal(summary.totalPreviousPending, 2);
+  });
+});
+
+// ── F1 · Cancelar el lote desde «Nueva conversación» ──────────────────────────
+
+describe('runHubSpotIdBatch (cancelación)', () => {
+  it('cancelar un lote de 3 IDs durante el primero: el 2 y el 3 no llaman a Apollo ni a Lusha', async () => {
+    let cancelled = false;
+    const { deps, calls } = makeDeps({
+      resolveCompany: async (id) => {
+        calls.push(`resolve:${id}`);
+        return resolution([{ ...HUBSPOT_ACME, hubspotCompanyId: id }]);
+      },
+      runAutomaticRouting: async (requestId) => {
+        calls.push(`routing:${requestId}`);
+        // El usuario pulsa «Nueva conversación» mientras la PRIMERA empresa está buscando.
+        cancelled = true;
+        return routing();
+      },
+    });
+    const outcome = await runHubSpotIdBatch(['111', '222', '333'], {
+      runItem: (id) => processHubSpotIdBatchItem(id, deps),
+      isCancelled: () => cancelled,
+    });
+
+    // La empresa en curso termina: su resultado se conserva.
+    assert.equal(outcome.results.length, 1);
+    assert.equal(outcome.results[0].hubspotCompanyId, '111');
+    assert.equal(outcome.cancelled, true);
+    assert.deepEqual(outcome.notStartedIds, ['222', '333']);
+    // El enrutado (único camino a Apollo y Lusha) corrió UNA vez: sólo para la primera.
+    assert.equal(calls.filter((c) => c.startsWith('routing:')).length, 1);
+    assert.equal(calls.filter((c) => c.startsWith('resolve:')).length, 1);
+    assert.ok(!calls.some((c) => c.includes('222') || c.includes('333')));
+  });
+
+  it('sin cancelar recorre todos los IDs en orden y no queda nada sin iniciar', async () => {
+    const started: string[] = [];
+    const outcome = await runHubSpotIdBatch(['1', '2', '3'], {
+      runItem: async (id) => ({ ...(await processHubSpotIdBatchItem('65498491', makeDeps().deps)), hubspotCompanyId: id }),
+      isCancelled: () => false,
+      onItemStart: ({ hubspotCompanyId }) => started.push(hubspotCompanyId),
+    });
+    assert.deepEqual(started, ['1', '2', '3']);
+    assert.equal(outcome.cancelled, false);
+    assert.deepEqual(outcome.notStartedIds, []);
+  });
+
+  it('cancelado durante la ÚLTIMA empresa: no quedó nada sin iniciar, se reporta como terminado', async () => {
+    let cancelled = false;
+    const outcome = await runHubSpotIdBatch(['1', '2'], {
+      runItem: async (id) => {
+        if (id === '2') cancelled = true;
+        return { ...(await processHubSpotIdBatchItem('65498491', makeDeps().deps)), hubspotCompanyId: id };
+      },
+      isCancelled: () => cancelled,
+    });
+    assert.equal(outcome.cancelled, false);
+    assert.equal(outcome.results.length, 2);
+  });
+
+  it('un runItem que lanza deja la empresa como error y sigue', async () => {
+    const outcome = await runHubSpotIdBatch(['1', '2'], {
+      runItem: async (id) => {
+        if (id === '1') throw new Error('boom');
+        return { ...(await processHubSpotIdBatchItem('65498491', makeDeps().deps)), hubspotCompanyId: id };
+      },
+      isCancelled: () => false,
+    });
+    assert.deepEqual(outcome.results.map((r) => r.status), ['error', 'processed']);
   });
 });

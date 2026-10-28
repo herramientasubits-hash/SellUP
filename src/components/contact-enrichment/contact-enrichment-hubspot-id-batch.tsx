@@ -2,11 +2,15 @@
 
 // Agente 2A — Búsqueda por lotes con ID de HubSpot (backlog D1)
 //
-// Segundo modo del panel «Buscar contactos con IA». Se entra con el botón «ID»
-// de la cabecera. El usuario pega de 1 a 10 Company IDs separados por coma; el
+// Segundo modo del panel «Buscar contactos con IA». Se entra con el botón de
+// HubSpot de la cabecera («Buscar por lote de HubSpot IDs»). El usuario pega de 1 a 10 Company IDs separados por coma; el
 // panel busca empresa por empresa (una llamada al servidor por ID, en orden) y al
 // terminar enseña el reporte: una tabla con lo que se encontró, los IDs que no
 // existen en HubSpot ni en SellUp y la opción de enriquecer otras empresas.
+//
+// F1 — «Nueva conversación» con el lote en curso lo CANCELA: no se inicia ninguna
+// empresa más (cero créditos en ellas), la que está en curso termina (una server
+// action no se puede abortar) y el reporte queda como «Cancelado» con lo procesado.
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
@@ -29,9 +33,9 @@ import type { AgentChatMessage, AgentChatRole, AgentChatTone } from '@/component
 import { ChatComposer } from '@/components/chat';
 import { runHubSpotIdBatchItemAction } from '@/modules/contact-enrichment/hubspot-id-batch-actions';
 import {
-  HUBSPOT_ID_BATCH_COPY,
   HUBSPOT_ID_BATCH_MAX_IDS,
   parseHubSpotIdBatchInput,
+  runHubSpotIdBatch,
   summarizeHubSpotIdBatch,
   type HubSpotIdBatchItemResult,
 } from '@/modules/contact-enrichment/hubspot-id-batch-core';
@@ -104,9 +108,35 @@ export function buildBatchDoneMessage(results: HubSpotIdBatchItemResult[]): {
   return { content: parts.join(' ') };
 }
 
+export const HUBSPOT_ID_BATCH_CANCELLING_MESSAGE =
+  'Cancelando: no voy a iniciar las empresas que faltan. La empresa que está en curso termina y su resultado queda en el reporte.';
+
+export const HUBSPOT_ID_BATCH_CANCELLED_TITLE = 'Empresas sin iniciar (no se gastaron créditos)';
+
+export function buildBatchCancelledMessage(
+  results: HubSpotIdBatchItemResult[],
+  notStartedIds: string[],
+): { content: string; tone: AgentChatTone } {
+  const summary = summarizeHubSpotIdBatch(results);
+  const parts = [
+    `Lote cancelado. Procesé ${plural(results.length, 'empresa', 'empresas')} y no inicié ${plural(
+      notStartedIds.length,
+      'empresa',
+      'empresas',
+    )}.`,
+  ];
+  if (summary.totalContactsFound > 0) {
+    parts.push(
+      `Los ${plural(summary.totalContactsFound, 'contacto encontrado', 'contactos encontrados')} siguen en «Por revisar».`,
+    );
+  }
+  parts.push('Pulsa «Nueva conversación» para empezar de nuevo.');
+  return { content: parts.join(' '), tone: 'warning' };
+}
+
 // ── Estado ────────────────────────────────────────────────────────────────────
 
-type BatchStep = 'await_ids' | 'running' | 'done';
+type BatchStep = 'await_ids' | 'running' | 'cancelling' | 'done' | 'cancelled';
 
 type BatchProgress = { current: number; total: number; id: string } | null;
 
@@ -125,14 +155,17 @@ function initialMessages(): AgentChatMessage[] {
 interface ContactEnrichmentHubSpotIdBatchProps {
   layout?: 'panel' | 'page';
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
-  /** Avisa de si hay una búsqueda en curso, para no ofrecer «Nueva conversación» a medias. */
+  /** Avisa de si hay una búsqueda en curso (el panel bloquea el cambio de modo). */
   onBusyChange?: (busy: boolean) => void;
+  /** Texto de la caja mientras espera los IDs. */
+  placeholder?: string;
 }
 
 export function ContactEnrichmentHubSpotIdBatch({
   layout = 'panel',
   ref,
   onBusyChange,
+  placeholder = 'Company IDs separados por coma',
 }: ContactEnrichmentHubSpotIdBatchProps) {
   const router = useRouter();
   const [messages, setMessages] = React.useState<AgentChatMessage[]>(initialMessages);
@@ -140,14 +173,23 @@ export function ContactEnrichmentHubSpotIdBatch({
   const [composerText, setComposerText] = React.useState('');
   const [progress, setProgress] = React.useState<BatchProgress>(null);
   const [results, setResults] = React.useState<HubSpotIdBatchItemResult[]>([]);
+  const [notStartedIds, setNotStartedIds] = React.useState<string[]>([]);
+  // F1 — cancelación pedida desde «Nueva conversación». Se lee antes de iniciar cada empresa.
+  const cancelRequestedRef = React.useRef(false);
+  // El paso, legible desde el manejador imperativo de «Nueva conversación».
+  const stepRef = React.useRef<BatchStep>('await_ids');
+  React.useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
   const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   // Si el usuario reinicia, una búsqueda vieja que siga resolviendo no escribe encima.
   const generationRef = React.useRef(0);
 
   const { visibleCount, isRevealing } = useProgressiveReveal(messages.length);
-  const isRunning = step === 'running';
+  const isRunning = step === 'running' || step === 'cancelling';
   const isTyping = isRevealing || isRunning;
+  const isFinished = step === 'done' || step === 'cancelled';
 
   React.useEffect(() => {
     onBusyChange?.(isRunning);
@@ -187,14 +229,26 @@ export function ContactEnrichmentHubSpotIdBatch({
 
   function reset() {
     generationRef.current += 1;
+    cancelRequestedRef.current = false;
     setMessages(initialMessages());
     setStep('await_ids');
     setComposerText('');
     setProgress(null);
     setResults([]);
+    setNotStartedIds([]);
   }
 
-  React.useImperativeHandle(ref, () => ({ reset }));
+  /** «Nueva conversación» con el lote en curso: cancelar en vez de reiniciar. */
+  function cancelInProgress(): boolean {
+    if (stepRef.current !== 'running') return false;
+    cancelRequestedRef.current = true;
+    stepRef.current = 'cancelling';
+    setStep('cancelling');
+    setMessages((prev) => [...prev, message('assistant', HUBSPOT_ID_BATCH_CANCELLING_MESSAGE, 'warning')]);
+    return true;
+  }
+
+  React.useImperativeHandle(ref, () => ({ reset, cancelInProgress }));
 
   async function handleSend() {
     if (step !== 'await_ids') return;
@@ -219,36 +273,34 @@ export function ContactEnrichmentHubSpotIdBatch({
     setStep('running');
     setResults([]);
 
-    const collected: HubSpotIdBatchItemResult[] = [];
-    for (const [index, id] of parsed.ids.entries()) {
-      if (generationRef.current !== generation) return;
-      setProgress({ current: index + 1, total: parsed.ids.length, id });
-      let result: HubSpotIdBatchItemResult;
-      try {
-        result = await runHubSpotIdBatchItemAction(id);
-      } catch {
-        // Una invocación cortada no tumba el lote: la empresa queda como error y se sigue.
-        result = {
-          hubspotCompanyId: id,
-          status: 'error',
-          name: null,
-          country: null,
-          accountId: null,
-          contactsFound: 0,
-          previousPendingContacts: 0,
-          routingDisabled: false,
-          errorMessage: HUBSPOT_ID_BATCH_COPY.unexpected,
-        };
-      }
-      collected.push(result);
-      if (generationRef.current !== generation) return;
-      setResults([...collected]);
-    }
+    cancelRequestedRef.current = false;
+    setNotStartedIds([]);
+
+    const outcome = await runHubSpotIdBatch(parsed.ids, {
+      runItem: (id) => runHubSpotIdBatchItemAction(id),
+      // Desmontar (minimizar/cerrar, #765) o reiniciar también corta: cambia la generación.
+      isCancelled: () => cancelRequestedRef.current || generationRef.current !== generation,
+      onItemStart: ({ index, total, hubspotCompanyId }) => {
+        if (generationRef.current !== generation) return;
+        setProgress({ current: index + 1, total, id: hubspotCompanyId });
+      },
+      onItemDone: (partial) => {
+        if (generationRef.current !== generation) return;
+        setResults([...partial]);
+      },
+    });
 
     if (generationRef.current !== generation) return;
-    const done = buildBatchDoneMessage(collected);
-    setMessages((prev) => [...prev, message('assistant', done.content, done.tone)]);
     setProgress(null);
+    if (outcome.cancelled) {
+      const cancelled = buildBatchCancelledMessage(outcome.results, outcome.notStartedIds);
+      setNotStartedIds(outcome.notStartedIds);
+      setMessages((prev) => [...prev, message('assistant', cancelled.content, cancelled.tone)]);
+      setStep('cancelled');
+      return;
+    }
+    const done = buildBatchDoneMessage(outcome.results);
+    setMessages((prev) => [...prev, message('assistant', done.content, done.tone)]);
     setStep('done');
   }
 
@@ -272,9 +324,20 @@ export function ContactEnrichmentHubSpotIdBatch({
             typingLabel={typingLabel}
           />
 
-          {step === 'done' && !isRevealing && (
+          {isFinished && !isRevealing && (
             <div className="space-y-3">
-              {summary.processed.length > 0 && <HubSpotIdBatchReportTable rows={summary.processed} />}
+              {summary.processed.length > 0 && (
+                <HubSpotIdBatchReportTable rows={summary.processed} cancelled={step === 'cancelled'} />
+              )}
+
+              {step === 'cancelled' && notStartedIds.length > 0 && (
+                <Alert data-testid="hubspot-id-batch-not-started">
+                  <AlertTitle>{HUBSPOT_ID_BATCH_CANCELLED_TITLE}</AlertTitle>
+                  <AlertDescription>
+                    <p>{notStartedIds.join(', ')}</p>
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {summary.notFoundIds.length > 0 && (
                 <Alert data-testid="hubspot-id-batch-not-found">
@@ -312,10 +375,12 @@ export function ContactEnrichmentHubSpotIdBatch({
                     <ArrowRight className="h-4 w-4" aria-hidden />
                   </Button>
                 )}
-                <Button className="flex-1" onClick={reset} data-testid="hubspot-id-batch-restart">
-                  <RotateCcw className="h-4 w-4" aria-hidden />
-                  Enriquecer otras empresas
-                </Button>
+                {step === 'done' && (
+                  <Button className="flex-1" onClick={reset} data-testid="hubspot-id-batch-restart">
+                    <RotateCcw className="h-4 w-4" aria-hidden />
+                    Enriquecer otras empresas
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -330,10 +395,14 @@ export function ContactEnrichmentHubSpotIdBatch({
           onSend={handleSend}
           placeholder={
             composerUnlocked
-              ? 'Pega los HubSpot ID separados por coma…'
-              : isRunning
-                ? 'Buscando empresas…'
-                : 'Usa «Enriquecer otras empresas» para una nueva búsqueda'
+              ? placeholder
+              : step === 'cancelling'
+                ? 'Cancelando…'
+                : isRunning
+                  ? 'Buscando empresas…'
+                  : step === 'cancelled'
+                    ? 'Usa «Nueva conversación» para una nueva búsqueda'
+                    : 'Usa «Enriquecer otras empresas» para una nueva búsqueda'
           }
           disabled={!composerUnlocked}
           maxLength={400}
@@ -346,7 +415,14 @@ export function ContactEnrichmentHubSpotIdBatch({
 
 // ── Tabla del reporte ─────────────────────────────────────────────────────────
 
-export function HubSpotIdBatchReportTable({ rows }: { rows: HubSpotIdBatchItemResult[] }) {
+export function HubSpotIdBatchReportTable({
+  rows,
+  cancelled = false,
+}: {
+  rows: HubSpotIdBatchItemResult[];
+  /** F1 — el lote se canceló: el reporte lo dice en el título. */
+  cancelled?: boolean;
+}) {
   return (
     <TableShell
       data-testid="hubspot-id-batch-report"
@@ -354,6 +430,11 @@ export function HubSpotIdBatchReportTable({ rows }: { rows: HubSpotIdBatchItemRe
         <>
           Reporte de la ejecución
           <Badge variant="neutral">{rows.length}</Badge>
+          {cancelled && (
+            <Badge variant="warning" data-testid="hubspot-id-batch-cancelled-badge">
+              Cancelado
+            </Badge>
+          )}
         </>
       }
     >

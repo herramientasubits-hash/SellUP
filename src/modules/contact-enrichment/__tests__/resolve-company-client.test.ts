@@ -75,11 +75,18 @@ describe('identificar la empresa por ruta, con tiempo límite', () => {
     for (const file of [
       'src/components/contact-enrichment/contact-enrichment-chat-wizard.tsx',
       'src/components/first-call/first-contact-company-picker.tsx',
-      'src/components/contact-enrichment/contact-candidate-company-reassign-dialog.tsx',
+      // F2 — la búsqueda del diálogo de reasignar vive ahora en el buscador compartido.
+      'src/components/contact-enrichment/company-search-picker.tsx',
     ]) {
       const src = readFileSync(join(process.cwd(), file), 'utf8');
       assert.equal(src.includes('resolveContactEnrichmentCompanyAction('), false, file);
       assert.ok(src.includes('resolveCompanyViaRoute('), file);
     }
+    const dialog = readFileSync(
+      join(process.cwd(), 'src/components/contact-enrichment/contact-candidate-company-reassign-dialog.tsx'),
+      'utf8',
+    );
+    assert.equal(dialog.includes('resolveContactEnrichmentCompanyAction('), false);
+    assert.ok(dialog.includes('useCompanySearch()'));
   });
 });

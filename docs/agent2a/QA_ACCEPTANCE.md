@@ -177,5 +177,13 @@ operativa vigente tiene regla **activa** para Apollo (`global`, mensual) y para 
 | Empresa creada en HubSpot después de la búsqueda (Tostadas Charras) | #602 | Reasignar a la empresa ya creada y aprobar | Aprueba y sincroniza con la empresa correcta | Pendiente |
 | Contacto que ya existía en HubSpot | #612 | Aprobar un candidato cuyo email ya está en HubSpot | `linked_existing` y sólo se llenan las propiedades vacías | Pendiente |
 | Lote de Company IDs | #616 | Pegar 3 IDs (uno inexistente) en el panel del agente | Reporte con 2 empresas procesadas y 1 en «Empresas no encontradas en HubSpot» | Pendiente |
+| Botones de modo | F1 | Abrir el panel del agente con la bandera de LinkedIn apagada y luego encendida | Apagada: sólo el logo de HubSpot. Encendida: HubSpot y LinkedIn; el activo se ve pulsado y tocarlo de nuevo vuelve a «Por empresa» | Pendiente |
+| «Nueva conversación» desde otro modo | F1 | En modo lote (o LinkedIn) escribir algo y pulsar «Nueva conversación» | Abre en «Por empresa», caja vacía con «Nombre o dominio de la empresa» | Pendiente |
+| Cancelar un lote | F1 | Pegar 3 Company IDs y pulsar «Nueva conversación» durante la primera empresa | La primera termina; la 2 y la 3 aparecen en «Empresas sin iniciar» sin registros en `provider_usage_logs`; reporte con la etiqueta «Cancelado»; los candidatos de la primera siguen en «Por revisar» | Pendiente |
+| LinkedIn: URL de empresa | F2 | Pegar `linkedin.com/company/…` en el modo LinkedIn | «Es una página de empresa…»; ninguna fila nueva en `provider_usage_logs` | Pendiente |
+| LinkedIn: ya está en SellUp | F2 | Pegar el perfil de un contacto que ya existe (con otro subdominio o `?trk=`) | «Ya es un contacto en SellUp» con su empresa; cero llamadas a Apollo y Lusha | Pendiente |
+| LinkedIn: Apollo → Lusha | F2 | Pegar un perfil que Apollo no encuentre | Una fila `person_match` y las de `lusha_contact_search`/`lusha_contact_enrich`; vista previa de Lusha | Pendiente |
+| LinkedIn: crear candidato | F2 | Asociar a una empresa por Company ID y crear | Candidato `pending_review`; su run con `account_id`, `summary.entry_mode = linkedin_single`; aviso si la empresa no coincide | Pendiente |
+| LinkedIn: aprobar | F2 | Aprobar el candidato con `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED` | El contacto se crea en HubSpot con `hs_linkedin_url` (o sin él si HubSpot responde 400) | Pendiente |
 | Contactos enviados a revisión que no aparecen (2026-10-01) | — | Revisar el run en Supabase | Explicado por #587 o #608; si no, abrir fix | Pendiente (BACKLOG A4) |
 

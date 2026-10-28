@@ -243,3 +243,57 @@ export function summarizeHubSpotIdBatch(results: HubSpotIdBatchItemResult[]): Hu
     routingDisabled: processed.some((r) => r.routingDisabled),
   };
 }
+
+// ── Recorrido del lote con cancelación (F1 · «Nueva conversación» cancela) ─────
+
+export interface RunHubSpotIdBatchDeps {
+  /** Procesa UN ID (en el panel: la server action, una invocación por empresa). */
+  runItem: (hubspotCompanyId: string) => Promise<HubSpotIdBatchItemResult>;
+  /** true cuando el usuario pidió cancelar: no se inicia ninguna empresa más. */
+  isCancelled: () => boolean;
+  /** Antes de iniciar cada empresa (para «Buscando empresa 2 de 3…»). */
+  onItemStart?: (progress: { index: number; total: number; hubspotCompanyId: string }) => void;
+  /** Al terminar cada empresa, con todo lo procesado hasta ahí. */
+  onItemDone?: (results: readonly HubSpotIdBatchItemResult[]) => void;
+}
+
+export interface RunHubSpotIdBatchOutcome {
+  results: HubSpotIdBatchItemResult[];
+  /** true si se pidió cancelar antes de terminar la lista. */
+  cancelled: boolean;
+  /** IDs que nunca se iniciaron (no gastaron créditos). */
+  notStartedIds: string[];
+}
+
+/**
+ * Recorre los IDs en orden, una empresa a la vez. La cancelación se revisa ANTES de iniciar
+ * cada empresa: las que no empezaron no se llaman (ni Apollo ni Lusha, cero créditos).
+ *
+ * La empresa que ya está en curso TERMINA: su server action no se puede abortar desde el
+ * navegador (Next no expone AbortSignal en las server actions y, aunque se cortara la
+ * conexión, el servidor la completa). Su resultado se conserva en el reporte.
+ */
+export async function runHubSpotIdBatch(
+  ids: readonly string[],
+  deps: RunHubSpotIdBatchDeps,
+): Promise<RunHubSpotIdBatchOutcome> {
+  const results: HubSpotIdBatchItemResult[] = [];
+  for (const [index, id] of ids.entries()) {
+    if (deps.isCancelled()) {
+      return { results, cancelled: true, notStartedIds: ids.slice(index) };
+    }
+    deps.onItemStart?.({ index, total: ids.length, hubspotCompanyId: id });
+    let result: HubSpotIdBatchItemResult;
+    try {
+      result = await deps.runItem(id);
+    } catch {
+      // Una invocación cortada no tumba el lote: la empresa queda como error y se sigue.
+      result = emptyResult(id, 'error', { errorMessage: HUBSPOT_ID_BATCH_COPY.unexpected });
+    }
+    results.push(result);
+    deps.onItemDone?.([...results]);
+  }
+  // Cancelado justo durante la última empresa: no quedó nada sin iniciar, así que el lote
+  // terminó completo y se reporta como terminado.
+  return { results, cancelled: false, notStartedIds: [] };
+}
