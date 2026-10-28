@@ -40,7 +40,8 @@ export default async function GrowthPage({
   const [summary, batches, generateAgent, bulkEnrich] = await Promise.all([
     getProspectBatchesSummary(),
     getProspectBatchesList(),
-    loadGenerateProspectsAgent(),
+    // Solo aquí se pide la búsqueda masiva de Growth («hasta N» empresas).
+    loadGenerateProspectsAgent({ bulkSearch: true }),
     checkCapability('enriquecerMasivo'),
   ]);
   const searches = batches.map(toGrowthSearchRow);
