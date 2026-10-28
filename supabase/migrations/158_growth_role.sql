@@ -11,5 +11,5 @@
 -- (src/modules/access/capabilities.ts) detrás de ENABLE_ROLE_CAPABILITIES.
 
 INSERT INTO roles (key, name, description) VALUES
-    ('growth', 'Growth', 'Vendedor que además prospecta en masa: búsqueda masiva e importación de archivos')
+    ('growth', 'Growth', 'Equipo de Growth que prospecta masivamente')
 ON CONFLICT (key) DO NOTHING;

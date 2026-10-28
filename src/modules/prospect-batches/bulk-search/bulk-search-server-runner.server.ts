@@ -2,8 +2,8 @@ import 'server-only';
 import { createServerClient } from '@supabase/ssr';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { createMemoryCookieJar, runWithSessionCookies } from '@/lib/supabase/session-override';
-import type { BulkRoundResponse } from './bulk-search-engine';
-import { canRunOnBehalfOf } from './bulk-search-server-chain';
+import { continueApolloRound } from '@/modules/prospect-batches/apollo-continuation-actions';
+import { canRunOnBehalfOf, continuationStep, type ServerChainStep } from './bulk-search-server-chain';
 import { resolveBulkSearchAccess, runBulkSearchRoundForUser } from './bulk-search-service.server';
 
 /**
@@ -16,11 +16,16 @@ import { resolveBulkSearchAccess, runBulkSearchRoundForUser } from './bulk-searc
  * (`runWithSessionCookies`) y la cierra al terminar. Antes comprueba que la búsqueda
  * siga en curso y que la persona siga activa y con permiso (Growth o admin).
  *
+ * Si la última ronda quedó «en pausa» (a Apollo le falta revisar organizaciones),
+ * primero sigue esa continuación, como hace el Centro de procesos con SellUp
+ * abierto: la búsqueda no lanza otra ronda hasta cerrarla, y sin navegador sólo la
+ * retomaría el proceso diario.
+ *
  * Apagada por defecto (`ENABLE_GROWTH_BULK_SEARCH_SERVER_RUNNER`, ver
  * `bulk-search-flag.server.ts`): sin ella, sólo avanza con SellUp abierto.
  */
 export type ServerRoundOutcome =
-  | { ok: true; response: BulkRoundResponse }
+  | { ok: true; step: ServerChainStep }
   | { ok: false; reason: 'not_running' | 'not_allowed' | 'session_unavailable' | 'identity_mismatch' | 'round_failed' };
 
 interface SearchOwner {
@@ -101,7 +106,26 @@ async function closeSession(client: ReturnType<typeof createServerClient>): Prom
   if (adminError) console.error('[BulkSearchServerRunner] la sesión prestada sigue abierta hasta que caduque');
 }
 
-/** Corre UNA ronda de la búsqueda a nombre de quien la lanzó. Nunca lanza. */
+/** El lote de una ronda de esta búsqueda con una continuación de Apollo abierta, si hay. */
+async function findPendingContinuationBatch(bulkSearchId: string): Promise<string | null> {
+  const admin = createSupabaseAdminClient();
+  const { data: rounds } = await admin
+    .from('prospect_bulk_search_rounds')
+    .select('batch_id')
+    .eq('bulk_search_id', bulkSearchId)
+    .not('batch_id', 'is', null);
+  const batchIds = ((rounds as Array<{ batch_id: string }> | null) ?? []).map((round) => round.batch_id);
+  if (batchIds.length === 0) return null;
+  const { data: jobs } = await admin
+    .from('apollo_round_continuation_jobs')
+    .select('batch_id')
+    .in('batch_id', batchIds)
+    .in('status', ['pending', 'processing'])
+    .limit(1);
+  return (jobs as Array<{ batch_id: string }> | null)?.[0]?.batch_id ?? null;
+}
+
+/** Corre UN paso de la búsqueda a nombre de quien la lanzó: su continuación o una ronda. Nunca lanza. */
 export async function runBulkSearchRoundOnServer(bulkSearchId: string): Promise<ServerRoundOutcome> {
   try {
     const owner = await loadRunnableOwner(bulkSearchId);
@@ -115,7 +139,11 @@ export async function runBulkSearchRoundOnServer(bulkSearchId: string): Promise<
         const access = await resolveBulkSearchAccess();
         if (!access.ok) return { ok: false, reason: 'not_allowed' } as const;
         if (access.userId !== owner.internalUserId) return { ok: false, reason: 'identity_mismatch' } as const;
-        return { ok: true, response: await runBulkSearchRoundForUser(access.userId, bulkSearchId) } as const;
+        // La misma continuación que conduce el Centro de procesos (con su propia
+        // comprobación de que el lote es de esta persona).
+        const pendingBatchId = await findPendingContinuationBatch(bulkSearchId);
+        if (pendingBatchId) return { ok: true, step: continuationStep(await continueApolloRound(pendingBatchId)) } as const;
+        return { ok: true, step: await runBulkSearchRoundForUser(access.userId, bulkSearchId) } as const;
       });
     } finally {
       await closeSession(session.client);

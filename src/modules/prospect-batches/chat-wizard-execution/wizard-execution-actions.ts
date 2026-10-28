@@ -753,10 +753,10 @@ export async function executeProspectWizardGenerationAction(
   progress.report('starting');
 
   const deps: WizardExecutionDeps = withRunProgress({
-    getActiveUserId: async () => {
-      const auth = await requireActiveUser();
-      return auth.internalUserId;
-    },
+    // Dueña 28-10 — la misma lectura de la sesión, recordada: el rescate con Claude
+    // corre después de responder (`after`) y una ronda masiva del servidor ya cerró
+    // su sesión prestada; así su gasto sigue quedando a nombre de quien buscó.
+    getActiveUserId: () => viewerId(),
     resolveCatalog: (input) => resolveWizardCatalog(input, supabase),
     // AGENT1-AUDIT-WS2 § 9 — con la SESIÓN: la RLS de la 143 sólo deja ver las
     // filas de progreso propias, y la de `prospect_batches`, los lotes propios.

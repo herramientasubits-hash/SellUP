@@ -441,7 +441,7 @@ const GROWTH_ROLE_MIGRATION = '158_growth_role.sql';
 // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
 // La 160 redefine try_reserve_wizard_credits (como la 144): nombra wizard_budget_reservations por
 // diseño, así que no se policía por contenido aquí; su prueba propia es configured-limit-gate.
-const REPOSITORY_CEILING = '160_wizard_reservation_without_pilot_limits.sql';
+const REPOSITORY_CEILING = '161_growth_role_description.sql';
 const GLOBAL_IDENTITY_CLAIMS_MIGRATION = '140_agent1_global_company_identity_claims.sql';
 const TAX_IDENTIFIER_EIN_NIF_MIGRATION = '141_tax_identifier_type_ein_nif.sql';
 const COMPANY_BANK_MIGRATION = '142_agent1_company_bank.sql';
@@ -829,7 +829,7 @@ describe('CUT-3B23 § 19 — MIGRATION_CREATED = NO', () => {
     // CONTENIDO aquí mismo: no nombra ninguna tabla de CUT-3B23.
     // AGENT1-CORPORATE-TREE-PHASE-C lo movió a la 157 (columnas de nivel en
     // `agent1_company_relationships`), policiada por CONTENIDO igual que la 156.
-    assert.ok(last.startsWith('160'), `última migración inesperada: ${last}`);
+    assert.ok(last.startsWith('161'), `última migración inesperada: ${last}`);
     assert.equal(last, REPOSITORY_CEILING);
     assert.ok(migrations.includes(SAVED_CONTACT_PHONES_MIGRATION));
     assert.ok(migrations.includes(COMPETITOR_WATCHES_MIGRATION));

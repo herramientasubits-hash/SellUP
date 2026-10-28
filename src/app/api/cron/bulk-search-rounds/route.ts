@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       console.warn(`[BulkSearchServerRunner] ${chain.bulkSearchId}: se detiene (${outcome.reason}).`);
       return;
     }
-    const decision = decideServerChain(outcome.response, chain.consecutiveWaits);
+    const decision = decideServerChain(outcome.step, chain.consecutiveWaits);
     if (decision.kind === 'stop') return;
     await kickServerRound({
       bulkSearchId: chain.bulkSearchId,
