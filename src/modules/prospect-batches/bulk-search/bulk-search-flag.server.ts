@@ -11,3 +11,13 @@ export const GROWTH_BULK_SEARCH_FLAG = 'ENABLE_GROWTH_BULK_SEARCH';
 export function isGrowthBulkSearchEnabled(): boolean {
   return isEnvFlagEnabled(process.env[GROWTH_BULK_SEARCH_FLAG]);
 }
+
+/**
+ * La búsqueda masiva corre sola en el servidor (dueña 28-10). Apagada por defecto:
+ * sin ella, sólo avanza con SellUp abierto, como antes. Exige también la de arriba.
+ */
+export const GROWTH_BULK_SEARCH_SERVER_RUNNER_FLAG = 'ENABLE_GROWTH_BULK_SEARCH_SERVER_RUNNER';
+
+export function isBulkSearchServerRunnerEnabled(): boolean {
+  return isGrowthBulkSearchEnabled() && isEnvFlagEnabled(process.env[GROWTH_BULK_SEARCH_SERVER_RUNNER_FLAG]);
+}

@@ -1,9 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import {
   createBulkSearchForUser,
   listBulkSearchesForUser,
   resolveBulkSearchAccess,
 } from '@/modules/prospect-batches/bulk-search/bulk-search-service.server';
+import { isBulkSearchServerRunnerEnabled } from '@/modules/prospect-batches/bulk-search/bulk-search-flag.server';
+import { kickServerRound } from '@/modules/prospect-batches/bulk-search/bulk-search-server-kick.server';
 
 /**
  * Búsquedas masivas de Growth (GROWTH-BULK-SEARCH-1).
@@ -33,6 +35,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, code: 'INVALID_REQUEST', message: 'Petición inválida.' }, { status: 400, headers: NO_STORE });
   }
   const result = await createBulkSearchForUser(access.userId, body);
+  // Dueña 28-10: con el conductor del servidor encendido, la primera ronda la pide
+  // el servidor y las demás se encadenan solas, aunque se cierre SellUp.
+  if (result.ok && isBulkSearchServerRunnerEnabled()) {
+    after(() => kickServerRound({ bulkSearchId: result.search.id, consecutiveWaits: 0, delayMs: 0 }));
+  }
   const status = result.ok ? 201 : result.code === 'INVALID_REQUEST' ? 400 : 409;
   return NextResponse.json(result, { status, headers: NO_STORE });
 }
