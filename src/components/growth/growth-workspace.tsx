@@ -16,6 +16,9 @@ import { UrlTabs } from "@/components/navigation/url-tabs";
 import type { Tone } from "@/lib/tone";
 import { formatAppDate } from "@/lib/format-date";
 import { BatchBulkEnrichmentButton } from "@/components/contact-enrichment/batch-bulk-enrichment-button";
+import { BulkSearchesSection } from "@/components/prospect-batches/bulk-search/bulk-searches-section";
+import type { AssignableUser } from "@/components/assignment/assign-owner-drawer";
+import type { BulkSearchView } from "@/modules/prospect-batches/bulk-search/bulk-search-view";
 
 /** Una búsqueda (lote) tal como la lee el equipo de Growth. */
 export interface GrowthSearchRow {
@@ -59,6 +62,10 @@ export interface GrowthWorkspaceProps {
    * la pestaña sólo explica el camino desde Empresas.
    */
   canEnrichBulk?: boolean;
+  /** GROWTH-BULK-SEARCH-1 — las búsquedas masivas de quien mira (vacío si no aplica). */
+  bulkSearches?: BulkSearchView[];
+  /** A quién se pueden asignar sus empresas. */
+  assignableUsers?: AssignableUser[];
 }
 
 const TONE_BADGE: Record<Tone, "brand" | "positive" | "warning" | "negative" | "info" | "neutral"> = {
@@ -97,7 +104,15 @@ export function GrowthWorkspace({
   reviewHref = "/accounts?tab=prospectos",
   accountsHref = "/accounts",
   canEnrichBulk = false,
+  bulkSearches = [],
+  assignableUsers = [],
 }: GrowthWorkspaceProps) {
+  // Las rondas de una búsqueda masiva se ven en su fila, no como 20–40 búsquedas sueltas.
+  const roundBatchIds = React.useMemo(() => new Set(bulkSearches.flatMap((search) => search.batchIds)), [bulkSearches]);
+  const tableSearches = React.useMemo(
+    () => searches.filter((row) => !roundBatchIds.has(row.id)),
+    [searches, roundBatchIds],
+  );
   const withCompanies = React.useMemo(() => searches.filter((row) => row.converted > 0), [searches]);
   const enrichColumns = React.useMemo<ColumnDef<GrowthSearchRow, unknown>[]>(
     () => [
@@ -241,7 +256,8 @@ export function GrowthWorkspace({
 
       <UrlTabs ariaLabel="Prospección masiva" initialTab={initialTab} tabs={TABS}>
         <TabsContent value="busquedas">
-          {searches.length === 0 ? (
+          <BulkSearchesSection searches={bulkSearches} users={assignableUsers} reviewHref={reviewHref} />
+          {tableSearches.length === 0 && bulkSearches.length > 0 ? null : tableSearches.length === 0 ? (
             <EmptyState
               icon={Search}
               title="Lanza tu primera búsqueda"
@@ -255,7 +271,7 @@ export function GrowthWorkspace({
               noun="búsquedas"
               nounGender="f"
               columns={columns}
-              data={searches}
+              data={tableSearches}
               getRowId={(row) => row.id}
               getRowLabel={(row) => row.name}
               enableColumnReorder={false}

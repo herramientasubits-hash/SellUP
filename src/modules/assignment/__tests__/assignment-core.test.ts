@@ -13,6 +13,7 @@ import {
   resolveCandidateResponsibleId,
   resolveConversionOwnerUserId,
   validateAssignmentRequest,
+  splitEvenly,
 } from '../assignment-core';
 
 describe('validateAssignmentRequest', () => {
@@ -271,5 +272,28 @@ describe('describeAssignmentResult', () => {
       describeAssignmentResult({ kind: 'candidates', assigned: 1, alreadyOwned: 0, skipped: 0, targetName: 'Luis' }),
       '1 empresa por revisar asignada a Luis',
     );
+  });
+});
+
+describe('repartir en partes iguales (búsqueda masiva)', () => {
+  const ids = Array.from({ length: 100 }, (_, i) => `c${i}`);
+
+  it('100 entre 3 → 34, 33, 33, sin perder ni repetir', () => {
+    const shares = splitEvenly(ids, ['ana', 'beto', 'caro']);
+    assert.deepEqual(shares.map((s) => [s.userId, s.ids.length]), [['ana', 34], ['beto', 33], ['caro', 33]]);
+    assert.equal(new Set(shares.flatMap((s) => s.ids)).size, 100);
+  });
+
+  it('una sola persona se queda con todas', () => {
+    assert.deepEqual(splitEvenly(ids, ['ana']).map((s) => s.ids.length), [100]);
+  });
+
+  it('sin personas no reparte; una persona repetida cuenta una vez', () => {
+    assert.deepEqual(splitEvenly(ids, []), []);
+    assert.equal(splitEvenly(ids, ['ana', 'ana']).length, 1);
+  });
+
+  it('menos empresas que personas: nadie recibe una lista vacía', () => {
+    assert.deepEqual(splitEvenly(['c1', 'c2'], ['ana', 'beto', 'caro']).map((s) => s.userId), ['ana', 'beto']);
   });
 });

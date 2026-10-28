@@ -289,3 +289,17 @@ export function describeAssignmentResult(input: {
   }
   return parts.length > 0 ? parts.join(' · ') : 'Nada que asignar';
 }
+
+/**
+ * GROWTH-BULK-SEARCH-1 — repartir en partes iguales: los ids se reparten por
+ * turno entre las personas elegidas, así la diferencia entre la que más y la
+ * que menos recibe es a lo sumo 1 (100 entre 3 → 34, 33, 33). Conserva el orden
+ * de las personas y no repite ni pierde ningún id.
+ */
+export function splitEvenly(ids: readonly string[], userIds: readonly string[]): Array<{ userId: string; ids: string[] }> {
+  const people = [...new Set(userIds)];
+  if (people.length === 0) return [];
+  const shares = people.map((userId) => ({ userId, ids: [] as string[] }));
+  [...new Set(ids)].forEach((id, index) => shares[index % shares.length].ids.push(id));
+  return shares.filter((share) => share.ids.length > 0);
+}

@@ -50,6 +50,7 @@ import { getFirstContactRunsStore, useFirstContactRuns } from '@/modules/speech/
 import { ContactSearchRunRows } from '@/components/contact-enrichment/contact-search-run-rows';
 import { getContactSearchRunsStore, useContactSearchRuns } from '@/modules/contact-enrichment/contact-search-runs-client';
 import { HEADER_ICON_BUTTON } from '@/components/layout/header-icon';
+import { BulkSearchRows } from '@/components/prospect-batches/bulk-search/bulk-search-rows';
 
 /** Cada cuánto se pregunta por la etapa de las corridas en curso. */
 const POLL_MS = 2_000;
@@ -252,6 +253,10 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [continuationActive, setContinuationActive] = React.useState(false);
+  // GROWTH-BULK-SEARCH-1 — la búsqueda masiva de Growth: sus rondas las conduce
+  // este centro mientras SellUp esté abierto.
+  const [bulkSearchActive, setBulkSearchActive] = React.useState(false);
+  const [bulkSearchVisible, setBulkSearchVisible] = React.useState(false);
 
   React.useEffect(() => {
     const openCenter = () => {
@@ -269,11 +274,13 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
   for (const run of runs) counts[agentRunProcessState(run)] += 1;
   // La corrida a medias también es trabajo en curso.
   if (continuationActive) counts.running += 1;
+  if (bulkSearchActive) counts.running += 1;
   for (const run of firstContactRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
   for (const run of contactSearchRuns) counts[run.status === 'running' ? 'running' : run.status === 'succeeded' ? 'done' : 'failed'] += 1;
   const running = counts.running;
   const finished = counts.done + counts.failed;
-  const isEmpty = runs.length === 0 && firstContactRuns.length === 0 && contactSearchRuns.length === 0 && !continuationActive;
+  const isEmpty =
+    runs.length === 0 && firstContactRuns.length === 0 && contactSearchRuns.length === 0 && !continuationActive && !bulkSearchVisible;
   const summary = processCenterSummary(counts);
   const store = getAgentRunsStore();
   const router = useRouter();
@@ -403,6 +410,7 @@ export function AgentRunsProcessCenter({ className }: { className?: string }) {
               />
               <FirstContactRunRows runs={firstContactRuns} onNavigate={close} />
               <ContactSearchRunRows runs={contactSearchRuns} onNavigate={close} />
+              <BulkSearchRows onActiveChange={setBulkSearchActive} onVisibleChange={setBulkSearchVisible} onNavigate={close} />
               {runs.map((run) => (
                 <ProcessRow
                   key={run.clientRequestId}

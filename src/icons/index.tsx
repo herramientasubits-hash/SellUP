@@ -108,6 +108,7 @@ import {
   PaintBoardIcon,
   PauseCircleIcon,
   PauseIcon,
+  PlayIcon,
   PencilEdit01Icon,
   PencilEdit02Icon,
   PinIcon,
@@ -324,6 +325,7 @@ export const PanelLeftClose = createIcon(SidebarLeft01Icon, "PanelLeftClose");
 export const PanelLeftOpen = createIcon(SidebarRight01Icon, "PanelLeftOpen");
 export const PanelRight = createIcon(LayoutRightIcon, "PanelRight");
 export const Pause = createIcon(PauseIcon, "Pause");
+export const Play = createIcon(PlayIcon, "Play");
 export const PauseCircle = createIcon(PauseCircleIcon, "PauseCircle");
 export const PenLine = createIcon(PencilEdit02Icon, "PenLine");
 export const Pencil = createIcon(PencilEdit01Icon, "Pencil");
