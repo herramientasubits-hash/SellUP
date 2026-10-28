@@ -18,6 +18,11 @@ import {
 import { Alert, AlertTitle } from '@/components/ui/alert';
 import { Spinner } from '@/components/feedback/spinner';
 import { Badge } from '@/components/ui/badge';
+import {
+  OTHER_INDUSTRY_LABEL,
+  isIndustryReassigned,
+  otherIndustryHint,
+} from '@/modules/prospect-batches/industry-reassigned';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 
@@ -472,12 +477,21 @@ export function ProspectsDataTableClient({
         ),
         cell: ({ row }) => {
           const sectorDescription = getSectorDescription(row.original);
-          return sectorDescription ? (
-            <span className="block truncate text-xs text-muted-foreground" title={sectorDescription}>
-              {sectorDescription}
+          // La IA le corrigió la industria: sigue para revisar, pero no cuenta para la meta.
+          const reassigned = isIndustryReassigned(row.original.metadata);
+          if (!sectorDescription) return <EmptyCell label="Sin sector" />;
+          if (!reassigned) {
+            return (
+              <span className="block truncate text-xs text-muted-foreground" title={sectorDescription}>
+                {sectorDescription}
+              </span>
+            );
+          }
+          return (
+            <span className="flex min-w-0 flex-col items-start gap-0.5" title={otherIndustryHint(sectorDescription)}>
+              <span className="block max-w-full truncate text-xs text-muted-foreground">{sectorDescription}</span>
+              <Badge variant="warning">{OTHER_INDUSTRY_LABEL}</Badge>
             </span>
-          ) : (
-            <EmptyCell label="Sin sector" />
           );
         },
         size: 140,
