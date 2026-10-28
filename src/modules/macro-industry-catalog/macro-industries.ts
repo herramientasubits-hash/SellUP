@@ -508,6 +508,9 @@ export const MACRO_INDUSTRIES: readonly MacroIndustryDefinition[] = [
         'mining & metals',
         'oil & energy',
         'construction',
+        // Un portal o una inmobiliaria con «internet» en sus términos no es Tecnología
+        // (Lahaus, 27-10). La proptech que VENDE software declara software, no esto.
+        'real estate',
         'farming',
         'government administration',
       ],
