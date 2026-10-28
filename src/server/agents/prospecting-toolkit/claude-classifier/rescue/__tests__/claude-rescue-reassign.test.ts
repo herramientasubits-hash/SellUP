@@ -79,7 +79,7 @@ describe('A. decideRescue — otra industria UBITS', () => {
     assert.equal(d.industryId, 'salud');
     assert.equal(d.industryName, SALUD);
     assert.equal(d.sizeConfirmed, true);
-    assert.match(d.detail, /^Buscada en Tecnología, según Claude es Salud/);
+    assert.match(d.detail, /^Buscada en Tecnología, según Rumbo es Salud/);
   });
 
   it('otra macro pero tamaño desconocido → se sigue descartando por sector', () => {
@@ -154,7 +154,7 @@ describe('B. candidato en revisión reasignado', () => {
     assert.equal(p.status, undefined);
     assert.equal(p.industry, SALUD);
     assert.equal(p.industry_id, 'salud');
-    assert.match(p.review_notes ?? '', /Industria corregida por Claude \(no cuenta para la meta\)/);
+    assert.match(p.review_notes ?? '', /Industria corregida por Rumbo \(no cuenta para la meta\)/);
     const tc = p.metadata.target_completeness as Record<string, unknown>;
     assert.equal(tc.counts_toward_target, false);
     assert.equal(tc.complete_valid, false);

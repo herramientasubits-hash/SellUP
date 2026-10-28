@@ -543,7 +543,7 @@ describe('M — Apollo en la corrida de competidores', () => {
 
   it('M6: la etapa tiene texto en el chat', () => {
     assert.ok(RUN_PROGRESS_STAGES.includes('competitor_apollo'));
-    assert.ok(RUN_PROGRESS_LABELS.competitor_apollo.includes('Apollo'));
+    assert.ok(RUN_PROGRESS_LABELS.competitor_apollo.includes('fuente principal'));
   });
 });
 

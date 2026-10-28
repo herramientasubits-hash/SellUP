@@ -296,7 +296,7 @@ describe('Tavily se rige por su configuración en Proveedores', () => {
     const result = await executeProspectWizardGeneration(VALID_REQUEST, deps);
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.code, 'BUDGET_EXCEEDED');
-    assert.match(!result.ok ? result.message : '', /Tavily/);
+    assert.match(!result.ok ? result.message : '', /búsqueda web/);
     assert.equal(tavilyCalled, false);
     assert.equal(budgetReserved, false);
     assert.ok(askedFor !== null && askedFor > 0);

@@ -67,7 +67,7 @@ const CONTINUATION_ACTION_COPY = {
   finishing: 'Terminando…',
   finishHint: 'Se queda con lo encontrado y no gasta más créditos.',
   resume: 'Continuar',
-  resumeHint: 'Sigue sólo lo que falta. Puede usar créditos de Apollo.',
+  resumeHint: 'Sigue sólo lo que falta. Puede usar créditos.',
   finishError: 'No se pudo terminar. Inténtalo de nuevo.',
 } as const;
 

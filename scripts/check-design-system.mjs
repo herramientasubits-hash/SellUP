@@ -37,6 +37,8 @@
  *                        una flecha que cambia de dibujo o un `<details>`. Se pliega con `Collapsible`
  *                        (anima la altura, como flux-ui) y la flecha gira. Ver
  *                        `scripts/design-system-disclosure.mjs`.
+ *  17. voz-rumbo       — en lo que ve quien prospecta, la IA aparece como Claude, Anthropic o GPT.
+ *                        Se llama «Rumbo» o «la IA». Ver `scripts/design-system-voice.mjs`.
  *
  * Una excepción se declara en ALLOW, con su motivo; nunca apagando la regla en el archivo.
  * Guía de traducción: docs/THEMA_AZUL_MIGRATION.md
@@ -45,6 +47,7 @@ import { execSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { findDisclosureIssues } from "./design-system-disclosure.mjs";
+import { VOICE_SCOPE, findVoiceIssues } from "./design-system-voice.mjs";
 
 const ROOT = process.cwd();
 const args = new Set(process.argv.slice(2));
@@ -124,20 +127,28 @@ const ALLOW = {
   // (la cabecera reordenable necesita su propio `<th>` con ref y estilos de arrastre).
   table: [/^src\/components\/ui\/(table|calendar)\.tsx$/, /^src\/components\/data-table\//, TESTS],
   // `lib/format-date.ts` ES la pieza que fija la zona. `ui/calendar.tsx` y `components/date/` son el
-  // selector de fechas: trabajan a propósito con el día local de quien elige. `app/api/` y los
-  // `actions.ts` de `modules/` corren solo en servidor y escriben nombres de lote que se guardan,
-  // no texto que se hidrata. `prospect-date-utils.ts` y `provider-contract-plan-card.tsx` ya pasan
-  // un `timeZone` explícito (Bogotá; y UTC para un día de calendario sin hora).
+  // selector de fechas: trabajan a propósito con el día local de quien elige.
+  // `prospect-date-utils.ts` y `provider-contract-plan-card.tsx` ya pasan un `timeZone` explícito
+  // (Bogotá; y UTC para un día de calendario sin hora). El servidor (`app/api/`, `actions.ts`,
+  // `src/server/`) NO se exceptúa: en Vercel corre en UTC y los nombres de lote se GUARDAN, así que
+  // un lote lanzado a las 9 p. m. en Bogotá quedaba con la fecha del día siguiente (27-10).
   // `components/ui` ES quien anima (Collapsible, Accordion). `ai-usage/filters-client`: los
   // filtros extra se intercalan en la misma fila (display: contents), no hay un panel con alto que
   // plegar; cada uno entra con un fade.
   disclosure: [/^src\/components\/ui\//, /^src\/app\/\(sellup\)\/ai-usage\/filters-client\.tsx$/, TESTS],
+  // Pantallas de admin dentro de prospección: el clasificador sólo lo usa un admin y cuenta en
+  // el consumo del proveedor; la guía de importación nombra herramientas de donde se COPIAN
+  // tablas (Claude, Gemini, ChatGPT), no la IA de SellUp.
+  voice: [
+    /^src\/components\/prospect-batches\/claude-classify-batch-button\.tsx$/,
+    /^src\/modules\/prospect-batches\/claude-classifier-actions\.ts$/,
+    /^src\/components\/prospect-batches\/import-candidates-guide\.tsx$/,
+    TESTS,
+  ],
   date: [
     /^src\/lib\/format-date\.ts$/,
     /^src\/components\/ui\/calendar\.tsx$/,
     /^src\/components\/date\//,
-    /^src\/app\/api\//,
-    /^src\/modules\/.*\/actions\.ts$/,
     /^src\/modules\/prospect-batches\/prospect-date-utils\.ts$/,
     /^src\/app\/\(sellup\)\/settings\/providers\/provider-contract-plan-card\.tsx$/,
     TESTS,
@@ -189,8 +200,22 @@ const targets = CHANGED_ONLY
 
 for (const full of targets) {
   const file = rel(full);
-  // Solo UI: los .ts de servidor, agentes y datos no llevan clases de estilo.
-  if (file.endsWith(".ts") && !/^src\/(components|app|modules|config|lib)\//.test(file)) continue;
+  // Solo UI: los .ts de servidor, agentes y datos no llevan clases de estilo. De ellos sólo
+  // se revisa la fecha (regla 15): lo que el servidor formatea suele quedar guardado.
+  if (file.endsWith(".ts") && !/^src\/(components|app|modules|config|lib)\//.test(file)) {
+    if (!/^src\/server\//.test(file) || allowed(file, ALLOW.date)) continue;
+    let serverText;
+    try {
+      serverText = readFileSync(full, "utf8");
+    } catch {
+      continue;
+    }
+    serverText.split("\n").forEach((line, i) => {
+      if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+      if (RAW_DATE.test(line)) add(file, i + 1, "fecha-sin-zona", `Fecha sin zona fija (${line.match(RAW_DATE)[0]}…). Usa formatInAppZone / formatAppDate / formatAppDateTime de @/lib/format-date.`);
+    });
+    continue;
+  }
   let text;
   try {
     text = readFileSync(full, "utf8");
@@ -224,6 +249,11 @@ for (const full of targets) {
   // Lo que se abre aparece de golpe (detección multilínea, sobre el archivo entero).
   if (file.endsWith(".tsx") && !allowed(file, ALLOW.disclosure)) {
     for (const issue of findDisclosureIssues(text)) add(file, issue.line, issue.rule, issue.message);
+  }
+
+  // La IA se llama Rumbo en lo que ve quien prospecta.
+  if (!isCss && VOICE_SCOPE.some((re) => re.test(file)) && !allowed(file, ALLOW.voice)) {
+    for (const issue of findVoiceIssues(text)) add(file, issue.line, issue.rule, issue.message);
   }
 
   // Controles del sistema con su apariencia sobrescrita por className.

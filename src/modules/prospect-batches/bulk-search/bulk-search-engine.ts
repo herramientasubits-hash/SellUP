@@ -117,7 +117,7 @@ export interface BulkSearchOption {
 
 export function budgetBlockReason(estimate: BulkSearchEstimate, budget: BulkBudgetAvailability): string | null {
   const over = (need: number, available: number | null) => available !== null && need > available;
-  if (over(estimate.breakdown.apollo, budget.apollo)) return 'No alcanza el cupo de Apollo de este mes.';
+  if (over(estimate.breakdown.apollo, budget.apollo)) return 'No alcanza el cupo de la fuente principal de este mes.';
   if (over(estimate.breakdown.lusha, budget.lusha)) return 'No alcanza el presupuesto de búsquedas de este mes.';
   if (over(estimate.breakdown.tavily, budget.tavily)) return 'No alcanza el cupo de búsqueda web de este mes.';
   return null;

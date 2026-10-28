@@ -148,8 +148,8 @@ export function BulkSearchLaunch({
             <div className="flex justify-between gap-3">
               <dt className="text-muted-foreground">Desglose</dt>
               <dd className="text-right text-foreground tabular-nums">
-                Apollo {credits(choice.estimate.breakdown.apollo)}
-                {choice.estimate.breakdown.lusha > 0 && ` · Lusha ${credits(choice.estimate.breakdown.lusha)}`}
+                Fuente principal {credits(choice.estimate.breakdown.apollo)}
+                {choice.estimate.breakdown.lusha > 0 && ` · respaldo ${credits(choice.estimate.breakdown.lusha)}`}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
