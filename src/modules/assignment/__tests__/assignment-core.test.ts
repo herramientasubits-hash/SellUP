@@ -10,6 +10,7 @@ import {
   isAssignableCandidateStatus,
   partitionByCurrentOwner,
   partitionByExplicitAssignee,
+  presentCandidateResponsible,
   resolveCandidateResponsibleId,
   resolveConversionOwnerUserId,
   validateAssignmentRequest,
@@ -295,5 +296,35 @@ describe('repartir en partes iguales (búsqueda masiva)', () => {
 
   it('menos empresas que personas: nadie recibe una lista vacía', () => {
     assert.deepEqual(splitEvenly(['c1', 'c2'], ['ana', 'beto', 'caro']).map((s) => s.userId), ['ana', 'beto']);
+  });
+});
+
+describe('presentCandidateResponsible — la columna «Responsable» dice lo mismo que la regla de aprobación', () => {
+  it('lote de Growth o admin sin asignar: «Sin asignar», lanzada por quien buscó', () => {
+    assert.deepEqual(
+      presentCandidateResponsible({ responsibleId: 'admin', name: 'Felipe', assignedTo: null, needsAssignee: true }),
+      { responsible: null, launchedBy: { id: 'admin', name: 'Felipe' } },
+    );
+  });
+
+  it('el lote propio de un BD no cambia: el BD es el responsable', () => {
+    assert.deepEqual(
+      presentCandidateResponsible({ responsibleId: 'bd', name: 'Ana', assignedTo: null, needsAssignee: false }),
+      { responsible: { id: 'bd', name: 'Ana', isAssigned: false }, launchedBy: null },
+    );
+  });
+
+  it('asignada a mano: el asignado, marcado como asignado', () => {
+    assert.deepEqual(
+      presentCandidateResponsible({ responsibleId: 'bd', name: 'Ana', assignedTo: 'bd', needsAssignee: false }),
+      { responsible: { id: 'bd', name: 'Ana', isAssigned: true }, launchedBy: null },
+    );
+  });
+
+  it('sin nadie, ni responsable ni lanzada por', () => {
+    assert.deepEqual(
+      presentCandidateResponsible({ responsibleId: null, name: null, assignedTo: null, needsAssignee: true }),
+      { responsible: null, launchedBy: null },
+    );
   });
 });
