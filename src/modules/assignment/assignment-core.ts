@@ -69,7 +69,8 @@ export function isAssignableCandidateStatus(status: string | null | undefined): 
 /**
  * Responsable efectivo de un prospecto: el asignado a mano o, si no hay, el del
  * lote (owner_id y, si falta, quien lo creó). Es la misma regla con la que se
- * filtra por persona y con la que se muestra la columna «Responsable».
+ * filtra por persona. La columna «Responsable» parte de aquí, pero si la regla de
+ * aprobación (`decideApprovalResponsible`) pide asignar, dice «Sin asignar».
  */
 export function resolveCandidateResponsibleId(input: {
   assignedTo: string | null | undefined;
@@ -80,11 +81,33 @@ export function resolveCandidateResponsibleId(input: {
 }
 
 /**
+ * Qué dice la columna «Responsable» de un prospecto. Si la regla de aprobación pide
+ * asignar (`needsAssignee`) y nadie lo asignó, quien lanzó la búsqueda no es su
+ * responsable: sale como `launchedBy` y la columna dice «Sin asignar».
+ */
+export function presentCandidateResponsible(input: {
+  responsibleId: string | null;
+  name: string | null;
+  assignedTo: string | null | undefined;
+  needsAssignee: boolean;
+}): {
+  responsible: { id: string; name: string; isAssigned: boolean } | null;
+  launchedBy: { id: string; name: string } | null;
+} {
+  const { responsibleId, name } = input;
+  if (!responsibleId || !name) return { responsible: null, launchedBy: null };
+  if (input.needsAssignee && !input.assignedTo) {
+    return { responsible: null, launchedBy: { id: responsibleId, name } };
+  }
+  return { responsible: { id: responsibleId, name, isAssigned: !!input.assignedTo }, launchedBy: null };
+}
+
+/**
  * A nombre de quién queda la empresa al aprobar un prospecto (antes de que
  * HubSpot, si ya tiene dueño, mande). Decisión de la dueña 08-10: si alguien
  * asignó el prospecto, el asignado; si no, el dueño de la búsqueda y, si falta,
- * quien la lanzó —el mismo orden de la columna «Responsable»—; sin ninguno,
- * quien aprueba.
+ * quien la lanzó —el orden de `resolveCandidateResponsibleId`—; sin ninguno,
+ * quien aprueba. (Desde #804, Growth y admin no aprueban sin asignar antes.)
  */
 export function resolveConversionOwnerUserId(input: {
   assignedTo: string | null | undefined;
