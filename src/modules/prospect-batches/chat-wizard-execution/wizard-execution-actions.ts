@@ -1790,7 +1790,7 @@ export async function executeProspectWizardGeneration(
       return {
         ok: false,
         code: 'PROVIDER_UNAVAILABLE',
-        message: 'El proveedor de búsqueda Tavily no está disponible en este momento.',
+        message: 'La búsqueda web no está disponible en este momento.',
         retryable: true,
         runProvider: runProviderOutcome,
       };
@@ -2415,7 +2415,7 @@ export async function executeProspectWizardGeneration(
       return {
         ok: false,
         code: 'BUDGET_EXCEEDED',
-        message: 'La cuota disponible del proveedor de búsqueda (Tavily) se agotó.',
+        message: 'Se agotó la cuota disponible de la búsqueda web.',
         retryable: false,
         runProvider: runProviderOutcome,
         budgetExceeded: {
@@ -2459,7 +2459,7 @@ export async function executeProspectWizardGeneration(
       return {
         ok: false,
         code: 'BUDGET_EXCEEDED',
-        message: 'La cuota disponible del proveedor de búsqueda (Apollo) se agotó.',
+        message: 'Se agotó la cuota disponible de la fuente principal.',
         retryable: false,
         runProvider: runProviderOutcome,
         budgetExceeded: {
@@ -3481,7 +3481,7 @@ export async function executeProspectWizardGeneration(
     return {
       ok: false,
       code: 'BUDGET_EXCEEDED',
-      message: 'La cuota disponible del proveedor de búsqueda (Apollo) se agotó.',
+      message: 'Se agotó la cuota disponible de la fuente principal.',
       retryable: false,
       runProvider: runProviderOutcome,
       budgetExceeded: {

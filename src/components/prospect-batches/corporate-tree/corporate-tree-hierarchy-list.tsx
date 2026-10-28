@@ -59,7 +59,7 @@ function TreeNode({
                 : `Web del grupo: ${item.groupWebsite}`}
             </p>
           )}
-          {item.foundInApollo && <p className="text-xs text-muted-foreground">Filial y web según Apollo.</p>}
+          {item.foundInApollo && <p className="text-xs text-muted-foreground">Filial y web según la fuente principal.</p>}
           {item.websiteUnverified && (
             <p className="text-xs text-warning">Web no comprobada: el sitio no deja revisarla. Confírmala antes de aprobar.</p>
           )}

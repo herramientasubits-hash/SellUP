@@ -91,17 +91,17 @@ export function describeMoreLikeThisOutcome(outcome: {
 }): string {
   if (outcome.persistedCount > 0) {
     return outcome.persistedCount === 1
-      ? 'Apollo encontró 1 competidora nueva: ya está en este lote.'
-      : `Apollo encontró ${outcome.persistedCount} competidoras nuevas: ya están en este lote.`;
+      ? 'Encontramos 1 competidora nueva: ya está en este lote.'
+      : `Encontramos ${outcome.persistedCount} competidoras nuevas: ya están en este lote.`;
   }
   switch (outcome.reason) {
     case 'apollo_disabled':
-      return 'Apollo no está activo en este momento.';
+      return 'La búsqueda de parecidas no está activa en este momento.';
     case 'apollo_quota_unavailable':
-      return 'Se agotó la cuota de Apollo de este mes.';
+      return 'Se agotó la cuota de la fuente principal de este mes.';
     case 'country_not_supported':
-      return 'Apollo no busca en este país.';
+      return 'La búsqueda de parecidas no cubre este país.';
     default:
-      return 'Apollo no encontró competidoras nuevas parecidas a esta.';
+      return 'No aparecieron competidoras nuevas parecidas a esta.';
   }
 }

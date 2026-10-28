@@ -51,7 +51,7 @@ export async function findMoreLikeThisAction(request: unknown): Promise<MoreLike
       ok: false,
       message:
         eligibility.reason === 'no_domain'
-          ? 'Esta empresa no tiene sitio web: Apollo no puede usarla de ejemplo.'
+          ? 'Esta empresa no tiene sitio web: no se puede usar de ejemplo.'
           : 'Sólo funciona con competidoras en revisión o aprobadas.',
     };
   }
@@ -100,7 +100,7 @@ export async function findMoreLikeThisAction(request: unknown): Promise<MoreLike
     userId: internalUserId,
     seedDomains,
   }).catch(() => null);
-  if (!outcome) return { ok: false, message: 'No se pudo buscar en Apollo. Intenta de nuevo.' };
+  if (!outcome) return { ok: false, message: 'No se pudo buscar. Intenta de nuevo.' };
   return { ok: true, message: describeMoreLikeThisOutcome(outcome), persistedCount: outcome.persistedCount };
 }
 

@@ -47,7 +47,7 @@ export function readCompetitorJudgeNotice(batchMetadata: unknown): CompetitorJud
 /** El aviso en dos líneas como mucho (decisión de la dueña 21-10 sobre avisos cortos). */
 export function describeCompetitorJudgeNotice(notice: CompetitorJudgeNotice): string {
   const parts: string[] = [];
-  if (notice.unanswered > 0 || notice.failedChunks > 0) parts.push('Claude no pudo revisar parte de las fuentes gratuitas');
+  if (notice.unanswered > 0 || notice.failedChunks > 0) parts.push('Rumbo no pudo revisar parte de las fuentes gratuitas');
   if (notice.dropped > 0) parts.push(`${notice.dropped} empresas quedaron sin revisar por el tope`);
   return `${parts.join(' y ')}. Puede haber más competidoras: vuelve a buscar más tarde.`;
 }

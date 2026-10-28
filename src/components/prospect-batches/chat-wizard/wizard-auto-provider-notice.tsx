@@ -20,9 +20,9 @@ import {
 
 export const AUTO_PROVIDER_NOTICE_TITLE = 'Búsqueda automática';
 export const AUTO_PROVIDER_NOTICE_BODY =
-  'Busca primero con Apollo. Si no alcanza el objetivo, completa automáticamente con Lusha.';
+  'Busca primero en la fuente principal. Si no alcanza el objetivo, completa automáticamente con la fuente de respaldo.';
 export const AUTO_PROVIDER_NOTICE_LUSHA_UNAVAILABLE =
-  'Este mes no quedan créditos internos para Lusha: si Apollo no alcanza el objetivo, la búsqueda terminará sólo con lo que encuentre Apollo.';
+  'Este mes no quedan créditos para la fuente de respaldo: si la fuente principal no alcanza el objetivo, la búsqueda terminará sólo con lo que encuentre.';
 
 export function WizardAutoProviderNotice({
   budgetPreflight,

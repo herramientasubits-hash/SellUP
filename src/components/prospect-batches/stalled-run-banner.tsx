@@ -26,7 +26,7 @@ import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batc
 export const STALLED_RUN_BANNER_COPY = {
   pausedTitle: 'Esta búsqueda quedó a medias',
   pausedBody:
-    'Encontró empresas pero no terminó. Puedes continuar con lo que falta (puede usar créditos de Apollo) o terminarla y quedarte con lo encontrado.',
+    'Encontró empresas pero no terminó. Puedes continuar con lo que falta (puede usar créditos) o terminarla y quedarte con lo encontrado.',
   stalledTitle: 'Esta búsqueda se detuvo',
   stalledBody: 'Lleva más de 30 minutos sin avanzar. Termínala para revisar lo que encontró; no gasta créditos.',
   resume: 'Continuar',

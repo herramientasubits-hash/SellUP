@@ -85,7 +85,7 @@ export const DETACHED_RUN_STALE_MESSAGE =
 
 /** AGENT1-AUDIT-WS2 § 5 — la pausa de Apollo no se pudo dejar en cola. */
 export const CONTINUATION_NOT_QUEUED_MESSAGE =
-  'Apollo no alcanzó a revisar todas las empresas y no se pudo dejar en cola para terminar. Revisa el lote: lo encontrado sí quedó guardado.';
+  'No se alcanzaron a revisar todas las empresas y no se pudo dejar en cola para terminar. Revisa el lote: lo encontrado sí quedó guardado.';
 
 /** ¿La corrida desligada ya lleva demasiado sin cerrarse? Puro. */
 export function isDetachedRunStale(run: AgentRun, nowMs: number): boolean {

@@ -116,7 +116,7 @@ export async function resolveCompetitorReferenceAction(
   // Sin «Claude busca empresas» la búsqueda de competidores no puede correr: no se
   // paga la ficha de una referencia que después no se podría usar.
   if (!isAgent1ClaudeCompanySearchAutoEnabled()) {
-    return { ok: false, message: 'La búsqueda de competidores usa a Claude, que no está activo en este momento.' };
+    return { ok: false, message: 'La búsqueda de competidores necesita a Rumbo, que no está activo en este momento.' };
   }
   const parsed = requestSchema.safeParse(request);
   if (!parsed.success) return { ok: false, message: 'Solicitud inválida.' };
@@ -148,10 +148,10 @@ export async function resolveCompetitorReferenceAction(
 
   const active = await resolveActiveAnthropicModel();
   if ('error' in active) {
-    return { ok: false, message: 'Claude no está configurado en Configuración → IA.' };
+    return { ok: false, message: 'Rumbo no está configurado en Configuración → IA.' };
   }
   if (!(await checkProviderQuotaAvailable(CLAUDE_CLASSIFIER_PROVIDER_KEY)).allowed) {
-    return { ok: false, message: 'Se agotó la cuota de Claude de este mes.' };
+    return { ok: false, message: 'Se agotó la cuota de Rumbo de este mes.' };
   }
 
   let catalog;
@@ -208,7 +208,7 @@ export async function resolveCompetitorReferenceAction(
   }
 
   if (outcome.errorCode) {
-    return { ok: false, message: 'Claude no respondió. Intenta de nuevo en unos segundos.' };
+    return { ok: false, message: 'Rumbo no respondió. Intenta de nuevo en unos segundos.' };
   }
   if (!outcome.card) {
     return {

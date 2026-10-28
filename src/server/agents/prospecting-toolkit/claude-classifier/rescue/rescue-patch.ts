@@ -195,7 +195,7 @@ export function attachIndustryCatalogVersion<T extends Record<string, unknown>>(
 }
 
 export function buildReassignReviewNote(decision: Extract<RescueDecision, { kind: 'reassign' }>): string {
-  return `Industria corregida por Claude (no cuenta para la meta). ${decision.detail}`;
+  return `Industria corregida por Rumbo (no cuenta para la meta). ${decision.detail}`;
 }
 
 /**

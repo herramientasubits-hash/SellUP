@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
+import { formatInAppZone } from '@/lib/format-date';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
@@ -3448,7 +3449,7 @@ export async function generateAIProspectBatch(
     console.log('[generateAIProspectBatch] execution_path=writer_pipeline_cta provider=tavily');
 
     const now = new Date();
-    const batchName = `IA CTA · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+    const batchName = `IA CTA · ${input.country} · ${input.industry} · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
     const writerInput = buildIncrementalSearchInputFromCTAInput(input, internalUserId, batchName, 'tavily');
     const writerResult = await runIncrementalProspectingSearch(writerInput);
@@ -3583,7 +3584,7 @@ export async function generateTavilyProspectBatch(
   }
 
   const now = new Date();
-  const batchName = `IA web · ${input.country} · ${input.industry} · ${now.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const batchName = `IA web · ${input.country} · ${input.industry} · ${formatInAppZone(now, { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   const result = await runIncrementalProspectingSearch({
     country: input.country,
