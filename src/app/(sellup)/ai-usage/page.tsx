@@ -1,7 +1,10 @@
+import type * as React from 'react';
 import { Suspense } from 'react';
 import { Lock } from '@/icons';
 import { PageHeader } from '@/components/shared/page-header';
-import { MetricCard, type MetricTone } from '@/components/shared/metric-card';
+import { type MetricTone } from '@/components/shared/metric-card';
+import { MetricStrip } from '@/components/shared/metric-strip';
+import { Badge } from '@/components/ui/badge';
 import { InfoHint } from '@/components/shared/info-hint';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -159,19 +162,24 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
     getAiUsageBreakdowns(filters),
   ]);
 
-  const header = (
+  // Los filtros filtran toda la página, así que van en la cabecera, junto a «Cómo se mide».
+  const renderHeader = (filters?: React.ReactNode) => (
     <PageHeader
       title="Uso de IA, costos y efectividad"
       description="Qué han hecho los agentes, cuánto ha costado y cuántos prospectos terminaron aprobados."
       actions={
-        <InfoHint label="Cómo se mide" showLabel>
-          Las cifras se registran solas cada vez que un agente trabaja. Los costos son
-          estimados con la tarifa configurada de cada proveedor; el valor real sale de la
-          factura.
-        </InfoHint>
+        <>
+          {filters}
+          <InfoHint label="Cómo se mide" showLabel>
+            Las cifras se registran solas cada vez que un agente trabaja. Los costos son
+            estimados con la tarifa configurada de cada proveedor; el valor real sale de la
+            factura.
+          </InfoHint>
+        </>
       }
     />
   );
+  const header = renderHeader();
 
   if (overview === null) {
     return (
@@ -267,9 +275,11 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      {header}
+      {renderHeader(
+        filterOptions ? <FiltersClient part="controls" options={filterOptions} values={filterValues} /> : undefined,
+      )}
 
-      {filterOptions && <FiltersClient options={filterOptions} values={filterValues} />}
+      {filterOptions && <FiltersClient part="chips" options={filterOptions} values={filterValues} />}
 
       {readError && (
         <Alert variant="destructive">
@@ -298,19 +308,18 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
         </p>
       )}
 
-      <section aria-label="Indicadores del periodo" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {metrics.map((metric) => (
-          <MetricCard
-            key={metric.title}
-            compact
-            title={metric.title}
-            description={metric.description}
-            value={metric.value}
-            tone={metric.tone}
-            hint={metric.hint}
-          />
-        ))}
-      </section>
+      {/* La «Fila de cifras» de UBITS: un marco, las cifras separadas por una línea. */}
+      <MetricStrip
+        aria-label="Indicadores del periodo"
+        items={metrics.map((metric) => ({
+          label: metric.title,
+          value: metric.value,
+          description: metric.description,
+          hint: metric.hint,
+          // Como «Tareas vencidas» en UBITS: lo que pide atención lo dice al lado de la cifra.
+          aside: metric.tone === 'negative' ? <Badge variant="negative">Requiere atención</Badge> : undefined,
+        }))}
+      />
 
       <UrlTabs ariaLabel="Secciones de uso de IA" tabs={USAGE_TABS} initialTab={initialTab}>
         <TabsContent value="resumen" className="space-y-6">

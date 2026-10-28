@@ -2,7 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2 } from "@/icons";
+import { Loader2 } from "@/icons";
+import { AIOrb } from "./ai-orb";
 import type { AIButtonProps } from "./aiInteractionTypes";
 
 export function AIButton({
@@ -12,7 +13,6 @@ export function AIButton({
   disabled = false,
   variant = "primary",
   size = "md",
-  leftIcon: LeftIcon,
   rightIcon: RightIcon,
   helperText,
   onClick,
@@ -48,9 +48,11 @@ export function AIButton({
         onClick={onClick}
         aria-busy={loading}
         className={cn(
-          "relative overflow-hidden rounded-full font-semibold transition-all duration-300",
-          isPrimary && !disabled && "su-ai-gradient text-primary-foreground border-0 shadow-none ring-0 hover:opacity-90 active:scale-95",
-          isOutline && !disabled && "su-ai-border hover:opacity-80 active:scale-95"
+          // Como el BotonIa de UBITS: pastilla con más aire a los lados, peso medio, sin sombra.
+          "relative overflow-hidden rounded-full",
+          size === "sm" || size === "xs" ? "px-4" : "px-5",
+          isPrimary && !disabled && "su-ai-gradient border-0 shadow-none ring-0",
+          isOutline && "border-border bg-background shadow-xs hover:bg-muted dark:border-input dark:bg-input/30"
         )}
       >
         {loading ? (
@@ -60,22 +62,10 @@ export function AIButton({
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className={cn(
-              isPrimary ? "text-primary-foreground" : "su-ai-gradient-text",
-            )}>
-              {LeftIcon ? (
-                <LeftIcon className={cn(
-                  size === "xs" ? "h-3.5 w-3.5" : "h-4 w-4",
-                  !isPrimary && "su-ai-gradient-text"
-                )} />
-              ) : (
-                <Sparkles className={cn(
-                  size === "xs" ? "h-3.5 w-3.5" : "h-4 w-4",
-                  !isPrimary && "su-ai-gradient-text"
-                )} />
-              )}
-            </span>
-            <span className={cn(isPrimary && "text-primary-foreground")}>
+            {/* Como en UBITS: el primario de IA va sin ícono (el degradado ya es la
+                marca); el secundario lleva el orbe al inicio. */}
+            {!isPrimary && <AIOrb className={size === "xs" ? "size-4" : "size-4.5"} />}
+            <span>
               {label || children}
             </span>
             {RightIcon && (

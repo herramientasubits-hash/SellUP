@@ -367,7 +367,7 @@ export function ProspectReviewActions({
   if (view.terminal) return null;
 
   return (
-    <div className="shrink-0 border-t border-border/50 bg-surface-subtle px-7 py-4">
+    <div className="shrink-0 border-t bg-muted/40 px-5 py-3">
       {confirming ? (
         <Alert variant="info" className="[&>div]:gap-3">
           <div className="space-y-1">

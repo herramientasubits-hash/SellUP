@@ -23,7 +23,7 @@ import type {
 
 /** Textos y traducciones a piezas del sistema de la pantalla Pipeline. */
 
-export const PIPELINE_TITLE = "Pipeline";
+export const PIPELINE_TITLE = "Flujo de prospección";
 export const PIPELINE_DESCRIPTION =
   "En qué etapa del proceso de venta está cada empresa, qué pasó en cada una y qué falta.";
 
@@ -31,7 +31,7 @@ export const PIPELINE_DESCRIPTION =
  * El primer tramo de las migas: el mismo rótulo que el módulo en el menú
  * lateral (`mainNavItems`), para que la cabecera no repita la sección.
  */
-export const PIPELINE_CRUMB_LABEL = "Pipeline";
+export const PIPELINE_CRUMB_LABEL = "Flujo de prospección";
 
 /** Lo que dice la nota del resumen mientras las etapas de la derecha no tengan empresas. */
 export const FUTURE_STAGES_NOTE = "Las etapas de Primer contacto a Cierre se activarán cuando existan sus agentes.";

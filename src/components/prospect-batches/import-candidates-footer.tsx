@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 
 function FooterBar({ children }: { children: React.ReactNode }) {
   return (
-    <div className="shrink-0 border-t border-border/60 bg-card px-6 py-4">
+    <div className="shrink-0 border-t bg-muted/40 px-5 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">{children}</div>
     </div>
   );

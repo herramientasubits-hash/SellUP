@@ -5,6 +5,7 @@ import { ChevronDown, MoreHorizontal } from "@/icons";
 
 import { cn } from "@/lib/utils";
 import { AIButton } from "@/components/ai/ai-button";
+import { AIOrb } from "@/components/ai/ai-orb";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -66,8 +67,11 @@ function MenuEntries({ items }: { items: readonly RailMenuItemSpec[] }) {
 /** Una acción de pantalla como botón del propio layout: misma acción, mismo bloqueo. */
 function HeaderAction({ action, isPrimary = false }: { action: RailActionSpec; isPrimary?: boolean }) {
   const isBlocked = action.blockedReason != null;
+  const isAi = action.tone === "ai" || action.variant === "ai";
+  // Como en UBITS: la principal de IA es el primario de IA (pastilla con degradado,
+  // sin ícono) y las demás de IA, el secundario (contorno en pastilla con el orbe).
   const variant = isPrimary
-    ? "default"
+    ? action.variant === "ai" ? "ai" : "default"
     : action.tone === "danger"
       ? "destructive"
       : action.tone === "ai" || action.variant === "ai"
@@ -88,7 +92,7 @@ function HeaderAction({ action, isPrimary = false }: { action: RailActionSpec; i
     return (
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant={variant} />}>
-          {action.icon}
+          {isAi ? (variant === "ai" ? null : <AIOrb />) : action.icon}
           {action.label}
           <ChevronDown aria-hidden="true" />
         </DropdownMenuTrigger>
@@ -105,9 +109,9 @@ function HeaderAction({ action, isPrimary = false }: { action: RailActionSpec; i
         variant={variant}
         aria-disabled={isBlocked || undefined}
         onClick={isBlocked ? undefined : () => action.onSelect?.()}
-        className={cn(BLOCKED_CLASS, isPrimary && action.variant === "ai" && "su-ai-gradient border-0")}
+        className={BLOCKED_CLASS}
       >
-        {action.icon}
+        {isAi ? (variant === "ai" ? null : <AIOrb />) : action.icon}
         {action.label}
       </Button>
     </WithReason>

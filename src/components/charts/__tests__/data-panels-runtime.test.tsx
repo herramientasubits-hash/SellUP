@@ -89,16 +89,16 @@ describe('BarList', () => {
     assert.ok(screen.getByText('Sin consumo este mes'));
   });
 
-  it('con título se envuelve en su tarjeta con cabecera y cuenta', () => {
+  it('con título se envuelve en su marco con cabecera y cuenta', () => {
     const { container } = render(h(BarList, { title: 'Consumo por proveedor', count: 3, items: ITEMS }));
-    assert.ok(container.querySelector('[data-slot="card"]'));
+    assert.ok(container.querySelector('[data-slot="frame"]'));
     assert.ok(screen.getByRole('heading', { name: 'Consumo por proveedor' }));
     assert.ok(screen.getByText('3'));
   });
 
   it('sin título no pinta tarjeta (para ir dentro de otra)', () => {
     const { container } = render(h(BarList, { items: ITEMS }));
-    assert.equal(container.querySelector('[data-slot="card"]'), null);
+    assert.equal(container.querySelector('[data-slot="frame"]'), null);
   });
 
   it('todo en cero no divide por cero', () => {

@@ -72,7 +72,7 @@ export function AiAnalyzingState({
         className,
       )}
     >
-      <div className="relative z-10 flex w-full flex-1 flex-col items-center justify-center gap-6 rounded-[calc(var(--radius-xl)-2px)] bg-card p-6">
+      <div className="relative z-10 flex w-full flex-1 flex-col items-center justify-center gap-6 rounded-[calc(var(--radius-xl)-2px)] bg-card p-6 text-card-foreground">
         <div className="relative mb-1 flex h-16 w-16 items-center justify-center">
           <div className="absolute h-11 w-11 animate-pulse rounded-full bg-ai-gradient opacity-20 blur-xl motion-reduce:animate-none" />
           <AiSparkGlyph size={42} />

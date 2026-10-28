@@ -6,6 +6,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/lib/utils";
 import { OVERLAY_COVERED_CLASS, useOverlayCovered } from "@/lib/overlay-stack";
 import { Button } from "@/components/ui/button";
+import { CLOSE_BUTTON_CLASS } from "@/components/ui/close-button-class";
 import { XIcon } from "@/icons";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
@@ -32,7 +33,7 @@ function DialogOverlay({
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-[60] bg-black/15 duration-100 supports-backdrop-filter:backdrop-blur-[2px] dark:bg-black/45 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-[60] bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className,
       )}
       {...props}
@@ -72,7 +73,7 @@ function DialogLayer({
         data-slot="dialog-content"
         data-overlay-covered={covered ? "" : undefined}
         className={cn(
-          "fixed top-1/2 left-1/2 z-[60] grid max-h-[calc(100dvh-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-2xl bg-popover p-6 text-sm text-popover-foreground shadow-drawer ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-[60] grid max-h-[calc(100dvh-1.5rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-2xl bg-popover p-6 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
           covered && OVERLAY_COVERED_CLASS,
         )}
@@ -85,7 +86,7 @@ function DialogLayer({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-3 right-3 text-muted-foreground hover:text-foreground"
+                className={cn("absolute top-4 right-4", CLOSE_BUTTON_CLASS)}
                 size="icon-sm"
               />
             }
@@ -121,7 +122,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-5 -mb-5 flex flex-col-reverse gap-2 rounded-b-2xl border-t border-border/60 bg-muted/40 px-5 py-4 sm:flex-row sm:justify-end",
+        "-mx-6 -mb-6 flex flex-col-reverse gap-2 rounded-b-2xl border-t bg-muted/40 px-6 py-3 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}

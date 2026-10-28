@@ -20,16 +20,19 @@ export function SurfaceCard({
 }: SurfaceCardProps) {
   return (
     <div
+      data-slot="surface-card"
       className={cn(
         // Thema: una card es una superficie en reposo. Radio 2xl, borde al 60 %
         // y la sombra `card`. Solo se eleva al pasar el puntero si es pulsable:
         // una card estática que reacciona promete una acción que no existe.
-        "min-w-0 rounded-2xl border transition-[box-shadow,border-color] duration-200",
+        // Como el marco de UBITS: el panel (radio xl) con su franja gris alrededor
+        // (`su-framed`), que llega al radio 2xl de las tablas y las cifras.
+        "m-1 min-w-0 rounded-xl border transition-[border-color] duration-200",
         elevated
           ? "border-border bg-su-surface-elevated shadow-drawer"
-          : "border-border/60 bg-card shadow-card",
+          : "su-framed border-border bg-card",
         onClick &&
-          "cursor-pointer hover:border-primary/30 hover:shadow-drawer focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
+          "cursor-pointer hover:border-primary/40 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40",
         !noPadding && "p-6",
         className,
       )}

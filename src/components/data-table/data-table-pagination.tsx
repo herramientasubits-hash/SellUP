@@ -46,7 +46,7 @@ export function DataTablePagination<TData>({
   return (
     <div
       className={cn(
-        "flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground sm:px-5",
+        "flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 pt-2 pb-1 text-xs text-muted-foreground",
         className,
       )}
     >

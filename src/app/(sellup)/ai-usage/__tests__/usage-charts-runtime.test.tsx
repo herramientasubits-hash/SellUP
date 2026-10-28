@@ -212,7 +212,7 @@ describe('AgentUsageCharts', () => {
       }),
     );
     const heading = screen.getByRole('heading', { name: 'Costo por agente' });
-    const card = heading.closest('[data-slot="card"]');
+    const card = heading.closest('[data-slot="frame"]');
     assert.ok(card);
     assert.deepEqual(rowLabels(card), ['Generación de prospectos', 'Inteligencia de cuenta']);
     assert.ok(screen.getByText('$10.00'));
@@ -239,12 +239,12 @@ describe('ProviderUsageCharts', () => {
         providers: [provider({}), provider({ provider_key: 'hubspot', total_estimated_cost_usd: 0, total_calls: 5 })],
       }),
     );
-    const costCard = screen.getByRole('heading', { name: 'De qué está hecho el costo' }).closest('[data-slot="card"]');
+    const costCard = screen.getByRole('heading', { name: 'De qué está hecho el costo' }).closest('[data-slot="frame"]');
     assert.ok(costCard);
     assert.deepEqual(rowLabels(costCard), ['Apollo']);
     assert.ok(screen.getByText('$4.50'));
 
-    const callsCard = screen.getByRole('heading', { name: 'Consultas por proveedor' }).closest('[data-slot="card"]');
+    const callsCard = screen.getByRole('heading', { name: 'Consultas por proveedor' }).closest('[data-slot="frame"]');
     assert.ok(callsCard);
     assert.deepEqual(rowLabels(callsCard), ['Apollo', 'HubSpot']);
   });
@@ -272,8 +272,8 @@ describe('TeamUsageCharts', () => {
         ],
       }),
     );
-    const usage = screen.getByRole('heading', { name: 'Quién usa más los agentes' }).closest('[data-slot="card"]');
-    const cost = screen.getByRole('heading', { name: 'Quién consume más' }).closest('[data-slot="card"]');
+    const usage = screen.getByRole('heading', { name: 'Quién usa más los agentes' }).closest('[data-slot="frame"]');
+    const cost = screen.getByRole('heading', { name: 'Quién consume más' }).closest('[data-slot="frame"]');
     assert.ok(usage && cost);
     assert.deepEqual(rowLabels(usage), ['Marta Gil', 'Ana Ruiz']);
     assert.deepEqual(rowLabels(cost), ['Ana Ruiz', 'Marta Gil']);

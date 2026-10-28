@@ -452,12 +452,13 @@ function DataTableInner<TData>(
         className,
       )}
     >
+      {/* El marco de la tabla de UBITS (TablaDatos): una franja gris con la cabecera
+          y el pie, y la tabla en un panel blanco con su propio borde adentro. */}
       <div
+        data-slot="data-table-frame"
         className={cn(
-          "rounded-2xl border border-border/60 bg-card shadow-card",
-          fillHeight
-            ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden"
-            : "overflow-hidden",
+          "flex flex-col gap-0.75 rounded-2xl border border-border bg-frame p-0.75",
+          fillHeight && "h-full min-h-0 flex-1 overflow-hidden",
         )}
       >
         {!hideToolbar && (
@@ -495,6 +496,13 @@ function DataTableInner<TData>(
           </div>
         )}
 
+        <div
+          data-slot="data-table-panel"
+          className={cn(
+            "relative overflow-hidden rounded-xl border border-border bg-card bg-clip-padding shadow-card",
+            fillHeight && "flex min-h-0 flex-1 flex-col",
+          )}
+        >
         <div
           ref={tableWrapperRef}
           className={cn(
@@ -689,6 +697,7 @@ function DataTableInner<TData>(
             </TableBody>
           </Table>
           )}
+        </div>
         </div>
 
         {isLazy ? (

@@ -32,9 +32,13 @@ describe('acciones de Rumbo IA', () => {
     assert.equal(launcherLabel({ regenerate: true, prepared: true }), 'Otra versión con Rumbo IA');
   });
 
-  it('tres pesos de botón de IA: relleno, borde y sin borde, distintos de los normales', () => {
+  it('tres pesos de botón de IA: relleno, contorno y sin borde, distintos de los normales', () => {
+    // Como «Piezas de IA» de UBITS: primario con degradado y secundario con el contorno
+    // normal, los dos en pastilla (el borde en degradado se descartó).
     assert.match(buttonVariants({ variant: 'ai' }), /su-ai-gradient/);
-    assert.match(buttonVariants({ variant: 'ai-outline' }), /su-ai-border/);
+    assert.match(buttonVariants({ variant: 'ai' }), /rounded-full/);
+    assert.match(buttonVariants({ variant: 'ai-outline' }), /rounded-full/);
+    assert.doesNotMatch(buttonVariants({ variant: 'ai-outline' }), /su-ai-border/);
     assert.match(buttonVariants({ variant: 'ai-ghost' }), /su-ai-ghost/);
     for (const v of ['ai-outline', 'ai-ghost'] as const) assert.match(buttonVariants({ variant: v }), /su-ai-icons/);
     assert.doesNotMatch(buttonVariants({ variant: 'outline' }), /su-ai/);

@@ -80,7 +80,7 @@ describe('ContactsScreenActions — «Crear contacto» y el agente de IA', () =>
     assert.deepEqual(toolbarLabels(), ['Crear contacto', 'Buscar contactos']);
     const agent = screen.getByRole('button', { name: 'Buscar contactos' });
     assert.equal(agent.getAttribute('data-slot'), 'rail-agent');
-    assert.ok(agent.className.includes('bg-ai-gradient'));
+    assert.ok(agent.className.includes('su-ai-gradient'));
     assert.equal(screen.queryByText(/sin controlar/), null);
   });
 

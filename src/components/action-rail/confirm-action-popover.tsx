@@ -81,7 +81,7 @@ export function ConfirmActionPopover({
         align="center"
         side={popoutSide}
         sideOffset={10}
-        className="w-72 rounded-2xl border-primary/15 bg-nav p-3.5 text-nav-foreground shadow-rail"
+        className="w-72 rounded-2xl border-nav-foreground/10 bg-nav p-3.5 text-nav-foreground shadow-rail"
       >
         <p className="text-sm font-semibold">{title}</p>
         <p className="mt-1 text-xs leading-relaxed text-nav-foreground/70">{description}</p>

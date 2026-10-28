@@ -68,7 +68,13 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
             // cabecera del shell para sobrevivir al chat (AGENT1-PARALLEL-RUNS-TRAY-1).
             processCenter={<AgentRunsProcessCenter className="max-sm:hidden" />}
           />
-          <main className={cn("flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className)}>
+          <main className={cn("relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className)}>
+            {/* El velo azul de arriba de cada página, como el playground de UBITS:
+                el primario al 14 % que se apaga en diagonal y se desvanece hacia abajo. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-112 bg-linear-208 from-primary/14 via-primary/5 via-30% to-transparent to-60% mask-b-from-35%"
+            />
             {/* overflow-y-auto habilita scroll en páginas estándar, en la caja de
                 todo el ancho (la barra de scroll queda en el borde, no en medio).
                 Dentro, el contenido mide como mucho 1440px y se centra. DataTablePage

@@ -203,7 +203,7 @@ export function ActionRailShell({
               data-state={isExpanded ? "expanded" : "collapsed"}
               data-orientation={orientation}
               className={cn(
-                "su-rail-bar relative flex items-center justify-center rounded-3xl border border-primary/15 bg-nav text-nav-foreground shadow-rail",
+                "su-rail-bar relative flex items-center justify-center rounded-3xl border border-nav-foreground/10 bg-nav text-nav-foreground shadow-rail",
                 isVertical
                   ? "max-h-[calc(100vh-2rem)] w-14 flex-col py-3"
                   : "h-14 max-w-[calc(100vw-2rem)] px-3",

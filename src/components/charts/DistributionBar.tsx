@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Card } from "@/components/ui/card";
+import { Frame, FramePanel } from "@/components/shared/frame";
 import { cn } from "@/lib/utils";
 import { PanelHeading } from "./PanelHeading";
 import { CHART_TONE_FILL, type ChartTone } from "./tone";
@@ -131,9 +131,10 @@ export function DistributionBar({
   if (!title) return <div className={className}>{body}</div>;
 
   return (
-    <Card className={cn("gap-4", className)}>
-      <PanelHeading title={title} description={description} actions={actions} />
-      {body}
-    </Card>
+    // El marco de UBITS: el título en la franja gris y la lista en su panel.
+    <Frame className={className}>
+      <PanelHeading className="px-3 pt-2 pb-1.5" title={title} description={description} actions={actions} />
+      <FramePanel>{body}</FramePanel>
+    </Frame>
   );
 }

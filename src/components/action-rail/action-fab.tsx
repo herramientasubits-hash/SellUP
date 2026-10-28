@@ -193,10 +193,10 @@ export function ActionFab({
                     title={filledPrimary.blockedReason ?? undefined}
                     className={cn(
                       "flex h-12 items-center gap-2 rounded-2xl px-5 text-sm font-semibold shadow-rail transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none motion-reduce:hover:scale-100 [&_svg]:size-5",
-                      filledPrimary.variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground",
+                      filledPrimary.variant === "ai" ? "su-ai-gradient rounded-full" : "bg-primary text-primary-foreground",
                     )}
                   >
-                    {filledPrimary.icon}
+                    {filledPrimary.variant === "ai" ? null : filledPrimary.icon}
                     {filledPrimary.label}
                   </button>
                 )}

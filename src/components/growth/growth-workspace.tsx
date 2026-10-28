@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ArrowRight, ClipboardCheck, Search, Target, Users } from "@/icons";
+import { ArrowRight, ClipboardCheck, Search, Users } from "@/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
@@ -11,6 +11,7 @@ import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { Frame, FramePanel } from "@/components/shared/frame";
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { IconChip } from "@/components/shared/icon-chip";
 import { UrlTabs } from "@/components/navigation/url-tabs";
 import type { Tone } from "@/lib/tone";
@@ -52,6 +53,12 @@ export interface GrowthWorkspaceProps {
   newSearchAction: React.ReactNode;
   /** «Importar archivo»: el drawer de importación con su botón. */
   importAction: React.ReactNode;
+  /**
+   * Las acciones de la pantalla, las mismas de «Por revisar»: van a la barra de
+   * acciones o, con «En la pantalla», a la cabecera. Sin ellas (la galería sin
+   * sesión) la cabecera muestra los dos botones sueltos.
+   */
+  screenActions?: React.ReactNode;
   initialTab?: string;
   /** Adónde lleva una búsqueda. Inyectable para la galería sin sesión. */
   searchHref?: (id: string) => string;
@@ -99,6 +106,7 @@ export function GrowthWorkspace({
   searches,
   newSearchAction,
   importAction,
+  screenActions,
   initialTab,
   searchHref = (id) => `/prospect-batches/${id}`,
   reviewHref = "/accounts?tab=prospectos",
@@ -230,29 +238,24 @@ export function GrowthWorkspace({
         title="Prospección masiva"
         description="Trae empresas en cantidad con búsquedas de IA o archivos, y revisa lo que llega antes de que pase a SellUp y a HubSpot."
         actions={
-          <>
-            {importAction}
-            {newSearchAction}
-          </>
+          screenActions ?? (
+            <>
+              {importAction}
+              {newSearchAction}
+            </>
+          )
         }
       />
 
-      <Frame>
-        <FramePanel noPadding>
-          <dl className="grid grid-cols-2 divide-border/60 lg:grid-cols-4 lg:divide-x">
-            <Metric icon={Search} tone="brand" label="Búsquedas" value={summary.searches} hint="Con IA o por archivo" />
-            <Metric
-              icon={ClipboardCheck}
-              tone="warning"
-              label="Por revisar"
-              value={summary.needsReview}
-              hint="Esperan una decisión"
-            />
-            <Metric icon={Target} tone="info" label="En revisión" value={summary.inReview} hint="Búsquedas abiertas" />
-            <Metric icon={Users} tone="positive" label="Aprobadas" value={summary.approved} hint="Ya son empresas" />
-          </dl>
-        </FramePanel>
-      </Frame>
+      <MetricStrip
+        aria-label="Resumen de la prospección masiva"
+        items={[
+          { label: "Búsquedas", value: summary.searches, description: "Con IA o por archivo" },
+          { label: "Por revisar", value: summary.needsReview, description: "Esperan una decisión" },
+          { label: "En revisión", value: summary.inReview, description: "Búsquedas abiertas" },
+          { label: "Aprobadas", value: summary.approved, description: "Ya son empresas" },
+        ]}
+      />
 
       <UrlTabs ariaLabel="Prospección masiva" initialTab={initialTab} tabs={TABS}>
         <TabsContent value="busquedas">
@@ -338,31 +341,6 @@ export function GrowthWorkspace({
           />
         </TabsContent>
       </UrlTabs>
-    </div>
-  );
-}
-
-function Metric({
-  icon,
-  tone,
-  label,
-  value,
-  hint,
-}: {
-  icon: typeof Search;
-  tone: Tone;
-  label: string;
-  value: number;
-  hint: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 p-5">
-      <IconChip icon={icon} tone={tone} size="sm" />
-      <div className="min-w-0">
-        <dt className="text-sm text-muted-foreground">{label}</dt>
-        <dd className="text-2xl font-semibold tabular-nums text-foreground">{value}</dd>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
     </div>
   );
 }

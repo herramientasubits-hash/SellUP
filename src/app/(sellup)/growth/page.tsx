@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { Upload } from '@/icons';
 import { Button } from '@/components/ui/button';
+import { ListActionRailProvider } from '@/components/action-rail';
+import { ProspectsScreenActions } from '@/components/prospects/prospects-screen-actions';
 import { GrowthWorkspace } from '@/components/growth/growth-workspace';
 import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { loadGenerateProspectsAgent } from '@/components/prospects/prospects-module-panel';
@@ -51,8 +53,17 @@ export default async function GrowthPage({
   const assignableUsers = bulkSearches.length > 0 ? await getActiveUsers().catch(() => []) : [];
 
   return (
+    // Las acciones de la pantalla («Importar archivo» y el agente de IA) son las de
+    // «Por revisar»: van a la barra flotante o, con «En la pantalla», a la cabecera.
+    <ListActionRailProvider label="Acciones de prospección masiva" gender="f">
     <GrowthWorkspace
       initialTab={tab}
+      screenActions={
+        <ProspectsScreenActions
+          generateDrawer={generateAgent?.generateDrawer ?? undefined}
+          isGenerateAvailable={generateAgent?.isGenerateAvailable ?? false}
+        />
+      }
       summary={toGrowthSummary(summary, searches)}
       searches={searches}
       newSearchAction={generateAgent?.generateDrawer ?? null}
@@ -68,5 +79,6 @@ export default async function GrowthPage({
         </ImportCandidatesDrawer>
       }
     />
+    </ListActionRailProvider>
   );
 }

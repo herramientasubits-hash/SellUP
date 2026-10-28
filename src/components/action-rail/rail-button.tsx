@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { AIOrb } from "@/components/ai/ai-orb";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRailIsVertical, useRailPopoutSide } from "./rail-preferences";
@@ -106,11 +107,11 @@ export function RailCreateOption({
         className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors [&_svg]:size-5",
           variant === "ai"
-            ? "su-ai-gradient"
+            ? ""
             : "bg-nav-foreground/5 text-nav-foreground/60 group-hover:bg-nav-foreground/10 group-hover:text-nav-foreground",
         )}
       >
-        {icon}
+        {variant === "ai" ? <AIOrb className="size-10" /> : icon}
       </span>
       <span className="flex flex-col gap-0.5">
         <span className="text-sm font-bold tracking-tight text-nav-foreground">{title}</span>
@@ -198,13 +199,13 @@ export const RailPrimaryAction = React.forwardRef<HTMLButtonElement, RailPrimary
           "relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold transition-transform [&_svg]:size-4",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/30 active:scale-95",
           "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
-          variant === "ai" ? "su-ai-gradient" : "bg-primary text-primary-foreground hover:bg-primary/90",
-          isVertical ? "w-10 px-0" : "px-4",
+          variant === "ai" ? "su-ai-gradient rounded-full" : "bg-primary text-primary-foreground hover:bg-primary/90",
+          isVertical ? "w-10 px-0" : variant === "ai" ? "px-5" : "px-4",
           className,
         )}
         {...props}
       >
-        {icon}
+        {variant === "ai" && !isVertical ? null : variant === "ai" ? <AIOrb /> : icon}
         {!isVertical && label}
       </button>
     );

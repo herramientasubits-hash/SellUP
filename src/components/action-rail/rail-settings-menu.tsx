@@ -27,7 +27,7 @@ import {
 
 /** El panel oscuro que despliegan los menús de la barra. */
 export const RAIL_POPOVER_CLASS =
-  "rounded-2xl border-primary/15 bg-nav p-2 text-nav-foreground shadow-rail";
+  "rounded-2xl border-nav-foreground/10 bg-nav p-2 text-nav-foreground shadow-rail";
 
 /**
  * Las preferencias de la propia barra —cómo se comporta y hacia dónde se

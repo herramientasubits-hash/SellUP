@@ -433,7 +433,7 @@ describe('Menú lateral — secciones plegables', () => {
     assert.deepEqual(
       Array.from(nav.children, (child) => child.textContent),
       [
-        'Pipeline',
+        'Flujo de prospección',
         'Empresas',
         'Contactos',
         'Prospección masiva',
@@ -460,7 +460,7 @@ describe('Menú lateral — secciones plegables', () => {
     assert.equal(within(nav).queryByRole('button', { name: 'Configuración' }), null);
     assert.equal(within(nav).queryByRole('link', { name: 'Uso de IA y costos' }), null);
     assert.equal(within(nav).queryByRole('link', { name: 'Catálogo de fuentes' }), null);
-    assert.ok(within(nav).getByRole('link', { name: 'Pipeline' }));
+    assert.ok(within(nav).getByRole('link', { name: 'Flujo de prospección' }));
   });
 });
 
@@ -544,7 +544,7 @@ describe('Menú lateral — contraído', () => {
     const { SidebarProvider } = await import('../sidebar-context');
     render(h(SidebarProvider, null, sidebar()));
     const rail = screen.getByRole('navigation', { name: 'Navegación compacta' });
-    assert.equal(within(rail).getByRole('link', { name: 'Pipeline' }).getAttribute('href'), '/pipeline');
+    assert.equal(within(rail).getByRole('link', { name: 'Flujo de prospección' }).getAttribute('href'), '/pipeline');
   });
 });
 

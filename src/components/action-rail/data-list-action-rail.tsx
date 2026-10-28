@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { Sparkles } from "@/icons";
+import { AIOrb } from "@/components/ai/ai-orb";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -290,10 +290,10 @@ export function DataListActionRail({
 }
 
 /**
- * El agente de IA en la barra: la chispa y su nombre sobre el degradado de IA
- * («Buscar contactos»), como la acción primaria de al lado (dueña 22-10: sólo
- * el ícono no decía qué hacía). De pie no caben palabras: queda cuadrado y el
- * nombre va en el tooltip. Un agente sin `variant: "ai"` (p. ej. «Búsqueda no
+ * El agente de IA en la barra: su nombre sobre el degradado de IA («Buscar
+ * contactos»), como la acción primaria de al lado (dueña 22-10: sólo el ícono no
+ * decía qué hacía). Como en UBITS, el primario de IA va sin ícono. De pie no caben
+ * palabras: queda redondo con el orbe y el nombre va en el tooltip. Un agente sin `variant: "ai"` (p. ej. «Búsqueda no
  * disponible») no promete IA: sale como un icono más, con el suyo.
  */
 function RailAgentButton({ agent }: { agent: RailActionSpec }) {
@@ -323,14 +323,15 @@ function RailAgentButton({ agent }: { agent: RailActionSpec }) {
       data-variant="ai"
       onClick={isBlocked ? undefined : () => agent.onSelect?.()}
       className={cn(
-        "bg-ai-gradient relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold text-primary-foreground transition-transform [&_svg]:size-4.5",
-        "hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/40 active:scale-95",
+        // El primario de IA de UBITS: pastilla con el degradado, sin ícono y con su nombre.
+        // De pie no caben palabras: sólo el orbe, como «Orbit, solo el orbe».
+        "su-ai-gradient relative flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-transform",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/40 active:scale-95",
         "aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:active:scale-100 motion-reduce:transition-none",
-        isVertical ? "w-10 px-0" : "px-4",
+        isVertical ? "w-10 px-0" : "px-5",
       )}
     >
-      <Sparkles strokeWidth={2.5} aria-hidden="true" />
-      {!isVertical && agent.label}
+      {isVertical ? <AIOrb className="size-6" /> : agent.label}
     </button>
   );
 

@@ -6,6 +6,7 @@ import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/lib/utils";
 import { OVERLAY_COVERED_CLASS, useOverlayCovered } from "@/lib/overlay-stack";
 import { Button } from "@/components/ui/button";
+import { CLOSE_BUTTON_CLASS } from "@/components/ui/close-button-class";
 import { XIcon } from "@/icons";
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
@@ -29,7 +30,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/15 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-[2px] dark:bg-black/45",
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
         className,
       )}
       {...props}
@@ -98,7 +99,7 @@ function SheetLayer({
           // tres bordes que toca, con las cuatro esquinas redondeadas y borde
           // completo. Entra como en flux-ui: aparece y se acerca 2.5rem desde
           // su lado en 200ms, y sale igual.
-          "fixed z-50 flex flex-col gap-4 overflow-hidden rounded-2xl border border-border/70 bg-popover bg-clip-padding text-sm text-popover-foreground shadow-drawer transition duration-200 ease-in-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0",
+          "fixed z-50 flex flex-col gap-4 overflow-hidden rounded-3xl border border-border bg-popover bg-clip-padding text-sm text-popover-foreground shadow-drawer transition duration-200 ease-in-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0",
           "data-[side=right]:inset-y-3 data-[side=right]:right-3 data-[side=right]:w-[calc(100%-1.5rem)] data-[side=right]:data-ending-style:translate-x-10 data-[side=right]:data-starting-style:translate-x-10 data-[side=right]:sm:max-w-sm",
           "data-[side=left]:inset-y-3 data-[side=left]:left-3 data-[side=left]:w-[calc(100%-1.5rem)] data-[side=left]:data-ending-style:-translate-x-10 data-[side=left]:data-starting-style:-translate-x-10 data-[side=left]:sm:max-w-sm",
           "data-[side=top]:inset-x-3 data-[side=top]:top-3 data-[side=top]:h-auto data-[side=top]:max-h-[calc(100dvh-1.5rem)] data-[side=top]:data-ending-style:-translate-y-10 data-[side=top]:data-starting-style:-translate-y-10",
@@ -115,7 +116,7 @@ function SheetLayer({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-3 right-3"
+                className={cn("absolute top-4 right-4", CLOSE_BUTTON_CLASS)}
                 size="icon-sm"
               />
             }

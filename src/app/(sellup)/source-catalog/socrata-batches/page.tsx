@@ -1,11 +1,10 @@
 import { redirect } from 'next/navigation';
+import { MetricStrip } from "@/components/shared/metric-strip";
 import { isCurrentUserAdmin } from '@/modules/access/actions';
-import { XCircle, CheckCircle2, FlaskConical, Layers } from "@/icons";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import { PageHeader } from '@/components/shared/page-header';
 import { SOURCE_CATALOG_ROUTE } from '@/config/navigation';
-import { MetricCard } from '@/components/shared/metric-card';
 import { getSocrataPreviewBatches } from '@/modules/source-catalog/socrata-batches-queries';
 import { CreateSocrataBatchButton } from './create-socrata-batch-button';
 import { SocrataBatchesTable } from './socrata-batches-table';
@@ -42,32 +41,15 @@ export default async function SocrataBatchesPage() {
         </AlertDescription>
       </Alert>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="Lotes"
-          description="Creados hasta hoy"
-          value={totalCount}
-          icon={<Layers className="text-primary" aria-hidden="true" />}
-        />
-        <MetricCard
-          title="Por revisar"
-          description="Listos para revisión"
-          value={readyForReview}
-          icon={<CheckCircle2 className="text-warning" aria-hidden="true" />}
-        />
-        <MetricCard
-          title="Cancelados"
-          description="Lotes descartados"
-          value={cancelled}
-          icon={<XCircle className="text-muted-foreground" aria-hidden="true" />}
-        />
-        <MetricCard
-          title="De prueba"
-          description="Creados para probar la fuente"
-          value={smokeTests}
-          icon={<FlaskConical className="text-info" aria-hidden="true" />}
-        />
-      </div>
+      <MetricStrip
+        aria-label="Resumen de los lotes"
+        items={[
+          { label: "Lotes", value: totalCount, description: "Creados hasta hoy" },
+          { label: "Por revisar", value: readyForReview, description: "Listos para revisión" },
+          { label: "Cancelados", value: cancelled, description: "Lotes descartados" },
+          { label: "De prueba", value: smokeTests, description: "Creados para probar la fuente" },
+        ]}
+      />
 
       <SocrataBatchesTable batches={batches} />
     </div>

@@ -36,7 +36,14 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-premium: var(--premium);
+  --color-premium-foreground: var(--premium-foreground);
+  --color-focus: var(--focus);
+  --color-focus-foreground: var(--focus-foreground);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
@@ -73,6 +80,7 @@
   --color-surface: var(--card);
   --color-surface-muted: var(--surface-muted);
   --color-surface-subtle: var(--surface-subtle);
+  --color-frame: var(--frame);
   --color-tab-track: var(--tab-track);
   --color-text-primary: var(--foreground);
   --color-text-secondary: var(--muted-foreground);
@@ -93,7 +101,7 @@
      flota sobre contenido vivo). */
   --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-drawer: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-rail: 0 8px 30px rgb(15 23 42 / 0.24), 0 2px 8px rgb(15 23 42 / 0.12);
+  --shadow-rail: 0 8px 30px rgb(0 0 0 / 0.24), 0 2px 8px rgb(0 0 0 / 0.12);
 
   /* SellUp — tokens semánticos de marca */
   --color-su-brand: var(--su-brand);
@@ -146,8 +154,9 @@
      los de flux-ui (emerald-500, yellow-500) no pasan AA como texto.
    · destructive-foreground: aquí es el texto de lo que va sobre rojo sólido
      (en flux-ui es texto rojo sobre su tinte).
-   · los colores de gráficos (flux-ui usa 5 tonos de un solo azul, que no
-     distinguen series), el degradado de IA y la navegación navy.
+   Desde el 28-10 los gráficos (5 tonos del azul UBITS), el degradado de IA
+   (azul → morado → rosa → naranja), premium, info-foreground y el foco son los
+   de flux-ui tal cual.
 ───────────────────────────────────────────────────────────────────────────── */
 :root {
   --background: oklch(1 0 0);
@@ -176,19 +185,28 @@
 
   /* Estados semánticos. info = el azul de información del tema UBITS. */
   --info: oklch(0.46 0.15 247);
+  --info-foreground: oklch(0.42 0.14 247);       /* texto sobre el tinte de info */
+  /* Premium: el único violeta del tema (insignia Pro), con el morado de la IA */
+  --premium: oklch(0.52 0.24 296);
+  --premium-foreground: oklch(0.44 0.21 296);
   --warning: hsl(27 100% 52%);                  /* #FF7B0D */
   --success: hsl(161.4 93.5% 30.4%);            /* #059669 */
+  /* Texto oscuro sobre el tinte de éxito / advertencia (insignias «-light» de flux-ui) */
+  --success-foreground: oklch(0.378 0.077 168.94);
+  --warning-foreground: oklch(0.421 0.095 57.708);
 
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.52 0.233 261.971);
+  --focus: oklch(0.52 0.233 261.971);
+  --focus-foreground: oklch(0.97 0.014 254.604);
 
-  /* Charts — del primario hacia el espectro frío (se mantienen) */
-  --chart-1: oklch(0.52 0.233 261.971);
-  --chart-2: hsl(262 83% 58%);
-  --chart-3: hsl(199 89% 48%);
-  --chart-4: hsl(161.4 93.5% 30.4%);
-  --chart-5: hsl(27 100% 52%);
+  /* Charts — los de flux-ui: cinco tonos del azul UBITS, de claro a profundo */
+  --chart-1: oklch(0.785 0.11 261.971);
+  --chart-2: oklch(0.585 0.223 261.971);
+  --chart-3: oklch(0.511 0.251 261.971);
+  --chart-4: oklch(0.457 0.23 261.971);
+  --chart-5: oklch(0.398 0.187 261.971);
 
   /* Radius base de flux-ui — 14px */
   --radius: 0.875rem;
@@ -201,12 +219,16 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.52 0.233 261.971);
-  --nav: hsl(222 47% 11%);
-  --nav-foreground: hsl(222 12% 98%);
+  /* La barra de acciones flotante: casi negro neutro (antes navy de Thema). */
+  --nav: oklch(0.205 0 0);
+  --nav-foreground: oklch(0.985 0 0);
 
   /* Alias de Thema, ahora en los neutros de flux-ui (los usan cientos de clases) */
   --surface-muted: oklch(0.97 0 0);             /* sección apagada = muted */
   --surface-subtle: oklch(0.985 0 0);           /* hundida, bajo una card */
+  /* El marco (Frame de UBITS): la franja gris que rodea un panel. Siempre más
+     oscuro que el panel que contiene: afuera gris, adentro blanco. */
+  --frame: oklch(0.985 0 0);
   --tab-track: oklch(0.97 0 0);                 /* pista de pestañas = bg-muted */
   --text-muted: oklch(0.68 0 0);                /* hints y placeholders */
   --brand-hover: oklch(0.47 0.215 261.971);
@@ -233,17 +255,19 @@
   --su-success: hsl(161.4 93.5% 30.4%);          /* positivo #059669 */
   --su-warning: hsl(27 100% 52%);                /* warning #FF7B0D */
 
-  /* AI gradient — 5 paradas (azul → violeta → magenta → naranja) */
-  --su-ai-stop-1: #2d5cf7;
-  --su-ai-stop-2: #9b14f5;
-  --su-ai-stop-3: #f2024e;
-  --su-ai-stop-4: #f2024e;
-  --su-ai-stop-5: #ff600a;
+  /* AI gradient — el degradado de marca de la IA de UBITS (diseño, 14-sep):
+     azul → morado (35 %) → rosa (65 %) → naranja. Iguales en claro y oscuro: el
+     texto encima siempre es blanco. stop-3 y stop-4 son el mismo rosa. */
+  --su-ai-stop-1: #285ee6;
+  --su-ai-stop-2: #7e2be0;
+  --su-ai-stop-3: #d22d6a;
+  --su-ai-stop-4: #d22d6a;
+  --su-ai-stop-5: #eb6233;
   --su-ai-from: var(--su-ai-stop-1);
   --su-ai-to: var(--su-ai-stop-5);
-  --su-ai-surface: rgb(45 92 247 / 0.1);
-  --su-ai-glow: rgb(45 92 247 / 0.3);
-  --su-ai-send-shadow: 0 2px 8px rgb(45 92 247 / 0.35);
+  --su-ai-surface: rgb(40 94 230 / 0.08);
+  --su-ai-glow: rgb(40 94 230 / 0.2);
+  --su-ai-send-shadow: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -276,18 +300,25 @@
   --destructive-foreground: oklch(0.145 0 0);
 
   --info: oklch(0.74 0.13 247);
+  --info-foreground: oklch(0.2 0.05 247);
+  --premium: oklch(0.76 0.14 296);
+  --premium-foreground: oklch(0.2 0.06 296);
   --warning: hsl(38 94% 58%);
   --success: hsl(158 64% 52%);
+  --success-foreground: hsl(158 64% 52%);
+  --warning-foreground: hsl(38 94% 58%);
 
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.69 0.16 266.043);
+  --focus: oklch(0.52 0.233 261.971);
+  --focus-foreground: oklch(0.97 0.014 254.604);
 
-  --chart-1: oklch(0.69 0.16 266.043);
-  --chart-2: hsl(262 83% 68%);
-  --chart-3: hsl(199 89% 58%);
-  --chart-4: hsl(158 64% 52%);
-  --chart-5: hsl(38 94% 58%);
+  --chart-1: oklch(0.785 0.128 266.043);
+  --chart-2: oklch(0.585 0.259 266.043);
+  --chart-3: oklch(0.511 0.291 266.043);
+  --chart-4: oklch(0.457 0.267 266.043);
+  --chart-5: oklch(0.398 0.217 266.043);
 
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
@@ -297,11 +328,17 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.69 0.16 266.043);
-  --nav: hsl(222 47% 11%);
-  --nav-foreground: hsl(222 12% 98%);
+  /* En oscuro, un gris por encima del fondo para que la barra se despegue. */
+  --nav: oklch(0.269 0 0);
+  --nav-foreground: oklch(0.985 0 0);
 
   --surface-muted: oklch(0.269 0 0);
-  --surface-subtle: oklch(0.18 0 0);
+  /* Como el gris al 50 % de UBITS: dentro de una tarjeta, un poco MÁS claro que ella
+     (antes 0.18, más oscuro: las cajas internas parecían un hueco). */
+  --surface-subtle: oklch(0.237 0 0);
+  /* En oscuro igual que en claro: el marco más oscuro que su panel (card 0.205),
+     y algo más claro que el fondo de la página para que se lea como contenedor. */
+  --frame: oklch(0.175 0 0);
   --tab-track: oklch(0.269 0 0);
   --text-muted: oklch(0.556 0 0);
   --brand-hover: oklch(0.74 0.14 266.043);
@@ -325,16 +362,16 @@
   --su-success: hsl(158 64% 52%);
   --su-warning: hsl(38 94% 58%);
 
-  --su-ai-stop-1: #547bf8;
-  --su-ai-stop-2: #ab3bf7;
-  --su-ai-stop-3: #fd2167;
-  --su-ai-stop-4: #fd2167;
-  --su-ai-stop-5: #ff7933;
+  --su-ai-stop-1: #285ee6;
+  --su-ai-stop-2: #7e2be0;
+  --su-ai-stop-3: #d22d6a;
+  --su-ai-stop-4: #d22d6a;
+  --su-ai-stop-5: #eb6233;
   --su-ai-from: var(--su-ai-stop-1);
   --su-ai-to: var(--su-ai-stop-5);
-  --su-ai-surface: rgb(84 123 248 / 0.12);
-  --su-ai-glow: rgb(84 123 248 / 0.3);
-  --su-ai-send-shadow: 0 2px 10px rgb(84 123 248 / 0.4);
+  --su-ai-surface: rgb(40 94 230 / 0.14);
+  --su-ai-glow: rgb(40 94 230 / 0.25);
+  --su-ai-send-shadow: none;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -558,6 +595,17 @@
     }
   }
 
+  /* Tarjeta enmarcada: el mismo aspecto que Frame + FramePanel de UBITS (franja
+     gris de 3px y su filo alrededor de un panel), en un solo elemento. Así una
+     tarjeta suelta se lee igual que una tabla o una fila de cifras: afuera el
+     marco, adentro el panel. */
+  .su-framed {
+    box-shadow:
+      0 0 0 3px var(--frame),
+      0 0 0 4px var(--border),
+      var(--shadow-card);
+  }
+
   /* Atmósfera de página — el halo del tema detrás de header y contenido */
   .page-atmosphere {
     background-image: var(--page-atmosphere);
@@ -588,32 +636,29 @@
      Se usa background-image/background-color por separado en lugar del shorthand
      'background' para máxima robustez contra especificidad. */
 
-  /* Solid fill — for primary AI buttons and strong indicators.
-     Gradiente 'to right' con 5 stops (azul → violeta → magenta → rosa → naranja).
-     Esta es la versión que el usuario prefiere visualmente. */
+  /* Relleno de IA — el primario de IA de UBITS («Nueva conversación»): azul →
+     morado → rosa → naranja, sin filo, sombra ni resplandor. Al pasar el cursor
+     el degradado se invierte en su sitio (naranja → azul) animando --su-ai-turn
+     de 0 a 100 %; nada se desplaza. */
   .su-ai-gradient {
+    --su-ai-turn: 0%;
     background-color: var(--su-ai-stop-1) !important;
     background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
+      90deg in oklab,
+      color-mix(in oklch, var(--su-ai-stop-1), var(--su-ai-stop-5) var(--su-ai-turn)) 0%,
+      color-mix(in oklch, var(--su-ai-stop-2), var(--su-ai-stop-3) var(--su-ai-turn)) 36%,
+      color-mix(in oklch, var(--su-ai-stop-3), var(--su-ai-stop-2) var(--su-ai-turn)) 70%,
+      color-mix(in oklch, var(--su-ai-stop-5), var(--su-ai-stop-1) var(--su-ai-turn)) 100%
     ) !important;
-    color: oklch(0.99 0 0);
+    /* Texto e ícono blancos en los dos modos: el `text-primary-foreground` del
+       botón azul es marino en oscuro y sobre el degradado no se lee. */
+    color: oklch(0.99 0 0) !important;
+    box-shadow: none;
+    transition: --su-ai-turn 600ms var(--ease-smooth);
   }
-  .su-ai-gradient:hover {
-    background-color: var(--su-ai-stop-1) !important;
-    background-image: linear-gradient(
-      to right,
-      var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
-      var(--su-ai-stop-5)
-    ) !important;
-    opacity: 0.9;
+  .su-ai-gradient:hover:not(:disabled),
+  .su-ai-gradient[aria-expanded="true"] {
+    --su-ai-turn: 100%;
   }
 
   /* Animated shimmer variant — living gradient for active AI states */
@@ -638,9 +683,8 @@
     background-image: linear-gradient(
       to right,
       var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
+      var(--su-ai-stop-2) 35%,
+      var(--su-ai-stop-3) 65%,
       var(--su-ai-stop-5)
     );
     -webkit-background-clip: text;
@@ -672,35 +716,40 @@
       linear-gradient(
         to right,
         var(--su-ai-stop-1),
-        var(--su-ai-stop-2),
-        var(--su-ai-stop-3),
-        var(--su-ai-stop-4),
-        var(--su-ai-stop-5)
+      var(--su-ai-stop-2) 35%,
+      var(--su-ai-stop-3) 65%,
+      var(--su-ai-stop-5)
       ) border-box !important;
   }
 
-  /* Glow halo — shadow effect for AI buttons and active states.
-     Intensidad alineada con --shadow-ai-premium de plantilla-proyectos-shadcn
-     (0 4px 15px rgba(45,92,247,0.3) + 0 2px 5px rgba(225,29,72,0.2)). */
+  /* Resplandor de IA — el del borde de IA de UBITS (borde-ia): suave, al 20 %,
+     azul hacia arriba y naranja hacia abajo. Acompaña al degradado, no compite. */
   .su-ai-glow {
     box-shadow:
-      0 4px 15px rgba(45, 92, 247, 0.3),
-      0 2px 5px rgba(225, 29, 72, 0.2) !important;
+      0 -4px 14px 0 color-mix(in srgb, var(--su-ai-stop-1) 20%, transparent),
+      0 4px 14px 0 color-mix(in srgb, var(--su-ai-stop-5) 20%, transparent) !important;
   }
-  .su-ai-glow:hover {
-    box-shadow:
-      0 6px 20px rgba(45, 92, 247, 0.35),
-      0 4px 10px rgba(225, 29, 72, 0.25) !important;
+
+  /* Borde de IA al pasar el cursor (borde-ia de UBITS): una zona donde la IA
+     puede hacer el trabajo. En reposo, el borde normal; encima, el degradado y
+     el resplandor. El borde ocupa su sitio desde el principio: nada se mueve. */
+  .su-ai-hover-border {
+    border: 1.5px solid transparent;
+    background-image:
+      linear-gradient(var(--card), var(--card)),
+      linear-gradient(var(--border), var(--border));
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+    transition: box-shadow 150ms ease;
   }
-  .dark .su-ai-glow {
+  .su-ai-hover-border:hover,
+  .su-ai-hover-border:focus-within {
+    background-image:
+      linear-gradient(var(--card), var(--card)),
+      linear-gradient(90deg, var(--su-ai-stop-1), var(--su-ai-stop-2) 35%, var(--su-ai-stop-3) 65%, var(--su-ai-stop-5));
     box-shadow:
-      0 4px 20px rgba(45, 92, 247, 0.4),
-      0 2px 8px rgba(225, 29, 72, 0.3) !important;
-  }
-  .dark .su-ai-glow:hover {
-    box-shadow:
-      0 6px 25px rgba(45, 92, 247, 0.45),
-      0 4px 12px rgba(225, 29, 72, 0.35) !important;
+      0 -4px 14px 0 color-mix(in srgb, var(--su-ai-stop-1) 20%, transparent),
+      0 4px 14px 0 color-mix(in srgb, var(--su-ai-stop-5) 20%, transparent);
   }
 
   /* Badge compound — pill-shaped AI indicator */
@@ -717,9 +766,8 @@
     background-image: linear-gradient(
       to right,
       var(--su-ai-stop-1),
-      var(--su-ai-stop-2),
-      var(--su-ai-stop-3),
-      var(--su-ai-stop-4),
+      var(--su-ai-stop-2) 35%,
+      var(--su-ai-stop-3) 65%,
       var(--su-ai-stop-5)
     ) !important;
     color: oklch(0.99 0 0);
@@ -938,6 +986,19 @@
   initial-value: 0deg;
 }
 
+/* Cuánto se invirtió el relleno de IA (.su-ai-gradient): 0 % en reposo, 100 % al pasar el cursor. */
+@property --su-ai-turn {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .su-ai-gradient {
+    transition: none;
+  }
+}
+
 /* Rumbo: la baldosa late y la aguja se mueve; cada ciclo termina donde empieza (dueña
    19-10: la vuelta de 0° a 90° volvía a 0° de golpe y se veía cortada). */
 @keyframes chat-mark-breathe {
@@ -992,6 +1053,9 @@
       var(--su-ai-stop-3) 72%,
       var(--su-ai-stop-5) 100%
     ) !important;
+    /* Sobre el degradado de IA, ícono y texto siempre en blanco: el
+       `text-primary-foreground` del azul es marino en oscuro y no se ve. */
+    color: oklch(0.99 0 0) !important;
   }
   .text-ai-gradient {
     background: linear-gradient(

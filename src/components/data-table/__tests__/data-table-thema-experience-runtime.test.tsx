@@ -286,9 +286,10 @@ describe('DataTable — filtros activos a la vista', () => {
     assert.ok(within(chips).getByText('País: Perú'));
     assert.equal(visibleNames().length, 4);
     assert.equal(
+      // Como la cabecera de TablaDatos de UBITS: el título y, debajo, el conteo.
       screen.getByText('Listado de empresas').parentElement?.textContent,
-      'Listado de empresas4',
-      'el total junto al título es el de lo filtrado',
+      'Listado de empresas4 empresas',
+      'el total bajo el título es el de lo filtrado',
     );
 
     fireEvent.click(within(chips).getByRole('button', { name: 'Eliminar País: Perú' }));
