@@ -219,7 +219,7 @@ describe('B. executeSupplierSearchRun', () => {
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal(result.code, 'GENERATION_FAILED');
-    assert.match(result.message, /cuota mensual de Claude/);
+    assert.match(result.message, /cuota mensual de Rumbo/);
     assert.equal(result.retryable, false);
   });
 
