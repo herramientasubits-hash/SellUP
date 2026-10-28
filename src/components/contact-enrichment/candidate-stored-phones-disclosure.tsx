@@ -34,9 +34,11 @@
 // ningún número en consola.
 
 import * as React from 'react';
-import { ChevronDown, ChevronUp, Phone } from "@/icons";
+import { ChevronDown, Phone } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 import {
   getCandidateStoredPhonesAction,
   type StoredCandidatePhonesResult,
@@ -123,10 +125,11 @@ export function CandidateStoredPhonesDisclosure({
 
   const handleToggle = React.useCallback(() => {
     if (open) {
-      // Cerrar OLVIDA lo leído. Así la próxima apertura vuelve a preguntar y una
-      // supresión aplicada mientras tanto surte efecto sin tiempo real.
+      // Cerrar OLVIDA lo leído: el panel se desmonta al terminar de plegarse y la
+      // próxima apertura arranca en «cargando» y vuelve a preguntar, así una
+      // supresión aplicada mientras tanto surte efecto sin tiempo real. (Vaciarlo
+      // aquí mismo dejaba el panel sin alto y el cierre no se animaba.)
       setOpen(false);
-      setState({ kind: 'idle' });
       return;
     }
 
@@ -151,23 +154,21 @@ export function CandidateStoredPhonesDisclosure({
   }, [candidateId, open]);
 
   return (
-    <div className="space-y-2">
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        onClick={handleToggle}
-        aria-expanded={open}
+    <Collapsible open={open} onOpenChange={handleToggle} className="space-y-2">
+      <CollapsibleTrigger
+        // Apunta al panel también plegado: así lo anuncia el lector de pantalla.
         aria-controls={panelId}
-        className="-ml-2 gap-1.5 text-primary"
+        render={<Button type="button" variant="ghost" size="xs" className="-ml-2 gap-1.5 text-primary" />}
       >
         <Phone className="h-3 w-3" />
         {open ? STORED_PHONES_COLLAPSE_LABEL : getStoredPhonesCtaLabel(additionalCount)}
-        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-      </Button>
+        <ChevronDown
+          className={cn("h-3 w-3 transition-transform duration-200 ease-out", open && "rotate-180")}
+        />
+      </CollapsibleTrigger>
 
-      {open && (
-        <div id={panelId} className="space-y-1.5">
+      <CollapsibleContent id={panelId}>
+        <div className="space-y-1.5">
           {state.kind === 'loading' && (
             <p className="text-xs text-muted-foreground">
               {STORED_PHONES_LOADING_COPY}
@@ -196,7 +197,7 @@ export function CandidateStoredPhonesDisclosure({
             </>
           )}
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
