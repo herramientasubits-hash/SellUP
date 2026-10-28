@@ -107,13 +107,8 @@ export function ModalShell({
           {children}
         </div>
 
-        {footer ? (
-          footer
-        ) : actions ? (
-          <DialogFooter>
-            {actions}
-          </DialogFooter>
-        ) : null}
+        {/* El `footer` va en la misma barra que `actions`: suelto quedaba sin margen (ver DrawerShell). */}
+        {footer || actions ? <DialogFooter>{footer ?? actions}</DialogFooter> : null}
       </DialogContent>
     </Dialog>
   );

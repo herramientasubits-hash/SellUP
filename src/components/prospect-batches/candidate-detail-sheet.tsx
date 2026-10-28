@@ -460,6 +460,8 @@ export function CandidateDetailSheet({
             ) : null}
           </span>
         }
+        // Barra propia: px-7 y fondo de la ficha, alineada con sus pestañas.
+        footerBare
         footer={
           <ProspectReviewActions
             candidate={{

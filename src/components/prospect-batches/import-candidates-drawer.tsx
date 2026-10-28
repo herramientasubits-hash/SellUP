@@ -766,6 +766,8 @@ export function ImportCandidatesDrawer({
           ? "!w-full sm:!w-[90vw] sm:!max-w-[90vw]"
           : "sm:!max-w-[500px] sm:w-[500px] w-full"
       )}
+      // Cada paso trae su barra (`FooterBar`), igual a la de DrawerShell.
+      footerBare
       footer={footer}
     >
       {/* Import loading overlay — positioned over the scrollable content area */}
