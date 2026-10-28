@@ -125,6 +125,7 @@ import { completeConvertedAccount } from '@/modules/accounts/complete-converted-
 import {
   buildCandidateOwnershipOrClause,
   intersectOptionalUserIds,
+  presentCandidateResponsible,
   resolveCandidateResponsibleId,
   resolveConversionOwnerUserId,
 } from '@/modules/assignment/assignment-core';
@@ -5097,7 +5098,7 @@ export async function getGlobalCandidatesList(
       batchCreatedBy: candidate.batch?.created_by ?? null,
     })),
   );
-  const withResponsibles = await attachCandidateResponsibles(supabase, candidates);
+  const withResponsibles = await attachCandidateResponsibles(supabase, candidates, needing);
   return {
     candidates: withResponsibles.map((candidate) => ({ ...candidate, needs_assignee: needing.has(candidate.id) })),
     total: count ?? 0,
@@ -5108,10 +5109,15 @@ export async function getGlobalCandidatesList(
  * BULK-COMPANY-ASSIGNMENT-1 — responsable efectivo de cada prospecto (el
  * asignado o el del lote) con su nombre, para la columna «Responsable». Una
  * sola lectura de nombres; si falla, la lista sale igual sin la columna.
+ *
+ * Dice lo mismo que la regla de aprobación (#804): si la candidata necesita
+ * responsable (`needing`), quien lanzó la búsqueda (Growth o admin) NO es su
+ * responsable; va como `launchedBy` y la columna dice «Sin asignar».
  */
 async function attachCandidateResponsibles(
   supabase: Awaited<ReturnType<typeof createClient>>,
   candidates: GlobalCandidatesResult['candidates'],
+  needing: ReadonlySet<string> = new Set(),
 ): Promise<GlobalCandidatesResult['candidates']> {
   const withIds = candidates.map((candidate) => ({
     candidate,
@@ -5122,7 +5128,7 @@ async function attachCandidateResponsibles(
     }),
   }));
   const userIds = [...new Set(withIds.map((row) => row.responsibleId).filter((id): id is string => !!id))];
-  if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null }));
+  if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null, launchedBy: null }));
 
   const { data: users, error } = await supabase
     .from('internal_users')
@@ -5140,13 +5146,12 @@ async function attachCandidateResponsibles(
   );
   return withIds.map(({ candidate, responsibleId }) => ({
     ...candidate,
-    responsible: responsibleId
-      ? {
-          id: responsibleId,
-          name: names.get(responsibleId) ?? 'Sin nombre',
-          isAssigned: !!candidate.assigned_to,
-        }
-      : null,
+    ...presentCandidateResponsible({
+      responsibleId,
+      name: responsibleId ? (names.get(responsibleId) ?? 'Sin nombre') : null,
+      assignedTo: candidate.assigned_to,
+      needsAssignee: needing.has(candidate.id),
+    }),
   }));
 }
 
