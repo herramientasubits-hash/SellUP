@@ -90,6 +90,14 @@ function cleanCountryCode(value: string | null | undefined): string | null {
   return raw && /^[A-Za-z]{2}$/.test(raw) ? raw.toUpperCase() : null;
 }
 
+/** «México» y «mexico» son el mismo país: sin tildes ni mayúsculas. */
+function sameCountryName(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (value: string | null | undefined) =>
+    clean(value)?.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() ?? null;
+  const left = norm(a);
+  return left !== null && left === norm(b);
+}
+
 /**
  * Traduce la ficha de HubSpot a columnas de SellUp.
  *
@@ -101,6 +109,10 @@ export function mapHubSpotCompanyProfile(
   countryNameToCode: (country: string | null) => string | null,
 ): HubSpotCompanyProfileMapping {
   const country = clean(properties.pais) ?? clean(properties.country);
+  // El código sale del MISMO país que se guarda. `hs_country_code` lo llena HubSpot por su
+  // cuenta (su enriquecimiento) y puede contradecir el «País» de UBITS: Sencia quedó con
+  // «Colombia» e «IN». Sólo se usa cuando el nombre no está en el mapa o no hay nombre.
+  const countryCode = countryNameToCode(country) ?? cleanCountryCode(properties.hs_country_code);
   const domain = cleanDomain(properties.domain) ?? cleanDomain(properties.website);
   const website = clean(properties.website) ?? (domain ? `https://${domain}` : null);
   // Sólo la Macro industria: es la misma taxonomía de 12 que usa SellUp. La `industry`
@@ -113,7 +125,7 @@ export function mapHubSpotCompanyProfile(
       domain,
       website,
       country,
-      country_code: cleanCountryCode(properties.hs_country_code) ?? countryNameToCode(country),
+      country_code: countryCode,
       city: clean(properties.city),
       region: clean(properties.state),
       industry: macro?.displayName ?? null,
@@ -146,6 +158,9 @@ export type AccountFillPatch = Partial<Record<FillableAccountColumn, string>>;
 /**
  * Parche que completa SÓLO lo vacío. Lo que SellUp ya tiene manda: HubSpot nunca pisa un
  * valor existente (la columna `domain` además es la llave de deduplicación).
+ *
+ * País y código van en pareja: si SellUp ya tiene uno de los dos, el otro sólo se completa
+ * cuando HubSpot habla del mismo país. Si no, quedarían «Colombia» con la bandera de otro.
  */
 export function buildAccountFillPatch(
   existing: Partial<Record<FillableAccountColumn, string | null>>,
@@ -157,6 +172,14 @@ export function buildAccountFillPatch(
     if (incoming && !clean(existing[column] ?? null)) {
       patch[column] = incoming;
     }
+  }
+  const existingCountry = clean(existing.country ?? null);
+  const existingCode = clean(existing.country_code ?? null)?.toUpperCase() ?? null;
+  if (patch.country_code && existingCountry && !sameCountryName(existingCountry, fields.country)) {
+    delete patch.country_code;
+  }
+  if (patch.country && existingCode && existingCode !== fields.country_code) {
+    delete patch.country;
   }
   return patch;
 }
