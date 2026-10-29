@@ -11,7 +11,12 @@
 //     id, `POST /v3/contacts/enrich` con `reveal: ['emails']` (nunca teléfonos). Créditos: los que
 //     reporte Lusha; si no los reporta, desconocido (null), nunca 0.
 //
-// Ninguna línea registra la URL de LinkedIn (dato personal).
+// AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — también por CORREO (búsqueda puntual por correo):
+//   - Apollo `people/match` con `email` (sin `reveal_personal_emails`: el correo ya se tiene).
+//   - Lusha `POST /v3/contacts/search` con `contacts[].email`: la vista SIN revelar ya trae
+//     nombre, cargo, empresa y LinkedIn; no se llama a `enrich` (no hace falta revelar nada).
+//
+// Ninguna línea registra la URL de LinkedIn ni el correo (datos personales).
 
 import { matchApolloPerson } from '@/server/integrations/apollo-client';
 import { enrichLushaContactsV3, searchLushaContactsV3 } from '@/server/integrations/lusha-client';
@@ -38,9 +43,30 @@ function splitName(fullName: string | null): { firstName: string | null; lastNam
 
 // ── Apollo ────────────────────────────────────────────────────────────────────
 
+type ApolloLookupDeps = { matchPerson?: typeof matchApolloPerson; getApiKey?: typeof getApolloApiKey };
+
 export async function lookupApolloByLinkedin(
   canonicalUrl: string,
-  deps: { matchPerson?: typeof matchApolloPerson; getApiKey?: typeof getApolloApiKey } = {},
+  deps: ApolloLookupDeps = {},
+): Promise<LinkedinProviderLookup> {
+  return lookupApolloPerson({ linkedin_url: canonicalUrl, reveal_personal_emails: true }, deps);
+}
+
+/** Apollo por correo: el correo ya se tiene, así que no se pide revelar correos personales. */
+export async function lookupApolloByEmail(email: string, deps: ApolloLookupDeps = {}): Promise<LinkedinProviderLookup> {
+  const clean_ = clean(email)?.toLowerCase();
+  if (!clean_) return { kind: 'not_found', usage: [] };
+  const found = await lookupApolloPerson({ email: clean_ }, deps);
+  // Apollo puede no devolver el correo (bloqueado): el buscado es el de la persona.
+  if (found.kind === 'found' && !found.profile.email) {
+    return { ...found, profile: { ...found.profile, email: clean_ } };
+  }
+  return found;
+}
+
+async function lookupApolloPerson(
+  params: Parameters<typeof matchApolloPerson>[0],
+  deps: ApolloLookupDeps,
 ): Promise<LinkedinProviderLookup> {
   const { matchPerson = matchApolloPerson, getApiKey = getApolloApiKey } = deps;
 
@@ -49,7 +75,7 @@ export async function lookupApolloByLinkedin(
 
   let result: Awaited<ReturnType<typeof matchApolloPerson>>;
   try {
-    result = await matchPerson({ linkedin_url: canonicalUrl, reveal_personal_emails: true });
+    result = await matchPerson(params);
   } catch {
     return {
       kind: 'error',
@@ -89,6 +115,7 @@ export async function lookupApolloByLinkedin(
     providerCompanyDomain: normalizeDomain(websiteUrl),
     providerCompanyWebsiteUrl: websiteUrl,
     phoneAvailable: null,
+    linkedinUrl: clean(person.linkedin_url),
   };
   return { kind: 'found', profile, usage };
 }
@@ -170,6 +197,65 @@ export async function lookupLushaByLinkedin(
     providerCompanyDomain: companyDomain,
     providerCompanyWebsiteUrl: companyDomain,
     phoneAvailable: null,
+  };
+  return { kind: 'found', profile, usage };
+}
+
+/**
+ * Lusha por correo: sólo `contacts/search` (vista sin revelar). Trae nombre, cargo, empresa y
+ * LinkedIn; el correo es el que se buscó. No se llama a `enrich`: no hay nada que revelar.
+ */
+export async function lookupLushaByEmail(
+  email: string,
+  deps: {
+    isEnabled?: () => boolean;
+    getApiKey?: typeof getLushaApiKey;
+    search?: typeof searchLushaContactsV3;
+    timeoutMs?: number;
+  } = {},
+): Promise<LinkedinProviderLookup> {
+  const { isEnabled = isLushaContactEnrichmentEnabled, getApiKey = getLushaApiKey, search = searchLushaContactsV3 } = deps;
+  const address = clean(email)?.toLowerCase();
+  if (!address) return { kind: 'not_found', usage: [] };
+  if (!isEnabled()) return { kind: 'unavailable', usage: [] };
+  const apiKey = await getApiKey().catch(() => null);
+  if (!apiKey) return { kind: 'unavailable', usage: [] };
+  const timeoutMs = deps.timeoutMs ?? resolveLushaSearchTimeoutMs();
+
+  const found = await search({ apiKey, timeoutMs, contacts: [{ email: address }] });
+  const usage: LinkedinProviderUsage[] = [
+    {
+      provider_key: 'lusha',
+      operation_key: 'lusha_contact_search',
+      credits_used: typeof found.creditsCharged === 'number' ? found.creditsCharged : null,
+      status: found.ok || LUSHA_NOT_FOUND_STATUSES.has(found.status) ? 'success' : 'error',
+      results_returned: found.resultsReturned ?? 0,
+      ...(found.ok ? {} : { error_code: found.status }),
+    },
+  ];
+  if (!found.ok && !LUSHA_NOT_FOUND_STATUSES.has(found.status)) {
+    return { kind: 'error', message: found.status, usage };
+  }
+  const match = found.sanitizedResults?.find((r) => clean(r.fullName) || clean(r.id));
+  const fullName = clean(match?.fullName);
+  if (!match || !fullName) return { kind: 'not_found', usage };
+  const names = splitName(fullName);
+  const companyDomain = normalizeDomain(clean(match.companyDomain));
+  const profile: LinkedinProviderProfile = {
+    provider: 'lusha',
+    sourceContactId: clean(match.id),
+    firstName: names.firstName,
+    lastName: names.lastName,
+    fullName,
+    title: clean(match.title),
+    seniority: null,
+    country: null,
+    email: address,
+    providerCompanyName: clean(match.companyName),
+    providerCompanyDomain: companyDomain,
+    providerCompanyWebsiteUrl: companyDomain,
+    phoneAvailable: null,
+    linkedinUrl: clean(match.linkedinUrl),
   };
   return { kind: 'found', profile, usage };
 }

@@ -1,18 +1,21 @@
 'use client';
 
-// Agente 2A — Modo «Buscar contacto por LinkedIn» del panel del agente (F1 abre el modo, F2 lo llena).
+// Agente 2A — Modo «Buscar contacto por LinkedIn o correo» del panel del agente.
+// F1 abre el modo, F2 lo llena; AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE suma el correo y el
+// candidato inmediato.
 //
 // Detrás de CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED (apagada por defecto). Flujo:
-//   1. el usuario pega el enlace del perfil; el chat NO repite la URL (dato personal);
-//   2. el servidor valida, mira si ya existe en SellUp (por LinkedIn), enriquece (Apollo y, si
-//      no trae datos, Lusha) y compara el email encontrado contra SellUp y HubSpot;
-//   3. vista previa: nombre, cargo, empresa según el proveedor y datos encontrados; el teléfono
-//      sigue el flujo de reveal existente;
-//   4. «Asociar a una empresa» (obligatorio) y el candidato queda en «Por revisar».
+//   1. el usuario pega el enlace del perfil o el correo; el chat NO lo repite (dato personal);
+//   2. el servidor detecta qué es, mira si ya existe (SellUp; con correo también HubSpot),
+//      enriquece si hace falta (Apollo y, si no, Lusha), resuelve la empresa (HubSpot primero,
+//      luego SellUp; sólo coincidencia única) y CREA el candidato en «Por revisar»;
+//   3. el chat muestra lo encontrado y «Revisar ahora», que abre la ficha del candidato en
+//      «Por revisar»: revelar teléfono, confirmar o reasignar la empresa, aprobar o rechazar.
+//      Si el usuario no decide, el candidato ya está en «Por revisar».
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Building2, RotateCcw } from '@/icons';
+import { ArrowRight, RotateCcw, UserSearch } from '@/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { AgentChatTimeline, useProgressiveReveal } from '@/components/agent-chat';
@@ -21,61 +24,116 @@ import { ChatComposer } from '@/components/chat';
 import { ChatCardView } from '@/components/chat/chat-card-view';
 import type { ChatCardRow } from '@/components/chat/types';
 import { CONTACT_SEARCH_REVIEW_HREF } from '@/modules/contact-enrichment/contact-search-runs-client';
-import { searchContactByLinkedinAction } from '@/modules/contact-enrichment/linkedin-contact-search-actions';
-import type {
-  LinkedinSearchPreview,
-  LinkedinSearchResult,
-} from '@/modules/contact-enrichment/linkedin-contact-search-core';
+import {
+  CANDIDATE_REVIEW_OPEN_EVENT,
+  candidateReviewHref,
+} from '@/modules/contact-enrichment/candidate-review-link';
+import { detectContactSearchInput } from '@/modules/contact-enrichment/contact-search-input';
+import {
+  searchContactQuickAction,
+  type ContactQuickSearchResult,
+} from '@/modules/contact-enrichment/linkedin-contact-search-actions';
+import type { LinkedinSearchPreview } from '@/modules/contact-enrichment/linkedin-contact-search-core';
 import type { ContactEnrichmentChatWizardHandle } from './contact-enrichment-chat-wizard';
-import { LinkedinCandidateCompanyDialog } from './linkedin-candidate-company-dialog';
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
 export const LINKEDIN_SEARCH_GREETING =
-  'Pega el enlace del perfil de LinkedIn de la persona que buscas (por ejemplo, linkedin.com/in/nombre-apellido). Antes de gastar créditos reviso si ya está en SellUp.';
+  'Pega el enlace del perfil de LinkedIn (linkedin.com/in/nombre-apellido) o el correo de la persona que buscas. Antes de gastar créditos reviso si ya la tenemos.';
 
-/** Lo que muestra el chat en lugar de la URL pegada. */
+/** Lo que muestra el chat en lugar de lo pegado. */
 export const LINKEDIN_USER_MESSAGE = 'Perfil de LinkedIn enviado.';
+export const EMAIL_USER_MESSAGE = 'Correo enviado.';
+const OTHER_USER_MESSAGE = 'Búsqueda enviada.';
 
-export const LINKEDIN_SEARCHING_LABEL = 'Buscando el perfil…';
-
-export const LINKEDIN_FOUND_MESSAGE =
-  'Encontré este perfil. Asócialo a una empresa para dejarlo en «Por revisar». No creé el contacto final.';
+export const LINKEDIN_SEARCHING_LABEL = 'Buscando a la persona…';
 
 const CREDITS_SPENT_NOTE = 'La consulta al proveedor quedó registrada en el uso.';
 
-function providerLabel(provider: LinkedinSearchPreview['provider']): string {
+export const REVIEW_NOW_LABEL = 'Revisar ahora';
+export const OPEN_CANDIDATE_LABEL = 'Abrir candidato';
+
+function sourceLabel(provider: LinkedinSearchPreview['provider']): string {
+  if (provider === 'hubspot') return 'HubSpot';
   return provider === 'apollo' ? 'Apollo' : 'Lusha';
 }
 
-export function buildLinkedinPreviewRows(preview: LinkedinSearchPreview): ChatCardRow[] {
+export function userMessageFor(raw: string): string {
+  const input = detectContactSearchInput(raw);
+  if (input.kind === 'email') return EMAIL_USER_MESSAGE;
+  if (input.kind === 'linkedin') return LINKEDIN_USER_MESSAGE;
+  return OTHER_USER_MESSAGE;
+}
+
+type CreatedResult = Extract<ContactQuickSearchResult, { status: 'created' }>;
+
+export function buildLinkedinPreviewRows(
+  preview: LinkedinSearchPreview,
+  options: { entryMode?: CreatedResult['entryMode']; company?: CreatedResult['company'] | undefined } = {},
+): ChatCardRow[] {
   const rows: ChatCardRow[] = [
     { key: 'name', label: 'Nombre', value: preview.fullName },
     { key: 'title', label: 'Cargo', value: preview.title ?? '—' },
-    {
-      key: 'company',
-      label: `Empresa actual según ${providerLabel(preview.provider)}`,
-      value: preview.providerCompanyName ?? preview.providerCompanyDomain ?? '—',
-    },
-    { key: 'email', label: 'Correo', value: preview.email ?? 'No encontrado' },
-    {
-      key: 'phone',
-      label: 'Teléfono',
-      value: 'Se revela desde la ficha del candidato',
-    },
   ];
+  if (preview.provider !== 'hubspot') {
+    rows.push({
+      key: 'company',
+      label: `Empresa actual según ${sourceLabel(preview.provider)}`,
+      value: preview.providerCompanyName ?? preview.providerCompanyDomain ?? '—',
+    });
+  }
+  if (options.company !== undefined) {
+    rows.push({
+      key: 'assigned-company',
+      label: 'Empresa asignada',
+      value: options.company?.name ?? 'Sin empresa asociada',
+      hint: options.company ? null : 'Asígnala al revisar: sin empresa no se puede aprobar.',
+    });
+  }
+  rows.push({ key: 'email', label: 'Correo', value: preview.email ?? 'No encontrado' });
+  if (options.entryMode === 'email_single') {
+    rows.push({ key: 'linkedin', label: 'LinkedIn', value: preview.hasLinkedin ? 'Encontrado' : 'No encontrado' });
+  }
+  rows.push({
+    key: 'phone',
+    label: 'Teléfono',
+    value: preview.hasPhone ? 'Registrado en HubSpot' : 'Se revela desde la ficha del candidato',
+  });
   return rows;
 }
 
-/** Mensaje del asistente para cada desenlace que no es una vista previa. */
-export function linkedinResultMessage(result: Exclude<LinkedinSearchResult, { status: 'found' }>): {
+/** El mensaje del asistente cuando el candidato quedó creado. */
+export function quickSearchCreatedMessage(result: CreatedResult): string {
+  const name = result.preview.fullName;
+  const fromHubSpot = result.preview.provider === 'hubspot';
+  const parts: string[] = [
+    fromHubSpot
+      ? `Encontré a ${name} en HubSpot (sin gastar créditos) y lo dejé en «Por revisar»`
+      : `Encontré a ${name} y lo dejé en «Por revisar»`,
+  ];
+  parts[0] += result.company
+    ? ` con ${result.company.name}.`
+    : ' sin empresa: no hubo una coincidencia única en HubSpot ni en SellUp. Asígnala con «Reasignar empresa» antes de aprobar.';
+  if (result.company && result.companyMismatch) {
+    parts.push(
+      `Ojo: según ${sourceLabel(result.preview.provider)} trabaja en otra empresa; puede haber cambiado de trabajo.`,
+    );
+  }
+  parts.push(
+    'Revísalo ahora para revelar el teléfono, confirmar la empresa y aprobarlo o rechazarlo. Si no, te espera en «Por revisar».',
+  );
+  return parts.join(' ');
+}
+
+/** Mensaje del asistente para cada desenlace que no es un candidato creado. */
+export function linkedinResultMessage(result: Exclude<ContactQuickSearchResult, { status: 'created' }>): {
   content: string;
   tone: AgentChatTone;
 } {
   switch (result.status) {
     case 'disabled':
-      return { content: 'La búsqueda por LinkedIn no está activada en este entorno.', tone: 'warning' };
-    case 'invalid_url':
+      return { content: 'La búsqueda por LinkedIn o correo no está activada en este entorno.', tone: 'warning' };
+    case 'invalid_input':
       return { content: `${result.message} No se gastaron créditos.`, tone: 'warning' };
     case 'already_known': {
       const who = [result.match.fullName, result.match.companyName].filter(Boolean).join(' · ');
@@ -92,23 +150,33 @@ export function linkedinResultMessage(result: Exclude<LinkedinSearchResult, { st
     }
     case 'not_found':
       return {
-        content: result.creditsSpent ? `${result.message} No se creó nada. ${CREDITS_SPENT_NOTE}` : `${result.message} No se creó nada.`,
+        content: result.creditsSpent
+          ? `${result.message} No se creó nada. ${CREDITS_SPENT_NOTE}`
+          : `${result.message} No se creó nada.`,
         tone: 'warning',
       };
     case 'provider_error':
+      return { content: result.message, tone: 'error' };
+    case 'create_failed':
       return { content: result.message, tone: 'error' };
   }
 }
 
 // ── Estado ────────────────────────────────────────────────────────────────────
 
-type Step = 'await_url' | 'searching' | 'retry' | 'preview' | 'created';
+type Step = 'await_input' | 'searching' | 'retry';
 
 let messageSeq = 0;
 function message(role: AgentChatRole, content: string, tone?: AgentChatTone): AgentChatMessage {
   messageSeq += 1;
   return { id: `li-${messageSeq}`, role, content, tone };
 }
+
+/** Lo que el chat ofrece después de la última búsqueda. */
+type LastOutcome =
+  | { kind: 'created'; result: CreatedResult }
+  | { kind: 'pending'; candidateId: string }
+  | null;
 
 interface ContactEnrichmentLinkedinSearchProps {
   layout?: 'panel' | 'page';
@@ -127,13 +195,11 @@ export function ContactEnrichmentLinkedinSearch({
   const [messages, setMessages] = React.useState<AgentChatMessage[]>(() => [
     message('assistant', LINKEDIN_SEARCH_GREETING),
   ]);
-  const [step, setStep] = React.useState<Step>('await_url');
+  const [step, setStep] = React.useState<Step>('await_input');
   const [composerText, setComposerText] = React.useState('');
-  const [preview, setPreview] = React.useState<{ data: LinkedinSearchPreview; token: string; hubspotUnavailable: boolean } | null>(null);
-  const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [dialogKey, setDialogKey] = React.useState(0);
-  // La URL para «Reintentar»: vive sólo en memoria, nunca en el hilo.
-  const lastUrlRef = React.useRef<string | null>(null);
+  const [outcome, setOutcome] = React.useState<LastOutcome>(null);
+  // Lo pegado para «Reintentar»: vive sólo en memoria, nunca en el hilo.
+  const lastInputRef = React.useRef<string | null>(null);
   const aliveRef = React.useRef(true);
   const composerInputRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -154,7 +220,8 @@ export function ContactEnrichmentLinkedinSearch({
   // El panel remonta este componente para una conversación nueva.
   React.useImperativeHandle(ref, () => ({ reset: () => {} }));
 
-  const composerUnlocked = step === 'await_url' || step === 'retry';
+  // Después de cualquier resultado se puede buscar a otra persona sin abrir otra conversación.
+  const composerUnlocked = step === 'await_input' || step === 'retry';
 
   React.useEffect(() => {
     if (!composerUnlocked) return;
@@ -162,55 +229,64 @@ export function ContactEnrichmentLinkedinSearch({
     return () => clearTimeout(id);
   }, [composerUnlocked]);
 
-  async function runSearch(url: string) {
-    lastUrlRef.current = url;
+  async function runSearch(raw: string) {
+    lastInputRef.current = raw;
+    setOutcome(null);
     setStep('searching');
-    let result: LinkedinSearchResult;
+    let result: ContactQuickSearchResult;
     try {
-      result = await searchContactByLinkedinAction(url);
+      result = await searchContactQuickAction(raw);
     } catch {
       result = { status: 'provider_error', message: 'No pudimos completar la búsqueda. Intenta de nuevo.' };
     }
     if (!aliveRef.current) return;
-    if (result.status === 'found') {
-      lastUrlRef.current = null;
-      setPreview({ data: result.preview, token: result.token, hubspotUnavailable: result.hubspotCheck === 'unavailable' });
-      setMessages((prev) => [...prev, message('assistant', LINKEDIN_FOUND_MESSAGE)]);
-      setStep('preview');
+    if (result.status === 'created') {
+      lastInputRef.current = null;
+      setMessages((prev) => [...prev, message('assistant', quickSearchCreatedMessage(result))]);
+      setOutcome({ kind: 'created', result });
+      setStep('await_input');
       return;
     }
     const reply = linkedinResultMessage(result);
     setMessages((prev) => [...prev, message('assistant', reply.content, reply.tone)]);
+    if (result.status === 'already_known' && result.candidateId) {
+      setOutcome({ kind: 'pending', candidateId: result.candidateId });
+    }
     if (result.status === 'provider_error') {
       setStep('retry');
       return;
     }
-    lastUrlRef.current = null;
-    setStep('await_url');
+    lastInputRef.current = null;
+    setStep('await_input');
   }
 
   async function handleSend() {
     if (!composerUnlocked) return;
-    const url = composerText.trim();
-    if (!url) return;
+    const raw = composerText.trim();
+    if (!raw) return;
     setComposerText('');
-    setMessages((prev) => [...prev, message('user', LINKEDIN_USER_MESSAGE)]);
-    await runSearch(url);
+    setMessages((prev) => [...prev, message('user', userMessageFor(raw))]);
+    await runSearch(raw);
   }
 
   async function handleRetry() {
-    const url = lastUrlRef.current;
-    if (!url || searching) return;
+    const raw = lastInputRef.current;
+    if (!raw || searching) return;
     setMessages((prev) => [...prev, message('user', 'Reintentar')]);
-    await runSearch(url);
+    await runSearch(raw);
   }
 
-  function handleCreated(text: string) {
-    setMessages((prev) => [...prev, message('assistant', text)]);
-    setStep('created');
+  /**
+   * Abre la ficha en «Por revisar». Si la tabla ya está montada (el panel se abrió encima de
+   * «Por revisar»), el evento la abre al instante; si no, la query la abre al llegar.
+   */
+  function openCandidate(candidateId: string) {
+    window.dispatchEvent(new window.CustomEvent(CANDIDATE_REVIEW_OPEN_EVENT, { detail: { candidateId } }));
+    router.push(candidateReviewHref(CONTACT_SEARCH_REVIEW_HREF, candidateId));
   }
 
   const isPanel = layout === 'panel';
+  const created = outcome?.kind === 'created' ? outcome.result : null;
 
   return (
     <div
@@ -233,37 +309,50 @@ export function ContactEnrichmentLinkedinSearch({
             </Button>
           )}
 
-          {preview && (step === 'preview' || step === 'created') && !isRevealing && (
+          {created && !isRevealing && (
             <div className="space-y-3">
               <ChatCardView
                 data-testid="linkedin-preview"
-                card={{ kind: 'rows', title: `Datos encontrados en ${providerLabel(preview.data.provider)}`, rows: buildLinkedinPreviewRows(preview.data) }}
+                card={{
+                  kind: 'rows',
+                  title: `Datos encontrados en ${sourceLabel(created.preview.provider)}`,
+                  rows: buildLinkedinPreviewRows(created.preview, {
+                    entryMode: created.entryMode,
+                    company: created.company,
+                  }),
+                }}
               />
-              {preview.hubspotUnavailable && (
+              {created.hubspotUnavailable && (
                 <p className="text-xs text-muted-foreground">
-                  HubSpot no respondió al revisar el correo. Al aprobar, la sincronización vuelve a buscarlo y no lo
-                  duplica.
+                  HubSpot no respondió en algún paso. Al aprobar, la sincronización vuelve a buscar el correo y no
+                  lo duplica; la empresa puedes confirmarla en la ficha.
                 </p>
               )}
-              {step === 'preview' ? (
-                <Button
-                  className="w-full"
-                  onClick={() => {
-                    setDialogKey((key) => key + 1);
-                    setDialogOpen(true);
-                  }}
-                  data-testid="linkedin-associate-company"
-                >
-                  <Building2 className="h-4 w-4" aria-hidden />
-                  Asociar a una empresa
-                </Button>
-              ) : (
-                <Button variant="outline" className="w-full" onClick={() => router.push(CONTACT_SEARCH_REVIEW_HREF)}>
-                  Revisar contactos
-                  <ArrowRight className="h-4 w-4" aria-hidden />
-                </Button>
-              )}
+              <Button
+                className="w-full"
+                onClick={() => openCandidate(created.candidateId)}
+                data-testid="linkedin-review-now"
+              >
+                <UserSearch className="h-4 w-4" aria-hidden />
+                {REVIEW_NOW_LABEL}
+              </Button>
+              <Button variant="outline" className="w-full" onClick={() => router.push(CONTACT_SEARCH_REVIEW_HREF)}>
+                Ver «Por revisar»
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </Button>
             </div>
+          )}
+
+          {outcome?.kind === 'pending' && !isRevealing && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => openCandidate(outcome.candidateId)}
+              data-testid="linkedin-open-candidate"
+            >
+              <UserSearch className="h-4 w-4" aria-hidden />
+              {OPEN_CANDIDATE_LABEL}
+            </Button>
           )}
         </div>
       </div>
@@ -274,29 +363,12 @@ export function ContactEnrichmentLinkedinSearch({
           value={composerUnlocked ? composerText : ''}
           onChange={setComposerText}
           onSend={handleSend}
-          placeholder={
-            composerUnlocked
-              ? placeholder
-              : searching
-                ? LINKEDIN_SEARCHING_LABEL
-                : 'Usa «Nueva conversación» para buscar otro perfil'
-          }
+          placeholder={composerUnlocked ? placeholder : LINKEDIN_SEARCHING_LABEL}
           disabled={!composerUnlocked}
           maxLength={500}
           inputRef={composerInputRef}
         />
       </div>
-
-      {preview && dialogOpen && (
-        <LinkedinCandidateCompanyDialog
-          key={dialogKey}
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          preview={preview.data}
-          token={preview.token}
-          onCreated={handleCreated}
-        />
-      )}
     </div>
   );
 }

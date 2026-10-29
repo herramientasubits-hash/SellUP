@@ -33,6 +33,17 @@ export interface HubSpotFirstStageDeps {
   now?: () => number;
 }
 
+/**
+ * AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — exportada para que la búsqueda por correo aplique la
+ * MISMA regla de dueño que «Primero HubSpot» antes de ofrecer un contacto de HubSpot.
+ */
+export async function resolveHubSpotFirstOwnership(
+  triggeredBy: string | null,
+  accountId?: string | null,
+): Promise<HubSpotFirstOwnership> {
+  return defaultResolveOwnership(triggeredBy, accountId);
+}
+
 async function defaultResolveOwnership(
   triggeredBy: string | null,
   accountId?: string | null,

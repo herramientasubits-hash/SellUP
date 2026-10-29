@@ -54,6 +54,12 @@ const GENERIC_EMAIL_DOMAINS = new Set([
   'hey.com',
 ]);
 
+/** ¿Es un dominio de correo genérico (gmail, hotmail…)? No dice nada de la empresa. */
+export function isGenericEmailDomain(domain: string | null | undefined): boolean {
+  const key = domain?.trim().toLowerCase();
+  return !!key && GENERIC_EMAIL_DOMAINS.has(key);
+}
+
 // ── Normalización de dominios ──────────────────────────────────
 
 /** Extrae y normaliza un dominio desde una URL o string de dominio. */

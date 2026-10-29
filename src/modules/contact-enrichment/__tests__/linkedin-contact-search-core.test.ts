@@ -1,4 +1,6 @@
 // AGENT2A-LINKEDIN-CONTACT-SEARCH (F2) — núcleo de «Buscar contacto por LinkedIn».
+// AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE: ya no hay vista previa firmada; la búsqueda devuelve
+// los datos y la creación del candidato se prueba en `contact-quick-search-candidate-core.test.ts`.
 //
 // Dobles en memoria: sin Supabase, sin Apollo, sin Lusha, sin HubSpot, sin créditos.
 // URLs, nombres y correos ficticios.
@@ -7,19 +9,22 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  LINKEDIN_CREATE_COPY,
   LINKEDIN_SEARCH_COPY,
-  createLinkedinContactCandidate,
-  searchContactByLinkedin,
-  type LinkedinCandidateCreationDeps,
-  type LinkedinCandidateRow,
+  searchContactByLinkedin as searchCore,
   type LinkedinProviderLookup,
   type LinkedinProviderProfile,
   type LinkedinProviderUsage,
   type LinkedinSearchDeps,
-  type LinkedinSearchPreviewData,
+  type SearchedContactData,
 } from '../linkedin-contact-search-core';
-import type { CompanyCandidate } from '../types';
+
+/** Los datos encontrados de cada búsqueda, por juego de deps (antes: lo que se firmaba). */
+const FOUND_DATA = new WeakMap<LinkedinSearchDeps, SearchedContactData[]>();
+async function searchContactByLinkedin(raw: unknown, deps: LinkedinSearchDeps) {
+  const result = await searchCore(raw, deps);
+  if (result.status === 'found') FOUND_DATA.get(deps)?.push(result.data);
+  return result;
+}
 
 const URL_OK = 'https://es.linkedin.com/in/persona-ficticia-123/?trk=x';
 const CANONICAL = 'https://www.linkedin.com/in/persona-ficticia-123';
@@ -58,7 +63,7 @@ const LUSHA_USAGE: LinkedinProviderUsage[] = [
 function makeSearchDeps(overrides: Partial<LinkedinSearchDeps> = {}) {
   const calls: string[] = [];
   const logged: LinkedinProviderUsage[] = [];
-  const signed: LinkedinSearchPreviewData[] = [];
+  const signed: SearchedContactData[] = [];
   const deps: LinkedinSearchDeps = {
     isEnabled: () => true,
     findSellUpContactByLinkedin: async (slug) => {
@@ -88,13 +93,10 @@ function makeSearchDeps(overrides: Partial<LinkedinSearchDeps> = {}) {
     logUsage: async (entry) => {
       logged.push(entry);
     },
-    signPreview: (data) => {
-      signed.push(data);
-      return 'signed-token';
-    },
     nowIso: () => '2026-10-26T12:00:00.000Z',
     ...overrides,
   };
+  FOUND_DATA.set(deps, signed);
   return { deps, calls, logged, signed };
 }
 
@@ -281,139 +283,13 @@ describe('searchContactByLinkedin — el email encontrado contra SellUp y HubSpo
       providerCompanyDomain: 'empresa-ficticia.test',
       email: 'ana@empresa-ficticia.test',
       phoneAvailable: null,
+      hasLinkedin: true,
+      hasPhone: false,
       suggestedCompanyQuery: 'empresa-ficticia.test',
     });
-    assert.equal(JSON.stringify(result.preview).includes('linkedin'), false);
-    assert.equal(result.token, 'signed-token');
-  });
-});
-
-// ── Paso 2 ────────────────────────────────────────────────────────────────────
-
-const PREVIEW: LinkedinSearchPreviewData = {
-  linkedinUrl: CANONICAL,
-  linkedinSlug: 'persona-ficticia-123',
-  profile: profile(),
-  providersCalled: ['apollo'],
-  creditsSpent: 1,
-  searchedAt: '2026-10-26T12:00:00.000Z',
-};
-
-const HUBSPOT_COMPANY: CompanyCandidate = {
-  source: 'hubspot',
-  name: 'Empresa Ficticia SAS',
-  domain: 'empresa-ficticia.test',
-  hubspotCompanyId: '65498491',
-  matchConfidence: 1,
-};
-
-function makeCreateDeps(overrides: Partial<LinkedinCandidateCreationDeps> = {}) {
-  const calls: string[] = [];
-  const rows: LinkedinCandidateRow[] = [];
-  const requests = new Map<string, string | null>();
-  const runs = new Map<string, { requestId: string; accountId: string | null }>();
-  const deps: LinkedinCandidateCreationDeps = {
-    isEnabled: () => true,
-    verifyPreview: (token) => (token === 'ok' ? { ok: true, data: PREVIEW } : { ok: false, expired: token === 'expired' }),
-    findPendingCandidateByLinkedin: async () => null,
-    createRequest: async (company) => {
-      calls.push(`request:${company.name}`);
-      requests.set('req-1', 'acc-1');
-      return { success: true, requestId: 'req-1' };
-    },
-    loadRequestAccountId: async (requestId) => requests.get(requestId) ?? null,
-    createRun: async ({ requestId, provider }) => {
-      calls.push(`run:${requestId}:${provider}`);
-      // Como el RPC: el run copia el account_id de su request.
-      runs.set('run-1', { requestId, accountId: requests.get(requestId) ?? null });
-      return { runId: 'run-1' };
-    },
-    insertCandidate: async (row) => {
-      calls.push('insert');
-      rows.push(row);
-      return { candidateId: 'cand-1' };
-    },
-    finalizeRun: async ({ runId }) => {
-      calls.push(`finalize:${runId}`);
-    },
-    ...overrides,
-  };
-  return { deps, calls, rows, runs };
-}
-
-describe('createLinkedinContactCandidate', () => {
-  it('no se crea un candidato sin empresa (ni manual)', async () => {
-    for (const company of [null, undefined, { ...HUBSPOT_COMPANY, source: 'manual' as const, hubspotCompanyId: undefined }, { ...HUBSPOT_COMPANY, hubspotCompanyId: undefined }]) {
-      const { deps, calls } = makeCreateDeps();
-      const result = await createLinkedinContactCandidate({ token: 'ok', company }, deps);
-      assert.deepEqual(result, { ok: false, error: 'company_required', message: LINKEDIN_CREATE_COPY.company_required });
-      assert.deepEqual(calls, []);
-    }
-  });
-
-  it('el run nace con account_id y el candidato queda pending_review con el LinkedIn canónico', async () => {
-    const { deps, calls, rows, runs } = makeCreateDeps();
-    const result = await createLinkedinContactCandidate({ token: 'ok', company: HUBSPOT_COMPANY }, deps);
-    assert.equal(result.ok, true);
-    assert.equal(result.ok && result.accountId, 'acc-1');
-    assert.deepEqual(calls, ['request:Empresa Ficticia SAS', 'run:req-1:apollo', 'insert', 'finalize:run-1']);
-    assert.equal(runs.get('run-1')?.accountId, 'acc-1');
-    const row = rows[0];
-    assert.equal(row.enrichment_run_id, 'run-1');
-    assert.equal(row.status, 'pending_review');
-    assert.equal(row.source, 'apollo');
-    assert.equal(row.source_contact_id, 'apollo-person-1');
-    assert.equal(row.linkedin_url, CANONICAL);
-    assert.equal(row.phone, null);
-    assert.equal(row.duplicate_status, 'no_match');
-    assert.equal(row.enrichment_metadata.entry_mode, 'linkedin_single');
-  });
-
-  it('sin cuenta resuelta no se crea el run (evita B1b)', async () => {
-    const { deps, calls } = makeCreateDeps({
-      loadRequestAccountId: async () => null,
-    });
-    const result = await createLinkedinContactCandidate({ token: 'ok', company: HUBSPOT_COMPANY }, deps);
-    assert.equal(result.ok === false && result.error, 'account_unresolved');
-    assert.ok(!calls.some((c) => c.startsWith('run:') || c === 'insert'));
-  });
-
-  it('recalcula company_consistency: la empresa elegida no coincide con la del proveedor', async () => {
-    const { deps, rows } = makeCreateDeps();
-    const other: CompanyCandidate = { ...HUBSPOT_COMPANY, name: 'Compañía Distinta', domain: 'distinta.test', hubspotCompanyId: '777' };
-    const result = await createLinkedinContactCandidate({ token: 'ok', company: other }, deps);
-    assert.equal(result.ok && result.companyConsistency.status, 'possible_mismatch');
-    const stored = rows[0].enrichment_metadata.company_consistency as { status: string };
-    assert.equal(stored.status, 'possible_mismatch');
-  });
-
-  it('la empresa del proveedor coincide: match', async () => {
-    const { deps } = makeCreateDeps();
-    const result = await createLinkedinContactCandidate({ token: 'ok', company: HUBSPOT_COMPANY }, deps);
-    assert.equal(result.ok && result.companyConsistency.status, 'match');
-  });
-
-  it('vista previa inválida o caducada: nada se crea', async () => {
-    for (const [token, error] of [['bad', 'invalid_preview'], ['expired', 'expired_preview']] as const) {
-      const { deps, calls } = makeCreateDeps();
-      const result = await createLinkedinContactCandidate({ token, company: HUBSPOT_COMPANY }, deps);
-      assert.equal(result.ok === false && result.error, error);
-      assert.deepEqual(calls, []);
-    }
-  });
-
-  it('si entró a «Por revisar» mientras se elegía la empresa, no se duplica', async () => {
-    const { deps, calls } = makeCreateDeps({
-      findPendingCandidateByLinkedin: async () => ({ fullName: 'Ana Ficticia', companyName: null }),
-    });
-    const result = await createLinkedinContactCandidate({ token: 'ok', company: HUBSPOT_COMPANY }, deps);
-    assert.equal(result.ok === false && result.error, 'already_pending');
-    assert.deepEqual(calls, []);
-  });
-
-  it('crear el candidato no llama a ningún proveedor (las deps no tienen cómo)', async () => {
-    const { deps } = makeCreateDeps();
-    assert.equal('lookupApollo' in deps, false);
-    assert.equal('lookupLusha' in deps, false);
+    assert.equal(JSON.stringify(result.preview).includes('linkedin.com'), false);
+    // El LinkedIn del candidato es el pegado (canónico), aunque el proveedor diga otro.
+    assert.equal(result.data.entryMode, 'linkedin_single');
+    assert.equal(result.data.profile.linkedinUrl, CANONICAL);
   });
 });

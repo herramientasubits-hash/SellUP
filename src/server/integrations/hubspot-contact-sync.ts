@@ -294,6 +294,75 @@ export async function findHubSpotContactByEmail(
   return { id: first.id, properties };
 }
 
+/** Lo que la búsqueda puntual por correo necesita de un contacto de HubSpot. */
+export interface HubSpotContactProfile {
+  id: string;
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  jobTitle: string | null;
+  phone: string | null;
+  mobilePhone: string | null;
+  linkedinUrl: string | null;
+  ownerId: string | null;
+  /** Empresa principal asociada (`associatedcompanyid`). */
+  associatedCompanyId: string | null;
+}
+
+const HUBSPOT_CONTACT_PROFILE_PROPERTIES = [
+  'email',
+  'firstname',
+  'lastname',
+  'jobtitle',
+  'phone',
+  'mobilephone',
+  'hs_linkedin_url',
+  'hubspot_owner_id',
+  'associatedcompanyid',
+] as const;
+
+/**
+ * AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — contacto de HubSpot por correo exacto con su perfil,
+ * su dueño y su empresa principal. A diferencia de `findHubSpotContactByEmail`, sin conexión
+ * LANZA en vez de devolver null: «no se pudo consultar» no es «no existe».
+ */
+export async function findHubSpotContactProfileByEmail(email: string): Promise<HubSpotContactProfile | null> {
+  const token = await getHubSpotToken();
+  if (!token) throw new Error('hubspot_not_connected');
+
+  const response = await fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts/search`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }],
+      properties: [...HUBSPOT_CONTACT_PROFILE_PROPERTIES],
+      limit: 1,
+    }),
+  });
+  if (!response.ok) throw new Error(`HubSpot contact search error: HTTP ${response.status}`);
+
+  const data = (await response.json()) as HubSpotSearchResult;
+  const first = data.results?.[0];
+  if (!first?.id) return null;
+  const props = first.properties ?? {};
+  const read = (name: string): string | null => {
+    const value = props[name];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  };
+  return {
+    id: String(first.id),
+    email: read('email'),
+    firstName: read('firstname'),
+    lastName: read('lastname'),
+    jobTitle: read('jobtitle'),
+    phone: read('phone'),
+    mobilePhone: read('mobilephone'),
+    linkedinUrl: read('hs_linkedin_url'),
+    ownerId: read('hubspot_owner_id'),
+    associatedCompanyId: read('associatedcompanyid'),
+  };
+}
+
 /**
  * Lee un contacto de HubSpot por su id con las propiedades que SellUp puede completar
  * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Lo usa el sync cuando el contacto ya llegó
