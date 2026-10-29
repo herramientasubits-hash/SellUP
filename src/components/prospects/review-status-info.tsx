@@ -20,16 +20,18 @@ import {
   resolveReviewDecisionView,
   type ReviewDecisionCandidate,
 } from './prospect-review-decision-utils';
+import { DUPLICATE_VERDICT_BADGE } from './duplicate-verdict';
 
 interface ReviewStatusInfoProps {
   candidate: ReviewDecisionCandidate;
 }
 
 const SECTION_TITLE = 'Estado de revisión';
-// Q3F-5AZ.2E-1 — approving now validates the prospect, creates the SellUp
-// account and best-effort syncs HubSpot (no opportunity/proposal yet).
-const SECTION_DESCRIPTION =
-  'Este prospecto requiere decisión humana antes de avanzar. Aprobar valida el prospecto, crea la empresa en SellUp e intenta sincronizarla con HubSpot según la configuración disponible.';
+// Q3F-5AZ.2E-1 — aprobar valida el prospecto, crea la empresa en SellUp y la
+// lleva a HubSpot (o la enlaza si ya existe). Se dice con firmeza: lo que pase
+// con HubSpot se informa al aprobar, no se adelanta como «intenta».
+export const SECTION_DESCRIPTION =
+  'Este prospecto necesita tu decisión. Al aprobarlo, SellUp valida que no esté duplicado, crea la empresa y la registra en HubSpot (o la enlaza si ya existe allí).';
 
 function StatePill({ label, className }: { label: string; className: string }) {
   return (
@@ -79,18 +81,22 @@ export function ReviewStatusInfo({ candidate }: ReviewStatusInfoProps) {
     <SurfaceCard>
       <SurfaceCardHeader title={SECTION_TITLE} description={SECTION_DESCRIPTION} />
 
-      {view.needsWarning && (
-        <Alert variant="warning" className="mt-1">
-          <AlertTitle className="text-xs">
-            Este prospecto tiene posible coincidencia. Revisa antes de aprobar.
-          </AlertTitle>
-          {view.hasHubspotMatch && (
-            <AlertDescription className="flex items-center gap-1 text-xs text-current">
-              <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
-              Coincidencia con una empresa en HubSpot.
-            </AlertDescription>
-          )}
+      {view.needsWarning ? (
+        <Alert variant={view.duplicateVerdict.kind === 'duplicate' ? 'destructive' : 'warning'} className="mt-1">
+          <AlertTitle className="text-xs">{view.duplicateVerdict.label}</AlertTitle>
+          <AlertDescription className="flex items-center gap-1 text-xs text-current">
+            <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {view.duplicateVerdict.detail}
+          </AlertDescription>
         </Alert>
+      ) : view.blockReason ? null : (
+        // Con bloqueo, el motivo de abajo ya dice el veredicto: no se repite.
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <Badge variant={DUPLICATE_VERDICT_BADGE[view.duplicateVerdict.kind]}>
+            {view.duplicateVerdict.label}
+          </Badge>
+          <span className="text-xs text-muted-foreground">{view.duplicateVerdict.detail}</span>
+        </div>
       )}
 
       <div className="mt-2 flex items-start gap-2">

@@ -4,8 +4,11 @@ import { Building2, Database, Layers, Link2, ListFilter } from '@/icons';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { DUPLICATE_VERDICT_BADGE, resolveDuplicateVerdict } from '@/components/prospects/duplicate-verdict';
+import { canRecheckDuplicates } from '@/modules/prospect-review/recheck-duplicates-eligibility';
+import { CandidateDuplicateRecheckButton } from './candidate-duplicate-recheck-button';
 import {
-  DUPLICATE_STATUS_LABELS,
+  parseDuplicateCheck,
   type DuplicateMatch,
   type ProspectCandidateWithReviewer,
 } from '@/modules/prospect-batches/types';
@@ -24,9 +27,20 @@ export function CandidateDuplicateStatusSection({
   candidate,
   isAutoValidated,
   validationMetaSheet,
-}: Omit<CandidateDuplicateSectionsProps, 'dcMatches'>) {
+  onCandidateUpdated,
+}: Omit<CandidateDuplicateSectionsProps, 'dcMatches'> & {
+  onCandidateUpdated?: (updated: ProspectCandidateWithReviewer) => void;
+}) {
   const sellupDupStatus = validationMetaSheet?.sellup_duplicate_check?.status;
   const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
+  // Una sola frase: es duplicado / posible duplicado / no lo es / aún no se sabe, y dónde.
+  const sourcesChecked = parseDuplicateCheck(candidate.metadata)?.sources_checked;
+  const verdict = resolveDuplicateVerdict({
+    duplicateStatus: candidate.duplicate_status,
+    matchedInHubspot: !!candidate.matched_hubspot_company_id,
+    matchedInSellup: !!candidate.matched_account_id,
+    hubspotChecked: sourcesChecked ? sourcesChecked.includes('hubspot') : null,
+  });
 
   return (
     <DrawerSection
@@ -77,24 +91,17 @@ export function CandidateDuplicateStatusSection({
             </Badge>
           </>
         ) : (
-          <Badge
-            variant={
-              (
-                {
-                  unchecked: 'neutral',
-                  no_match: 'positive',
-                  possible_duplicate: 'warning',
-                  exact_duplicate: 'negative',
-                  related_company: 'warning',
-                  insufficient_data: 'neutral',
-                } as const
-              )[candidate.duplicate_status]
-            }
-          >
-            {DUPLICATE_STATUS_LABELS[candidate.duplicate_status]}
-          </Badge>
+          <>
+            <Badge variant={DUPLICATE_VERDICT_BADGE[verdict.kind]}>{verdict.label}</Badge>
+            <span className="text-xs text-muted-foreground">{verdict.detail}</span>
+          </>
         )}
       </div>
+      {canRecheckDuplicates({ status: candidate.status, duplicateStatus: candidate.duplicate_status }) && (
+        <div className="mt-3">
+          <CandidateDuplicateRecheckButton candidate={candidate} onCandidateUpdated={onCandidateUpdated} />
+        </div>
+      )}
     </DrawerSection>
   );
 }

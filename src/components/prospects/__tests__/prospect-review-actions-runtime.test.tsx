@@ -305,9 +305,10 @@ describe('ProspectReviewActions — inline confirmation flow (approve + create e
   it('the confirmation copy mentions creating the empresa in SellUp + best-effort HubSpot', () => {
     render(<ProspectReviewActions candidate={candidate({})} />);
     fireEvent.click(approveButton()!);
-    assert.ok(screen.getByText(/creará la empresa en SellUp/i));
-    assert.ok(screen.getByText(/sincronizarla con\s+HubSpot según la configuración disponible/i));
-    assert.ok(screen.getByText(/No se creará oportunidad ni propuesta/i));
+    // FEEDBACK 29-10 — se dice con firmeza: crea la empresa y la registra en HubSpot.
+    assert.ok(screen.getByText(/crea la empresa y la registra en\s+HubSpot/i));
+    assert.ok(screen.queryByText(/intentará|según la configuración disponible/i) === null);
+    assert.ok(screen.getByText(/No se crea\s+oportunidad ni propuesta/i));
   });
 
   it('the confirmation copy does NOT contain the old "no account / no HubSpot" claim', () => {

@@ -12,6 +12,7 @@ import {
 import { evaluateDiscardEligibility } from '@/modules/prospect-review/discard-eligibility';
 import { evaluateDuplicateEligibility } from '@/modules/prospect-review/duplicate-eligibility';
 import { NEEDS_ASSIGNEE_MESSAGE } from '@/modules/access/capabilities';
+import { resolveDuplicateVerdict, type DuplicateVerdict } from './duplicate-verdict';
 
 /**
  * Minimal candidate shape this view needs. Kept structural (not the full
@@ -25,6 +26,10 @@ export interface ReviewDecisionCandidate {
   recordOrigin?: string | null;
   duplicateStatus?: string | null;
   matchedHubspotCompanyId?: string | null;
+  /** Empresa de SellUp con la que coincide (dice «dónde» en el veredicto). */
+  matchedAccountId?: string | null;
+  /** Si la revisión de duplicados consultó HubSpot; `null`/ausente = no consta. */
+  hubspotChecked?: boolean | null;
   reviewedAt?: string | null;
   /** Populated once the prospect has been converted — enables the "Ver empresa" CTA. */
   convertedAccountId?: string | null;
@@ -72,7 +77,8 @@ export const BLOCK_COPY: Record<ApproveRejectReason, string> = {
   not_clean_production:
     'Este candidato no pertenece a la cola de producción limpia; no puede aprobarse desde aquí.',
   status_conflict: 'El estado del candidato no permite aprobación en este momento.',
-  duplicate_blocked: 'La verificación de duplicidad bloquea la aprobación de este candidato.',
+  duplicate_blocked:
+    'No se puede aprobar: SellUp no ha confirmado que esta empresa no exista ya en SellUp o en HubSpot.',
   needs_duplicate_confirmation: 'Requiere confirmar el posible duplicado antes de aprobar.',
 };
 
@@ -142,6 +148,8 @@ export interface ReviewDecisionView {
   hasHubspotMatch: boolean;
   /** possible_duplicate OR a matched HubSpot company — surfaces a strong warning. */
   needsWarning: boolean;
+  /** Una sola frase: es duplicado, posible duplicado, no lo es o aún no se sabe — y dónde. */
+  duplicateVerdict: DuplicateVerdict;
 }
 
 /**
@@ -154,6 +162,12 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
   const isPossibleDuplicate = candidate.duplicateStatus === 'possible_duplicate';
   const hasHubspotMatch = !!candidate.matchedHubspotCompanyId;
   const needsWarning = isPossibleDuplicate || hasHubspotMatch;
+  const duplicateVerdict = resolveDuplicateVerdict({
+    duplicateStatus: candidate.duplicateStatus,
+    matchedInHubspot: hasHubspotMatch,
+    matchedInSellup: !!candidate.matchedAccountId,
+    hubspotChecked: candidate.hubspotChecked ?? null,
+  });
 
   // Q3F-5AZ.2G-1 — discard eligibility is independent of the duplicate signal:
   // a needs_review clean-production prospect can always be removed from review.
@@ -173,7 +187,7 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
 
   const terminal = TERMINAL_STATUS[candidate.status] ?? null;
   if (terminal) {
-    return { terminal, canApprove: false, canDiscard, canMarkDuplicate, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+    return { terminal, canApprove: false, canDiscard, canMarkDuplicate, blockReason: null, isPossibleDuplicate, hasHubspotMatch, needsWarning, duplicateVerdict };
   }
 
   const { status } = candidate;
@@ -198,7 +212,11 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     } else if (decision.decision === 'approve') {
       canApprove = true;
     } else if (decision.decision === 'reject') {
-      blockReason = BLOCK_COPY[decision.reason];
+      // La duplicidad dice QUÉ pasa y DÓNDE (no «la verificación bloquea»).
+      blockReason =
+        decision.reason === 'duplicate_blocked'
+          ? (duplicateVerdict.blockReason ?? BLOCK_COPY[decision.reason])
+          : BLOCK_COPY[decision.reason];
     } else {
       // 'idempotent' — already approved; treat as non-actionable safety net.
       blockReason = 'Este candidato ya fue aprobado.';
@@ -207,7 +225,7 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     blockReason = 'El estado del candidato no permite aprobación en este momento.';
   }
 
-  return { terminal: null, canApprove, canDiscard, canMarkDuplicate, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning };
+  return { terminal: null, canApprove, canDiscard, canMarkDuplicate, blockReason, isPossibleDuplicate, hasHubspotMatch, needsWarning, duplicateVerdict };
 }
 
 // ─── AGENT1-CUT4-C — autoridad ÚNICA de las entradas de acción por fila ───────

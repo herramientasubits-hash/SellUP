@@ -25,6 +25,7 @@ import {
 import type { SendToReviewRejectReason } from './send-to-review-eligibility';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
+import { recheckCandidateDuplicates } from '@/server/prospect-batches/candidate-duplicate-recheck.server';
 
 const ACCOUNTS_PATH = '/accounts';
 
@@ -109,6 +110,8 @@ export async function sendDiscardedProspectToReviewAction(
       // reclamos sólo tiene política para `service_role` (igual que Lusha).
       claimGlobalIdentities: (batchId: string, candidateIds: string[]) =>
         claimGlobalIdentitiesForPersistedCandidates(createSupabaseAdminClient(), batchId, candidateIds),
+      // FEEDBACK 29-10 — de vuelta en revisión, se verifica en SellUp y HubSpot (sólo lectura).
+      recheckDuplicates: (candidateId: string) => recheckCandidateDuplicates(createSupabaseAdminClient(), candidateId),
     };
 
     const outcome =

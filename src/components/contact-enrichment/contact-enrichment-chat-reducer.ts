@@ -251,12 +251,22 @@ function freeSourcesPhrase(fromHubSpot: number, fromBank: number): string {
 }
 
 /** «2 ya estaban en HubSpot» / «1 ya lo conocía SellUp» / «2 del sitio web, sin correo». */
-function freeSourcesNote(fromHubSpot: number, fromBank: number, fromSite = 0): string {
+function freeSourcesNote(
+  fromHubSpot: number,
+  fromBank: number,
+  fromSite = 0,
+  fromApollo = 0,
+  fromLusha = 0,
+): string {
+  // De dónde viene cada uno: lo que YA estaba (HubSpot, SellUp) y lo NUEVO (Apollo, Lusha, sitio).
   const parts: string[] = [];
   if (fromHubSpot > 0) parts.push(`${fromHubSpot} ya ${fromHubSpot === 1 ? 'estaba' : 'estaban'} en HubSpot`);
   if (fromBank > 0) parts.push(`${fromBank} ya ${fromBank === 1 ? 'lo conocía' : 'los conocía'} SellUp de esta empresa`);
+  if (fromApollo > 0) parts.push(`${fromApollo} ${fromApollo === 1 ? 'nuevo' : 'nuevos'} de Apollo`);
+  if (fromLusha > 0) parts.push(`${fromLusha} ${fromLusha === 1 ? 'nuevo' : 'nuevos'} de Lusha`);
   if (fromSite > 0) parts.push(`${fromSite} del sitio web de la empresa, sin correo`);
-  return parts.join(' y ');
+  if (parts.length <= 1) return parts.join('');
+  return `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
 }
 
 /** «14 de octubre» — fecha corta para el chat. */
@@ -371,7 +381,7 @@ export function buildAutomaticRoutingMessage(
   if (free > 0) {
     const total = created + free;
     return {
-      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank, fromSite)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank, fromSite, apollo ?? 0, lusha ?? 0)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
     };
   }
 

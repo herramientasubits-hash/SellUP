@@ -142,11 +142,11 @@ describe('ReviewStatusInfo — purely informational', () => {
 
   it('shows a strong warning for a possible_duplicate candidate', () => {
     render(<ReviewStatusInfo candidate={candidate({ duplicateStatus: 'possible_duplicate' })} />);
-    assert.ok(screen.getByText(/posible coincidencia\. Revisa antes de aprobar/i));
+    assert.ok(screen.getByText(/^Posible duplicado$/));
   });
 
   it('shows a strong warning for a HubSpot-matched candidate', () => {
     render(<ReviewStatusInfo candidate={candidate({ matchedHubspotCompanyId: 'hs-123' })} />);
-    assert.ok(screen.getByText(/Coincidencia con una empresa en HubSpot/i));
+    assert.ok(screen.getByText(/ya está en HubSpot/i));
   });
 });

@@ -22,6 +22,7 @@ import {
   describeSizeVerification,
   readCompetitorSizeVerification,
 } from './competitor-size-verification';
+import { recheckCandidateDuplicates } from '@/server/prospect-batches/candidate-duplicate-recheck.server';
 
 const requestSchema = z.object({ candidateId: z.string().uuid() }).strict();
 
@@ -98,6 +99,8 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
         isBatchInScope,
         claimGlobalIdentities: (batchId: string, candidateIds: string[]) =>
           claimGlobalIdentitiesForPersistedCandidates(createSupabaseAdminClient(), batchId, candidateIds),
+        // FEEDBACK 29-10 — de vuelta en revisión, se verifica en SellUp y HubSpot (sólo lectura).
+        recheckDuplicates: (candidateId: string) => recheckCandidateDuplicates(createSupabaseAdminClient(), candidateId),
       },
       candidate.id,
     );

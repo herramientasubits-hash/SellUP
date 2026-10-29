@@ -185,6 +185,10 @@ const HUBSPOT_FISCAL_READ_TIMEOUT_MS = 10_000;
 
 const HS_FISCAL_PROPERTIES = [
   'name',
+  // FEEDBACK 29-10 — nombres internos reales del portal (los demás no existen allí).
+  'identificaci_n_fiscal',
+  'rfc_mx_',
+  'doc_identificacion_fiscal',
   'identificacion_fiscal',
   'nit',
   'rfc',
@@ -196,6 +200,9 @@ const HS_FISCAL_PROPERTIES = [
 ];
 
 interface HsCompanyFiscalProps {
+  identificaci_n_fiscal?: string | null;
+  rfc_mx_?: string | null;
+  doc_identificacion_fiscal?: string | null;
   identificacion_fiscal?: string | null;
   nit?: string | null;
   rfc?: string | null;
@@ -243,6 +250,9 @@ function extractFiscalFromHsProps(
   countryCode: string
 ): string | null {
   const candidates = [
+    props.identificaci_n_fiscal,
+    props.rfc_mx_,
+    props.doc_identificacion_fiscal,
     props.identificacion_fiscal,
     props.nit,
     props.rfc,

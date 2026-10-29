@@ -55,15 +55,14 @@ describe('Banco de contactos — orquestador', () => {
     assert.equal(result.contactBank, undefined);
   });
 
-  it('el banco bastó: no se llama a Apollo ni a Lusha y la corrida pasa a revisión', async () => {
+  // FEEDBACK 29-10 — el banco suma, no reemplaza: aunque traiga «bastantes», Apollo busca nuevos.
+  it('el banco trajo bastantes: igual se llama a Apollo para traer gente nueva', async () => {
     const { deps, calls } = harness({ runContactBank: bank(true, 3) });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'contact_bank_satisfied');
-    assert.equal(calls.apollo, 0);
-    assert.equal(calls.lusha, 0);
-    assert.equal(calls.bankMarked, 1);
-    assert.equal(calls.telemetry, 1);
-    assert.deepEqual(result.contactBank, { attemptId: 'attempt-1', inserted: 3, satisfied: true });
+    assert.notEqual(result.outcome, 'contact_bank_satisfied');
+    assert.equal(calls.apollo, 1);
+    assert.equal(calls.bankMarked, 0);
+    assert.deepEqual(result.contactBank, { attemptId: 'attempt-1', inserted: 3, satisfied: false });
   });
 
   it('el banco trajo algo pero no bastó: Apollo corre y el resultado conserva lo del banco', async () => {
@@ -74,26 +73,25 @@ describe('Banco de contactos — orquestador', () => {
     assert.deepEqual(result.contactBank, { attemptId: 'attempt-1', inserted: 1, satisfied: false });
   });
 
-  it('HubSpot bastó: el banco ni se consulta', async () => {
+  it('HubSpot trajo bastantes: el banco igual se consulta (HubSpot ya no cierra)', async () => {
     const { deps, calls } = harness({
       runHubSpotFirst: async () => ({ status: 'done', satisfied: true, inserted: 3, relevantWithEmail: 3 }),
       runContactBank: async () => { calls.bank += 1; return null; },
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'hubspot_first_satisfied');
-    assert.equal(calls.bank, 0);
+    assert.notEqual(result.outcome, 'hubspot_first_satisfied');
+    assert.equal(calls.bank, 1);
   });
 
-  it('HubSpot no bastó pero sumado al banco sí: no se gasta y quedan los dos rastros', async () => {
+  it('HubSpot y banco juntos: los dos quedan como rastro y Apollo igual corre', async () => {
     const { deps, calls } = harness({
       runHubSpotFirst: async () => ({ status: 'done', satisfied: false, inserted: 2, relevantWithEmail: 2 }),
       runContactBank: bank(true, 1),
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'contact_bank_satisfied');
-    assert.equal(calls.apollo, 0);
+    assert.equal(calls.apollo, 1);
     assert.deepEqual(result.hubspotFirst, { attemptId: 'attempt-1', inserted: 2, satisfied: false });
-    assert.deepEqual(result.contactBank, { attemptId: 'attempt-1', inserted: 1, satisfied: true });
+    assert.deepEqual(result.contactBank, { attemptId: 'attempt-1', inserted: 1, satisfied: false });
   });
 
   it('falla abierto: si la etapa lanza o devuelve error, Apollo corre como siempre', async () => {

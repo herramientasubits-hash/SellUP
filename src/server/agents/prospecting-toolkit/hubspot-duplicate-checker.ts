@@ -446,9 +446,9 @@ async function searchByTaxIdentifier(
   }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
 
   if (res.status === 400) {
-    // Fallback con propiedades confirmadas en el portal. Usa las MISMAS agujas
+    // Fallback con la propiedad fiscal principal del portal. Usa las MISMAS agujas
     // canónicas (§ 21): la identidad no puede depender de un HTTP 400.
-    const fallbackProps = ['nit', 'identificacion_fiscal'];
+    const fallbackProps = ['identificaci_n_fiscal'];
 
     const fallbackRes = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
       method: 'POST',

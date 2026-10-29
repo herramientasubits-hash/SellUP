@@ -25,7 +25,7 @@ describe('Primero HubSpot — mensaje del chat', () => {
     const { content } = buildAutomaticRoutingMessage(
       result({ hubspotFirstCandidates: 1, providerCandidatesCreated: { apollo: 2, lusha: null } }),
     );
-    assert.match(content, /3 contactos para revisar \(1 ya estaba en HubSpot\)/);
+    assert.match(content, /3 contactos para revisar \(1 ya estaba en HubSpot y 2 nuevos de Apollo\)/);
   });
 
   it('banco de contactos bastó: lo dice y avisa que no se gastaron proveedores', () => {
@@ -46,7 +46,7 @@ describe('Primero HubSpot — mensaje del chat', () => {
     const { content } = buildAutomaticRoutingMessage(
       result({ contactBankCandidates: 2, providerCandidatesCreated: { apollo: 1, lusha: null } }),
     );
-    assert.match(content, /3 contactos para revisar \(2 ya los conocía SellUp de esta empresa\)/);
+    assert.match(content, /3 contactos para revisar \(2 ya los conocía SellUp de esta empresa y 1 nuevo de Apollo\)/);
   });
 
   it('personas del sitio web: las suma y avisa que vienen sin correo', () => {
