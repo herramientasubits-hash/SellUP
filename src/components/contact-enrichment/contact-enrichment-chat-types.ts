@@ -172,19 +172,35 @@ export interface ContactEnrichmentChatState {
    *  automatic search runs; set once it settles so the CTA is not shown again. */
   automaticResult: AutomaticRoutingUiResult | null;
   errorMessage: string | null;
+  /** Lo que el formulario «nombre, país y dominio» trae ya escrito (feedback 29-10). */
+  extraDataPrefill?: ExtraDataPrefill;
+}
+
+/** Lo que ya se sabe de la empresa al pedir nombre, país y dominio. */
+export interface ExtraDataPrefill {
+  name: string;
+  domain: string;
+}
+
+/** Lo que se completa en el formulario cuando la empresa no se reconoce. */
+export interface ExtraCompanyData {
+  name: string;
+  domain: string;
+  countryCode: string | null;
+  countryName: string | null;
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 export type ContactEnrichmentChatAction =
   | { type: 'SUBMIT_QUERY'; query: string }
-  | { type: 'RESOLVED_NONE_NEEDS_DATA' }
+  | { type: 'RESOLVED_NONE_NEEDS_DATA'; prefill: ExtraDataPrefill }
   | { type: 'RESOLVED_MANUAL'; candidate: CompanyCandidate; skippedHubSpot: boolean }
   | { type: 'RESOLVED_SINGLE'; candidate: CompanyCandidate; skippedHubSpot: boolean }
   | { type: 'RESOLVED_MULTIPLE'; candidates: CompanyCandidate[]; skippedHubSpot: boolean }
   | { type: 'RESOLVE_FAILED'; message: string }
   | { type: 'SELECT_CANDIDATE'; candidate: CompanyCandidate }
-  | { type: 'SUBMIT_EXTRA_DATA'; domain: string; country: string }
+  | { type: 'SUBMIT_EXTRA_DATA'; data: ExtraCompanyData }
   | { type: 'CONFIRM' }
   | { type: 'RUN_SUCCEEDED'; result: ContactEnrichmentRunResult }
   | { type: 'REQUEST_CREATED'; requestId: string }
