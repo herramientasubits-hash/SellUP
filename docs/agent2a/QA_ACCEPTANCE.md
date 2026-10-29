@@ -185,5 +185,7 @@ operativa vigente tiene regla **activa** para Apollo (`global`, mensual) y para 
 | LinkedIn: Apollo → Lusha | F2 | Pegar un perfil que Apollo no encuentre | Una fila `person_match` y las de `lusha_contact_search`/`lusha_contact_enrich`; vista previa de Lusha | Pendiente |
 | LinkedIn: crear candidato | F2 | Asociar a una empresa por Company ID y crear | Candidato `pending_review`; su run con `account_id`, `summary.entry_mode = linkedin_single`; aviso si la empresa no coincide | Pendiente |
 | LinkedIn: aprobar | F2 | Aprobar el candidato con `HUBSPOT_CONTACT_AUTO_SYNC_ENABLED` | El contacto se crea en HubSpot con `hs_linkedin_url` (o sin él si HubSpot responde 400) | Pendiente |
+| Reveal llega a HubSpot sin aprobar | fix reveal-push | En un candidato de «Primero HubSpot» sin teléfono, «Revelar teléfono» (o «Revelar LinkedIn») y NO aprobar | El contacto de HubSpot gana `phone` / `hs_linkedin_url` si estaban vacíos; lo que ya tenía no cambia; `enrichment_metadata.hubspot_reveal_push.last_outcome = filled` | Pendiente |
+| Aprobar candidato de HubSpot | fix reveal-push | Aprobar un candidato de «Primero HubSpot» | El contacto queda «Sincronizado» (no «Nunca sincronizado»), sin duplicado en HubSpot | Pendiente |
 | Contactos enviados a revisión que no aparecen (2026-10-01) | — | Revisar el run en Supabase | Explicado por #587 o #608; si no, abrir fix | Pendiente (BACKLOG A4) |
 
