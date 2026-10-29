@@ -3,8 +3,10 @@
 //
 // Un candidato que ya existe en HubSpot («Primero HubSpot», o uno emparejado con un contacto de
 // HubSpot) puede revelar teléfono, LinkedIn o correo en SellUp. Antes, ese dato sólo llegaba a
-// HubSpot si alguien APROBABA el candidato. Ahora llega en cuanto se revela, sin esperar a la
-// aprobación.
+// HubSpot si alguien APROBABA el candidato. Ahora llega en cuanto se revela, SIEMPRE: da igual que
+// el candidato esté en revisión, aprobado o rechazado. Rechazar un candidato dice «no lo quiero
+// como contacto en SellUp», no «el dato es falso»: el contacto de HubSpot existe igual y el dato
+// revelado (ya pagado) lo completa.
 //
 // Reglas (las mismas del completado de vacíos al aprobar, #612 / #828):
 //   * SÓLO se completan propiedades VACÍAS en HubSpot. Nunca se sobrescribe lo que el CRM tiene.
@@ -48,8 +50,6 @@ export type CandidateRevealPushOutcome =
   | 'candidate_unavailable'
   /** El candidato no tiene contacto en HubSpot (Apollo/Lusha sin emparejar): nada que hacer. */
   | 'not_in_hubspot'
-  /** Candidato rechazado: no se escribe nada en el CRM por él. */
-  | 'candidate_rejected'
   /** No hay teléfono, LinkedIn ni correo que enviar. */
   | 'nothing_revealed'
   /** HubSpot no está conectado o la conexión no puede escribir contactos. */
@@ -218,7 +218,7 @@ export async function runCandidateRevealHubSpotPush(
 
   const hubspotContactId = resolveCandidateHubSpotContactId(candidate);
   if (!hubspotContactId) return report('not_in_hubspot');
-  if (candidate.status === 'rejected') return report('candidate_rejected', { hubspotContactId });
+  // El estado del candidato (en revisión, aprobado, rechazado) NO decide: ver la cabecera.
 
   const phone = clean(candidate.phone);
   const linkedin = clean(candidate.linkedinUrl);

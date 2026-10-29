@@ -5,7 +5,8 @@
  * Se demuestra:
  *  - sólo se completan propiedades VACÍAS (nunca se sobrescribe), y sólo los canales del reveal;
  *  - el correo va aparte y un 409 no impide que el teléfono y el LinkedIn lleguen;
- *  - sin contacto de HubSpot, rechazado, sin conexión o sin poder leer: cero escrituras;
+ *  - se envía siempre, esté el candidato en revisión, aprobado o rechazado;
+ *  - sin contacto de HubSpot, sin conexión o sin poder leer: cero escrituras;
  *  - nunca lanza y el rastro no guarda PII.
  */
 
@@ -111,15 +112,18 @@ describe('1. un reveal llega a HubSpot sin aprobar', () => {
     assert.deepEqual(spy.emails, []);
   });
 
-  it('un candidato aprobado o en revisión da igual: lo que manda es el contacto de HubSpot', async () => {
-    const spy = newSpy();
-    const report = await runCandidateRevealHubSpotPush(
-      'cand-1',
-      'reveal_linkedin',
-      makeDeps(spy, { candidate: candidate({ status: 'approved' }) }),
-    );
-    assert.equal(report.outcome, 'filled');
-  });
+  for (const status of ['pending_review', 'approved', 'rejected']) {
+    it(`candidato ${status}: igual se envía (lo que manda es el contacto de HubSpot)`, async () => {
+      const spy = newSpy();
+      const report = await runCandidateRevealHubSpotPush(
+        'cand-1',
+        'reveal_linkedin',
+        makeDeps(spy, { candidate: candidate({ status }) }),
+      );
+      assert.equal(report.outcome, 'filled');
+      assert.equal(spy.filled.length, 1);
+    });
+  }
 });
 
 describe('2. nunca sobrescribe', () => {
@@ -224,17 +228,6 @@ describe('4. cero escrituras cuando no corresponde', () => {
       makeDeps(spy, { candidate: candidate({ source: 'apollo', sourceContactId: 'ap-1', matchedHubSpotContactId: 'hs-77' }) }),
     );
     assert.equal(report.outcome, 'filled');
-  });
-
-  it('candidato rechazado', async () => {
-    const spy = newSpy();
-    const report = await runCandidateRevealHubSpotPush(
-      'cand-1',
-      'reveal_linkedin',
-      makeDeps(spy, { candidate: candidate({ status: 'rejected' }) }),
-    );
-    assert.equal(report.outcome, 'candidate_rejected');
-    assert.deepEqual(spy.reads, []);
   });
 
   it('HubSpot sin permiso de escritura', async () => {
