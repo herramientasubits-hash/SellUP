@@ -191,6 +191,34 @@ describe('Candidatos de contacto — el estado corresponde a la cola', () => {
   });
 });
 
+describe('Candidatos de contacto — abrir la ficha desde la búsqueda puntual', () => {
+  const ID = '3f2b8c1e-1a2b-4c3d-9e8f-001122334455';
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it('con ?candidate=<id> abre su ficha y lo quita de la URL', async () => {
+    window.history.replaceState(null, '', `/contacts?tab=candidates&candidate=${ID}`);
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="pending" />);
+    const { waitFor } = await import('@testing-library/react');
+    await waitFor(() => assert.equal(detailOpenFor, ID));
+    assert.equal(window.location.search, '?tab=candidates');
+  });
+
+  it('el evento abre la ficha si la tabla ya estaba montada', async () => {
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="pending" />);
+    const { act } = await import('@testing-library/react');
+    act(() => {
+      window.dispatchEvent(new window.CustomEvent('sellup:contact-candidate:open', { detail: { candidateId: ID } }));
+    });
+    assert.equal(detailOpenFor, ID);
+  });
+
+  it('en otra cola (duplicados) no se abre', () => {
+    window.history.replaceState(null, '', `/contacts?tab=duplicates&candidate=${ID}`);
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="duplicates" />);
+    assert.equal(detailOpenFor, null);
+  });
+});
+
 describe('Candidatos de contacto — celdas de una línea', () => {
   it('el correo y LinkedIn van como enlaces con nombre junto al nombre', () => {
     render(<ContactCandidatesDataTableClient candidates={CANDIDATES} />);

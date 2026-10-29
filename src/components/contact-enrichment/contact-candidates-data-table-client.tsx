@@ -57,6 +57,12 @@ import {
   describeApolloDirectPhoneHint,
   readApolloDirectPhoneHint,
 } from '@/modules/contact-enrichment/apollo-direct-phone-hint';
+import {
+  CANDIDATE_REVIEW_OPEN_EVENT,
+  isCandidateReviewId,
+  readCandidateReviewParam,
+  stripCandidateReviewParam,
+} from '@/modules/contact-enrichment/candidate-review-link';
 
 // ── Label & style maps ─────────────────────────────────────────
 
@@ -534,6 +540,29 @@ export function ContactCandidatesDataTableClient({
     setDetailId(candidate.id);
     setDetailOpen(true);
   }, []);
+
+  // AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — «Revisar ahora» del chat de búsqueda puntual: llega
+  // con `?candidate=<id>` (o con el evento, si esta tabla ya estaba montada) y abre su ficha.
+  // Sólo en «Por revisar»: ahí está la ficha con sus acciones de aprobar, rechazar y teléfono.
+  React.useEffect(() => {
+    if (queue !== 'pending' || typeof window === 'undefined') return;
+    const openById = (candidateId: string) => {
+      setDetailId(candidateId);
+      setDetailOpen(true);
+      const { pathname, search, hash } = window.location;
+      if (readCandidateReviewParam(search)) {
+        window.history.replaceState(null, '', stripCandidateReviewParam(`${pathname}${search}${hash}`));
+      }
+    };
+    const fromUrl = readCandidateReviewParam(window.location.search);
+    if (fromUrl) openById(fromUrl);
+    const onOpen = (event: Event) => {
+      const candidateId = (event as CustomEvent<{ candidateId?: unknown }>).detail?.candidateId;
+      if (isCandidateReviewId(candidateId)) openById(candidateId);
+    };
+    window.addEventListener(CANDIDATE_REVIEW_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(CANDIDATE_REVIEW_OPEN_EVENT, onOpen);
+  }, [queue]);
 
   const { send: sendToReview } = useSendRejectedToReview(() =>
     dataTableRef.current?.clearSelection(),

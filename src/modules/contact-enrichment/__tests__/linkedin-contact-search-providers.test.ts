@@ -4,7 +4,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { lookupApolloByLinkedin, lookupLushaByLinkedin } from '../linkedin-contact-search-providers.server';
+import {
+  lookupApolloByEmail,
+  lookupApolloByLinkedin,
+  lookupLushaByEmail,
+  lookupLushaByLinkedin,
+} from '../linkedin-contact-search-providers.server';
 import type { MatchPersonParams } from '@/server/integrations/apollo-client';
 
 const URL = 'https://www.linkedin.com/in/persona-ficticia';
@@ -138,5 +143,81 @@ describe('lookupLushaByLinkedin', () => {
       search: async () => ({ ok: false, status: 'provider_error', resultsReturned: 0 }),
     });
     assert.equal(result.kind, 'error');
+  });
+});
+
+// ── AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — por correo ─────────────────────────
+
+const EMAIL = 'ana@empresa-ficticia.test';
+
+describe('lookupApolloByEmail', () => {
+  it('people/match por email, sin revelar correos ni teléfono; trae el LinkedIn', async () => {
+    const sent: MatchPersonParams[] = [];
+    const result = await lookupApolloByEmail(' Ana@Empresa-Ficticia.test ', {
+      getApiKey: async () => 'k',
+      matchPerson: async (params) => {
+        sent.push(params);
+        return {
+          success: true,
+          data: {
+            id: 'apollo-1',
+            first_name: 'Ana',
+            last_name: 'Ficticia',
+            title: 'Directora de Talento',
+            email: 'email_not_unlocked@domain.com',
+            linkedin_url: URL,
+            phone_numbers: [],
+            organization: { id: 'o1', name: 'Empresa Ficticia SAS', website_url: 'https://www.empresa-ficticia.test' },
+          },
+        };
+      },
+    });
+    assert.deepEqual(sent, [{ email: EMAIL }]);
+    assert.equal(result.kind, 'found');
+    if (result.kind !== 'found') return;
+    // Correo bloqueado en Apollo ⇒ queda el que se buscó.
+    assert.equal(result.profile.email, EMAIL);
+    assert.equal(result.profile.linkedinUrl, URL);
+    assert.equal(result.profile.providerCompanyDomain, 'empresa-ficticia.test');
+  });
+});
+
+describe('lookupLushaByEmail', () => {
+  it('sólo contacts/search por email (sin enrich); perfil con LinkedIn y empresa', async () => {
+    const searched: unknown[] = [];
+    const result = await lookupLushaByEmail(EMAIL, {
+      isEnabled: () => true,
+      getApiKey: async () => 'k',
+      timeoutMs: 1000,
+      search: async (input) => {
+        searched.push(input.contacts);
+        return {
+          ok: true,
+          status: 'success',
+          resultsReturned: 1,
+          creditsCharged: 1,
+          sanitizedResults: [{ id: 'lusha-1', fullName: 'Ana Ficticia', title: 'Directora', companyName: 'Empresa Ficticia SAS', companyDomain: 'empresa-ficticia.test', linkedinUrl: URL, has: null, canReveal: null }],
+        };
+      },
+    });
+    assert.deepEqual(searched, [[{ email: EMAIL }]]);
+    assert.equal(result.kind, 'found');
+    if (result.kind !== 'found') return;
+    assert.equal(result.profile.provider, 'lusha');
+    assert.equal(result.profile.email, EMAIL);
+    assert.equal(result.profile.linkedinUrl, URL);
+    assert.equal(result.profile.firstName, 'Ana');
+    assert.deepEqual(result.usage.map((u) => [u.operation_key, u.credits_used]), [['lusha_contact_search', 1]]);
+  });
+
+  it('sin resultados: no encontrado; apagado: no se llama', async () => {
+    const none = await lookupLushaByEmail(EMAIL, {
+      isEnabled: () => true,
+      getApiKey: async () => 'k',
+      timeoutMs: 1000,
+      search: async () => ({ ok: false, status: 'no_results', resultsReturned: 0 }),
+    });
+    assert.equal(none.kind, 'not_found');
+    assert.deepEqual(await lookupLushaByEmail(EMAIL, { isEnabled: () => false }), { kind: 'unavailable', usage: [] });
   });
 });

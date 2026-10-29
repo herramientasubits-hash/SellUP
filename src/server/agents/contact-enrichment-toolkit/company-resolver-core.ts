@@ -118,7 +118,8 @@ async function defaultSearchByHubSpotId(hsId: string): Promise<SellUpAccountMatc
   return data ?? [];
 }
 
-async function defaultSearchByDomain(domain: string): Promise<SellUpAccountMatch[]> {
+/** Exportada para la búsqueda puntual (LinkedIn/correo): HubSpot primero y luego SellUp. */
+export async function defaultSearchByDomain(domain: string): Promise<SellUpAccountMatch[]> {
   const admin = getAdminClient();
   const normalized = domain.toLowerCase().replace(/^www\./, '');
   const { data } = await admin
@@ -131,7 +132,7 @@ async function defaultSearchByDomain(domain: string): Promise<SellUpAccountMatch
   return data ?? [];
 }
 
-async function defaultSearchByName(name: string): Promise<SellUpAccountMatch[]> {
+export async function defaultSearchByName(name: string): Promise<SellUpAccountMatch[]> {
   const admin = getAdminClient();
   const { data } = await admin
     .from('accounts')
@@ -174,7 +175,7 @@ export function mapHubSpotSearchResultToMatches(result: {
   return result.companies;
 }
 
-async function defaultSearchHubSpot(opts: {
+export async function defaultSearchHubSpot(opts: {
   domain?: string;
   name?: string;
 }): Promise<HubSpotCompanyMatch[] | null> {
@@ -199,13 +200,13 @@ export function mapHubSpotCompanyByIdResultToMatches(result: {
   return result.company ? [result.company] : [];
 }
 
-async function defaultGetHubSpotCompanyById(companyId: string): Promise<HubSpotCompanyMatch[] | null> {
+export async function defaultGetHubSpotCompanyById(companyId: string): Promise<HubSpotCompanyMatch[] | null> {
   return mapHubSpotCompanyByIdResultToMatches(await getHubSpotCompanyByIdForResolver(companyId));
 }
 
 // ── Helpers de conversión ────────────────────────────────────
 
-function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): CompanyCandidate {
+export function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): CompanyCandidate {
   return {
     source: 'sellup',
     sellupAccountId: match.id,
@@ -219,7 +220,7 @@ function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): 
   };
 }
 
-function hubspotMatchToCandidate(match: HubSpotCompanyMatch, confidence = 0.8): CompanyCandidate {
+export function hubspotMatchToCandidate(match: HubSpotCompanyMatch, confidence = 0.8): CompanyCandidate {
   const country = match.country ?? null;
   const countryCode = mapCountryToCode(country);
   return {

@@ -10,7 +10,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildContactInsertPayload, type CandidateRecord } from '../candidate-review-core';
-import { buildLinkedinCandidateRow, evaluateLinkedinCompanyConsistency, type LinkedinSearchPreviewData } from '../linkedin-contact-search-core';
+import {
+  buildQuickSearchCandidateRow,
+  evaluateQuickSearchCompanyConsistency,
+} from '../contact-quick-search-candidate-core';
+import type { SearchedContactData } from '../linkedin-contact-search-core';
 import { buildHubSpotContactProperties, type ContactForSync } from '@/modules/contacts/contact-hubspot-sync-core';
 import {
   buildHubSpotContactCreateBody,
@@ -18,7 +22,8 @@ import {
 } from '@/server/integrations/hubspot-contact-sync';
 import type { CompanyCandidate } from '../types';
 
-const DATA: LinkedinSearchPreviewData = {
+const DATA: SearchedContactData = {
+  entryMode: 'linkedin_single',
   linkedinUrl: 'https://www.linkedin.com/in/jos%C3%A9-ficticio',
   linkedinSlug: 'josé-ficticio',
   profile: {
@@ -49,11 +54,12 @@ const COMPANY: CompanyCandidate = {
 };
 
 function approvedContact(): ContactForSync {
-  const row = buildLinkedinCandidateRow({
+  const row = buildQuickSearchCandidateRow({
     runId: 'run-1',
     data: DATA,
     company: COMPANY,
-    consistency: evaluateLinkedinCompanyConsistency(DATA.profile, COMPANY),
+    consistency: evaluateQuickSearchCompanyConsistency(DATA.profile, COMPANY),
+    companyMatchedBy: 'sellup_domain',
   });
   const candidate = {
     ...row,

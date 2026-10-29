@@ -1,19 +1,24 @@
 // Agente 2A — Buscar contacto por LinkedIn: núcleo puro (F2 · AGENT2A-LINKEDIN-CONTACT-SEARCH).
 //
 // Sin red ni Supabase: todo lo de afuera entra por dependencias, para probar el flujo completo
-// con dobles. Dos pasos, separados por la decisión del usuario:
+// con dobles.
 //
-//   1. searchContactByLinkedin — URL → validar/normalizar → ¿ya existe en SellUp (contactos o
-//      candidatos por revisar) por su LinkedIn? → enriquecer (Apollo; si no trae datos, Lusha)
-//      → ¿el email encontrado ya existe en SellUp o en HubSpot? → vista previa firmada.
-//   2. createLinkedinContactCandidate — vista previa firmada + empresa elegida → request (crea o
-//      vincula la cuenta, #587) → run CON account_id desde el inicio → candidato pending_review.
+//   searchContactByLinkedin — URL → validar/normalizar → ¿ya existe en SellUp (contactos o
+//   candidatos por revisar) por su LinkedIn? → enriquecer (Apollo; si no trae datos, Lusha)
+//   → ¿el email encontrado ya existe en SellUp o en HubSpot? → datos encontrados.
+//
+// AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE: ya no hay vista previa firmada ni un segundo paso que
+// espere al usuario. Con datos, la misma acción resuelve la empresa y crea el candidato
+// (`contact-quick-search-candidate-core.ts`): si el usuario no decide, queda en «Por revisar».
+// La búsqueda por correo (`email-contact-search-core.ts`) comparte estos tipos.
 //
 // Reglas de gasto:
 //   - URL inválida o persona ya conocida por su LinkedIn ⇒ ningún proveedor, cero créditos;
 //   - el email se compara contra SellUp y HubSpot DESPUÉS de enriquecer (es el dato que trae el
 //     proveedor): si ya existe, no se crea candidato y se avisa del gasto hecho;
 //   - crear el candidato no vuelve a llamar a ningún proveedor.
+//   - el duplicado por correo contra HubSpot se queda como estaba (decisión de Bryan, 29-10):
+//     si el correo encontrado ya existe en HubSpot, no se crea candidato.
 //
 // Pendiente (BACKLOG F2-b): buscar en HubSpot por la URL (`hs_linkedin_url`) antes de gastar,
 // con la URL normalizada en los dos lados; y la decisión 2 (asociar un contacto existente a
@@ -21,20 +26,27 @@
 //
 // Datos personales: la URL de LinkedIn no se registra en logs ni en el uso de proveedores.
 
-import { checkCompanyConsistency, type CompanyConsistencyResult } from '@/server/agents/contact-enrichment-toolkit/company-consistency-checker';
 import {
   LINKEDIN_PROFILE_URL_ERROR_COPY,
   normalizeLinkedinProfileUrl,
   type LinkedinProfileUrlRejection,
 } from './linkedin-profile-url';
-import type { CompanyCandidate } from './types';
 
 export type LinkedinSearchProvider = 'apollo' | 'lusha';
 
-/** Lo que un proveedor sabe de la persona. Nunca incluye teléfonos (siguen el flujo de reveal). */
+/** De dónde salen los datos del candidato: un proveedor pagado o un contacto que ya está en HubSpot. */
+export type ContactSearchSource = LinkedinSearchProvider | 'hubspot';
+
+/** Por dónde entró la búsqueda puntual. */
+export type ContactSearchEntryMode = 'linkedin_single' | 'email_single';
+
+/**
+ * Lo que se sabe de la persona. Los proveedores nunca traen teléfonos (siguen el flujo de
+ * reveal); sólo un contacto de HubSpot puede llegar con el teléfono que ya tiene el CRM.
+ */
 export interface LinkedinProviderProfile {
-  provider: LinkedinSearchProvider;
-  /** Id de la persona en el proveedor (Apollo person id / Lusha contact id). */
+  provider: ContactSearchSource;
+  /** Id de la persona en la fuente (Apollo person id / Lusha contact id / HubSpot contact id). */
   sourceContactId: string | null;
   firstName: string | null;
   lastName: string | null;
@@ -49,6 +61,10 @@ export interface LinkedinProviderProfile {
   providerCompanyWebsiteUrl: string | null;
   /** El proveedor dice que tiene teléfono (sin revelarlo). null = no lo dice. */
   phoneAvailable: boolean | null;
+  /** LinkedIn que reporta la fuente (en la búsqueda por LinkedIn manda la URL pegada). */
+  linkedinUrl?: string | null;
+  /** Sólo HubSpot: el teléfono que ya tiene el contacto en el CRM. */
+  phone?: string | null;
 }
 
 export interface LinkedinProviderUsage {
@@ -71,15 +87,21 @@ export type LinkedinProviderLookup =
 export interface KnownContactMatch {
   fullName: string | null;
   companyName: string | null;
+  /** Sólo candidatos por revisar: su id, para ofrecer «Abrir candidato» si el usuario lo puede ver. */
+  candidateId?: string | null;
 }
 
 export type HubSpotEmailCheck = 'clear' | 'unavailable' | 'skipped_no_email';
 
-/** Lo que viaja firmado entre la búsqueda y la creación del candidato. */
-export interface LinkedinSearchPreviewData {
-  linkedinUrl: string;
-  linkedinSlug: string;
+/** Lo que la búsqueda encontró y con lo que se crea el candidato (no sale al navegador). */
+export interface SearchedContactData {
+  entryMode: ContactSearchEntryMode;
+  /** LinkedIn canónico: el pegado o el que trajo la fuente. null si nadie lo conoce. */
+  linkedinUrl: string | null;
+  linkedinSlug: string | null;
   profile: LinkedinProviderProfile;
+  /** Sólo cuando los datos salen de un contacto que ya está en HubSpot. */
+  hubspotContact?: { id: string; associatedCompanyId: string | null } | null;
   /** Proveedores que se llamaron (para el run y el reporte de gasto). */
   providersCalled: LinkedinSearchProvider[];
   creditsSpent: number | null;
@@ -88,13 +110,17 @@ export interface LinkedinSearchPreviewData {
 
 /** Lo que ve el usuario en la vista previa (sin la URL). */
 export interface LinkedinSearchPreview {
-  provider: LinkedinSearchProvider;
+  provider: ContactSearchSource;
   fullName: string;
   title: string | null;
   providerCompanyName: string | null;
   providerCompanyDomain: string | null;
   email: string | null;
   phoneAvailable: boolean | null;
+  /** ¿La fuente trajo un LinkedIn? (nunca la URL: dato personal). */
+  hasLinkedin: boolean;
+  /** ¿Ya hay un teléfono (sólo contactos de HubSpot)? */
+  hasPhone: boolean;
   /** Para precargar el buscador de empresa: dominio del proveedor o, si no, su nombre. */
   suggestedCompanyQuery: string;
 }
@@ -116,7 +142,7 @@ export type LinkedinSearchResult =
   | {
       status: 'found';
       preview: LinkedinSearchPreview;
-      token: string;
+      data: SearchedContactData;
       hubspotCheck: HubSpotEmailCheck;
     };
 
@@ -142,7 +168,6 @@ export interface LinkedinSearchDeps {
   /** Lanza si HubSpot no responde: la búsqueda sigue y la sincronización al aprobar vuelve a mirar. */
   findHubSpotContactByEmail: (email: string) => Promise<KnownContactMatch | null>;
   logUsage: (usage: LinkedinProviderUsage) => Promise<void>;
-  signPreview: (data: LinkedinSearchPreviewData) => string;
   nowIso: () => string;
 }
 
@@ -151,7 +176,7 @@ export function hasContactData(profile: LinkedinProviderProfile): boolean {
   return Boolean(profile.email && profile.email.trim());
 }
 
-function sumCredits(usage: readonly LinkedinProviderUsage[]): number | null {
+export function sumCredits(usage: readonly LinkedinProviderUsage[]): number | null {
   let total = 0;
   for (const entry of usage) {
     if (entry.credits_used === null) return null;
@@ -169,6 +194,8 @@ export function buildLinkedinSearchPreview(profile: LinkedinProviderProfile): Li
     providerCompanyDomain: profile.providerCompanyDomain,
     email: profile.email,
     phoneAvailable: profile.phoneAvailable,
+    hasLinkedin: Boolean(profile.linkedinUrl?.trim()),
+    hasPhone: Boolean(profile.phone?.trim()),
     suggestedCompanyQuery: profile.providerCompanyDomain?.trim() || profile.providerCompanyName?.trim() || '',
   };
 }
@@ -282,11 +309,14 @@ export async function searchContactByLinkedin(
     }
   }
 
-  // 5. Vista previa firmada.
-  const data: LinkedinSearchPreviewData = {
+  // 5. Datos encontrados: la acción crea el candidato con ellos.
+  const data: SearchedContactData = {
+    entryMode: 'linkedin_single',
     linkedinUrl: normalized.canonicalUrl,
     linkedinSlug: normalized.slug,
-    profile: { ...chosen, email },
+    // El LinkedIn del candidato es SIEMPRE el que pegó el usuario.
+    profile: { ...chosen, email, linkedinUrl: normalized.canonicalUrl },
+    hubspotContact: null,
     providersCalled,
     creditsSpent: creditsSpentTotal,
     searchedAt: deps.nowIso(),
@@ -294,207 +324,7 @@ export async function searchContactByLinkedin(
   return {
     status: 'found',
     preview: buildLinkedinSearchPreview(data.profile),
-    token: deps.signPreview(data),
+    data,
     hubspotCheck,
-  };
-}
-
-// ── Paso 2: asociar a una empresa y crear el candidato ────────────────────────
-
-export type LinkedinCandidateCreationError =
-  | 'disabled'
-  | 'invalid_preview'
-  | 'expired_preview'
-  | 'company_required'
-  | 'already_pending'
-  | 'request_failed'
-  | 'account_unresolved'
-  | 'run_failed'
-  | 'insert_failed';
-
-export const LINKEDIN_CREATE_COPY: Record<LinkedinCandidateCreationError, string> = {
-  disabled: LINKEDIN_SEARCH_COPY.disabled,
-  invalid_preview: 'No pudimos validar la búsqueda. Vuelve a buscar el perfil.',
-  expired_preview: 'La búsqueda caducó (30 minutos). Vuelve a buscar el perfil.',
-  company_required: 'Elige la empresa del contacto antes de crearlo.',
-  already_pending: 'Esta persona ya está en «Por revisar».',
-  request_failed: 'No pudimos preparar la empresa elegida. Intenta de nuevo.',
-  account_unresolved:
-    'No pudimos crear ni vincular la empresa en SellUp, así que no se creó el candidato. Intenta de nuevo o elige otra empresa.',
-  run_failed: 'No pudimos registrar la búsqueda. Intenta de nuevo.',
-  insert_failed: 'No pudimos crear el candidato. Intenta de nuevo.',
-};
-
-export type LinkedinCandidateCreationResult =
-  | {
-      ok: true;
-      candidateId: string;
-      runId: string;
-      accountId: string;
-      companyConsistency: CompanyConsistencyResult;
-      message: string;
-    }
-  | { ok: false; error: LinkedinCandidateCreationError; message: string };
-
-export interface LinkedinCandidateRow {
-  enrichment_run_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  full_name: string;
-  title: string | null;
-  seniority: string | null;
-  department: null;
-  country: string | null;
-  linkedin_url: string;
-  email: string | null;
-  phone: null;
-  source: LinkedinSearchProvider;
-  source_contact_id: string | null;
-  confidence: number;
-  status: 'pending_review';
-  duplicate_status: 'no_match';
-  enrichment_metadata: Record<string, unknown>;
-}
-
-export interface LinkedinCandidateCreationDeps {
-  isEnabled: () => boolean;
-  verifyPreview: (token: unknown) => { ok: true; data: LinkedinSearchPreviewData } | { ok: false; expired: boolean };
-  findPendingCandidateByLinkedin: (slug: string) => Promise<KnownContactMatch | null>;
-  /** Crea la request de la empresa elegida (crea o vincula la cuenta en SellUp, #587). */
-  createRequest: (company: CompanyCandidate) => Promise<{ success: boolean; requestId?: string }>;
-  loadRequestAccountId: (requestId: string) => Promise<string | null>;
-  /** Crea el run (intento 1) de la request: hereda su account_id (RPC create_contact_enrichment_attempt). */
-  createRun: (input: { requestId: string; provider: LinkedinSearchProvider }) => Promise<{ runId: string | null }>;
-  insertCandidate: (row: LinkedinCandidateRow) => Promise<{ candidateId: string | null }>;
-  finalizeRun: (input: {
-    runId: string;
-    provider: LinkedinSearchProvider;
-    providersCalled: LinkedinSearchProvider[];
-    creditsSpent: number | null;
-    companyConsistency: CompanyConsistencyResult['status'];
-  }) => Promise<void>;
-}
-
-/** Sólo se aceptan empresas reales de SellUp o HubSpot, nunca una «manual» ni vacía. */
-export function isSelectableCompany(company: CompanyCandidate | null | undefined): company is CompanyCandidate {
-  if (!company || !company.name?.trim()) return false;
-  if (company.source === 'sellup') return Boolean(company.sellupAccountId);
-  if (company.source === 'hubspot') return Boolean(company.hubspotCompanyId);
-  return false;
-}
-
-/**
- * ¿La empresa elegida coincide con la que dice el proveedor? Mismo verificador que usan Apollo,
- * Lusha y «Reasignar empresa». `possible_mismatch` sugiere un cambio de trabajo.
- */
-export function evaluateLinkedinCompanyConsistency(
-  profile: Pick<LinkedinProviderProfile, 'email' | 'providerCompanyName' | 'providerCompanyWebsiteUrl' | 'providerCompanyDomain'>,
-  company: Pick<CompanyCandidate, 'name' | 'domain'>,
-): CompanyConsistencyResult {
-  return checkCompanyConsistency({
-    email: profile.email,
-    apolloOrganizationName: profile.providerCompanyName,
-    apolloOrganizationWebsiteUrl: profile.providerCompanyWebsiteUrl ?? profile.providerCompanyDomain,
-    companyDomain: company.domain ?? null,
-    companyName: company.name,
-  });
-}
-
-export function buildLinkedinCandidateRow(input: {
-  runId: string;
-  data: LinkedinSearchPreviewData;
-  company: CompanyCandidate;
-  consistency: CompanyConsistencyResult;
-}): LinkedinCandidateRow {
-  const { data, company, consistency } = input;
-  const p = data.profile;
-  return {
-    enrichment_run_id: input.runId,
-    first_name: p.firstName,
-    last_name: p.lastName,
-    full_name: p.fullName,
-    title: p.title,
-    seniority: p.seniority,
-    department: null,
-    country: p.country ?? company.countryCode ?? null,
-    linkedin_url: data.linkedinUrl,
-    email: p.email,
-    phone: null, // El teléfono sigue el flujo de reveal existente.
-    source: p.provider,
-    source_contact_id: p.sourceContactId,
-    confidence: 0.9,
-    status: 'pending_review',
-    duplicate_status: 'no_match', // Ya se comprobó LinkedIn y email antes de gastar.
-    enrichment_metadata: {
-      provider: p.provider,
-      entry_mode: 'linkedin_single',
-      linkedin_source: 'user_input',
-      organization: {
-        name: p.providerCompanyName,
-        website_url: p.providerCompanyWebsiteUrl,
-        domain: p.providerCompanyDomain,
-      },
-      company_consistency: consistency,
-      provider_phone_available: p.phoneAvailable,
-      providers_called: data.providersCalled,
-      credits_spent: data.creditsSpent,
-      searched_at: data.searchedAt,
-      hito: 'AGENT2A-LINKEDIN-CONTACT-SEARCH',
-    },
-  };
-}
-
-export async function createLinkedinContactCandidate(
-  input: { token: unknown; company: CompanyCandidate | null | undefined },
-  deps: LinkedinCandidateCreationDeps,
-): Promise<LinkedinCandidateCreationResult> {
-  const fail = (error: LinkedinCandidateCreationError): LinkedinCandidateCreationResult => ({
-    ok: false,
-    error,
-    message: LINKEDIN_CREATE_COPY[error],
-  });
-
-  if (!deps.isEnabled()) return fail('disabled');
-  const verified = deps.verifyPreview(input.token);
-  if (!verified.ok) return fail(verified.expired ? 'expired_preview' : 'invalid_preview');
-  const data = verified.data;
-
-  // Sin empresa no hay candidato: el run necesita su cuenta desde el inicio.
-  if (!isSelectableCompany(input.company)) return fail('company_required');
-  const company = input.company;
-
-  // Pudo entrar a «Por revisar» por otro camino mientras el usuario elegía la empresa.
-  if (await deps.findPendingCandidateByLinkedin(data.linkedinSlug)) return fail('already_pending');
-
-  const request = await deps.createRequest(company);
-  if (!request.success || !request.requestId) return fail('request_failed');
-
-  // El run nace CON account_id (evita B1b): sin cuenta resuelta no se crea nada.
-  const accountId = await deps.loadRequestAccountId(request.requestId);
-  if (!accountId) return fail('account_unresolved');
-
-  const run = await deps.createRun({ requestId: request.requestId, provider: data.profile.provider });
-  if (!run.runId) return fail('run_failed');
-
-  const consistency = evaluateLinkedinCompanyConsistency(data.profile, company);
-  const row = buildLinkedinCandidateRow({ runId: run.runId, data, company, consistency });
-  const inserted = await deps.insertCandidate(row);
-  if (!inserted.candidateId) return fail('insert_failed');
-
-  await deps.finalizeRun({
-    runId: run.runId,
-    provider: data.profile.provider,
-    providersCalled: data.providersCalled,
-    creditsSpent: data.creditsSpent,
-    companyConsistency: consistency.status,
-  });
-
-  return {
-    ok: true,
-    candidateId: inserted.candidateId,
-    runId: run.runId,
-    accountId,
-    companyConsistency: consistency,
-    message: `Listo. Dejé a ${data.profile.fullName} en «Por revisar» con ${company.name}. No creé el contacto final: requiere tu aprobación.`,
   };
 }

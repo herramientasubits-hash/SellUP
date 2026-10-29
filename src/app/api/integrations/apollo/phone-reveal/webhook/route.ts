@@ -57,6 +57,7 @@ import {
 } from '@/modules/contact-enrichment/phone-reveal-webhook-core';
 import { PHONE_REVEAL_OPERATION_KEY } from '@/modules/contact-enrichment/phone-reveal-core';
 import type { ContactCandidateEnrichmentMetadata } from '@/modules/contact-enrichment/types';
+import { resolveCandidatePhoneCompanyScope } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
 import { pushCandidatePhoneRevealToHubSpot } from '@/modules/contact-enrichment/candidate-reveal-hubspot-push.server';
 
 /** Nombre de la env con la URL pública del webhook (solo referencia). */
@@ -87,14 +88,16 @@ function mapWebhookCandidate(row: Record<string, unknown>): WebhookCandidateReco
     | { account_id: string | null; company_country_code: string | null }
     | null
     | undefined;
+  // Empresa efectiva: la reasignada (si hay) manda sobre la del run.
+  const scope = resolveCandidatePhoneCompanyScope(run, row.enrichment_metadata);
   return {
     id: row.id as string,
-    accountId: run?.account_id ?? null,
+    accountId: scope.accountId,
     enrichmentMetadata:
       (row.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
     candidateCountry: (row.country as string | null) ?? null,
-    runCompanyCountryCode: run?.company_country_code ?? null,
+    runCompanyCountryCode: scope.companyCountryCode,
     apolloPersonId: (row.apollo_person_id as string | null) ?? null,
     source: (row.source as string | null) ?? null,
     sourceContactId: (row.source_contact_id as string | null) ?? null,

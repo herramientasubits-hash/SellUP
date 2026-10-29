@@ -71,6 +71,7 @@ import {
   type PhoneRevealWaterfallStartGate,
 } from './phone-reveal-waterfall-start-gate';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { resolveCandidatePhoneCompanyScope } from './candidate-company-reassignment-core';
 import { pushCandidatePhoneRevealToHubSpot } from './candidate-reveal-hubspot-push.server';
 
 // Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
@@ -152,9 +153,11 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
       }
     | null
     | undefined;
+  // Empresa efectiva: la reasignada (si hay) manda sobre la del run.
+  const scope = resolveCandidatePhoneCompanyScope(run, r.enrichment_metadata);
   return {
     id: r.id as string,
-    accountId: run?.account_id ?? null,
+    accountId: scope.accountId,
     // Origen del candidato: gate anti-contaminación del Apollo id (sólo 'apollo'
     // reenvía source_contact_id como Apollo person id; Lusha/otros lo omiten).
     source: (r.source as ContactSource | null) ?? null,
@@ -163,7 +166,7 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
     linkedinUrl: (r.linkedin_url as string | null) ?? null,
     firstName: (r.first_name as string | null) ?? null,
     lastName: (r.last_name as string | null) ?? null,
-    organizationName: run?.company_name ?? null,
+    organizationName: scope.companyName,
     existingPhone: (r.phone as string | null) ?? null,
     enrichmentMetadata:
       (r.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {},
@@ -176,7 +179,7 @@ function mapRevealCandidate(row: unknown): RevealCandidateRecord {
     // mientras ENABLE_APOLLO_PHONE_CACHE esté apagado.
     apolloPersonId: (r.apollo_person_id as string | null) ?? null,
     candidateCountry: (r.country as string | null) ?? null,
-    runCompanyCountryCode: run?.company_country_code ?? null,
+    runCompanyCountryCode: scope.companyCountryCode,
   };
 }
 

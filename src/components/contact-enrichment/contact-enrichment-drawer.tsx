@@ -22,8 +22,8 @@ export type { ContactEnrichmentInitialCompany, ManualContactContext };
 /** Nombre (tooltip y aria-label) del botón de HubSpot de la cabecera: lote de Company IDs. */
 export const HUBSPOT_ID_BATCH_BUTTON_LABEL = 'Buscar por lote de HubSpot IDs';
 
-/** Nombre (tooltip y aria-label) del botón de LinkedIn de la cabecera. */
-export const LINKEDIN_SEARCH_BUTTON_LABEL = 'Buscar contacto por LinkedIn';
+/** Nombre (tooltip y aria-label) del botón de LinkedIn de la cabecera (LinkedIn o correo). */
+export const LINKEDIN_SEARCH_BUTTON_LABEL = 'Buscar contacto por LinkedIn o correo';
 
 /**
  * Los modos del panel. «Por empresa» (`single`) es el de siempre; los otros dos se activan con
@@ -35,7 +35,7 @@ export type EnrichmentPanelMode = 'single' | 'hubspot_id_batch' | 'linkedin';
 export const SEARCH_MODE_PLACEHOLDER: Record<EnrichmentPanelMode, string> = {
   single: 'Nombre o dominio de la empresa',
   hubspot_id_batch: 'Company IDs separados por coma',
-  linkedin: 'Pega el enlace del perfil de LinkedIn',
+  linkedin: 'Pega el LinkedIn o el correo de la persona',
 };
 
 interface ContactEnrichmentDrawerProps {

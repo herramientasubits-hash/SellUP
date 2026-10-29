@@ -133,6 +133,49 @@ export function applyCandidateCompanyReassignment<T extends CandidateCompanyCont
   return next;
 }
 
+// ── Alcance de empresa para los flujos de teléfono ──────────────
+
+/** Lo que los flujos de teléfono leen del run embebido (`run:contact_enrichment_runs (...)`). */
+export interface CandidateRunCompanyRow {
+  account_id?: string | null;
+  company_name?: string | null;
+  company_country_code?: string | null;
+}
+
+/** Cuenta, nombre y país EFECTIVOS del candidato: los del run, salvo que se haya reasignado. */
+export interface CandidatePhoneCompanyScope {
+  accountId: string | null;
+  companyName: string | null;
+  companyCountryCode: string | null;
+}
+
+/**
+ * AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — cierra el pendiente de «Reasignar empresa»: reveal,
+ * privacy gate, supresión, recovery y webhook leían `run.account_id` directamente, así que un
+ * candidato reasignado se evaluaba (supresión, caché, país) contra la empresa ORIGINAL — o contra
+ * ninguna, si el run nació sin cuenta. Todos pasan ahora por aquí.
+ *
+ * Misma semántica que `applyCandidateCompanyReassignment`: el país sólo se sustituye cuando la
+ * reasignación trae uno. Sin reasignación válida devuelve exactamente lo del run (fail-closed).
+ */
+export function resolveCandidatePhoneCompanyScope(
+  run: CandidateRunCompanyRow | null | undefined,
+  metadata: unknown,
+): CandidatePhoneCompanyScope {
+  const base: CandidatePhoneCompanyScope = {
+    accountId: run?.account_id ?? null,
+    companyName: run?.company_name ?? null,
+    companyCountryCode: run?.company_country_code ?? null,
+  };
+  const reassignment = readCandidateCompanyReassignment(metadata);
+  if (!reassignment) return base;
+  return {
+    accountId: reassignment.account_id,
+    companyName: reassignment.company_name,
+    companyCountryCode: reassignment.country_code ?? base.companyCountryCode,
+  };
+}
+
 // ── Selección que llega del cliente ─────────────────────────────
 
 /**

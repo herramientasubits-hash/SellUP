@@ -143,7 +143,7 @@ describe('Panel del agente · modos de búsqueda (F1)', () => {
     linkedinFlag = true;
     rtl.render(<Shell />);
     const button = await rtl.screen.findByTestId('chat-panel-linkedin-search');
-    assert.equal(button.getAttribute('aria-label'), 'Buscar contacto por LinkedIn');
+    assert.equal(button.getAttribute('aria-label'), 'Buscar contacto por LinkedIn o correo');
     assert.ok(button.querySelector('img[src="/brand/linkedin-in.svg"]'));
     // Orden de la cabecera: HubSpot, LinkedIn, «Nueva conversación».
     assert.equal(rtl.screen.getByTestId('chat-panel-hubspot-id-batch').nextElementSibling, button);
@@ -172,7 +172,7 @@ describe('Panel del agente · modos de búsqueda (F1)', () => {
     rtl.fireEvent.click(button);
     assert.equal(button.getAttribute('aria-pressed'), 'true');
     await rtl.screen.findByTestId('linkedin-contact-search');
-    assert.equal(textbox().getAttribute('placeholder'), 'Pega el enlace del perfil de LinkedIn');
+    assert.equal(textbox().getAttribute('placeholder'), 'Pega el LinkedIn o el correo de la persona');
     rtl.fireEvent.click(button);
     assert.equal(button.getAttribute('aria-pressed'), 'false');
     await expectCompanyModeWithEmptyBox();

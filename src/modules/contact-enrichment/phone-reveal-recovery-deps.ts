@@ -52,6 +52,7 @@ import {
   type StaleRecoveryQuery,
 } from './phone-reveal-recovery-core';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { resolveCandidatePhoneCompanyScope } from './candidate-company-reassignment-core';
 import { pushCandidatePhoneRevealToHubSpot } from '@/modules/contact-enrichment/candidate-reveal-hubspot-push.server';
 
 // ── Carga del candidato (proyección de recovery) ───────────────
@@ -73,9 +74,11 @@ export function mapRecoveryCandidate(
     | { account_id: string | null; company_country_code: string | null }
     | null
     | undefined;
+  // Empresa efectiva: la reasignada (si hay) manda sobre la del run.
+  const scope = resolveCandidatePhoneCompanyScope(run, row.enrichment_metadata);
   return {
     id: row.id as string,
-    accountId: run?.account_id ?? null,
+    accountId: scope.accountId,
     phoneRevealProvider: (row.phone_reveal_provider as string | null) ?? null,
     source: (row.source as ContactSource | null) ?? null,
     phoneRevealStatus: (row.phone_reveal_status as string | null) ?? null,
@@ -86,7 +89,7 @@ export function mapRecoveryCandidate(
     apolloPersonId: (row.apollo_person_id as string | null) ?? null,
     sourceContactId: (row.source_contact_id as string | null) ?? null,
     candidateCountry: (row.country as string | null) ?? null,
-    runCompanyCountryCode: run?.company_country_code ?? null,
+    runCompanyCountryCode: scope.companyCountryCode,
   };
 }
 
