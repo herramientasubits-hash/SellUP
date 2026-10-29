@@ -52,6 +52,7 @@ import {
   type StaleRecoveryQuery,
 } from './phone-reveal-recovery-core';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { pushCandidatePhoneRevealToHubSpot } from '@/modules/contact-enrichment/candidate-reveal-hubspot-push.server';
 
 // ── Carga del candidato (proyección de recovery) ───────────────
 
@@ -297,6 +298,8 @@ export function buildRecoveryCoreDeps(
         .update(update)
         .eq('id', candidateId);
       if (error) throw new Error(error.message);
+      // AGENT2A-HUBSPOT-REVEAL-PUSH — un número recuperado por el cron también viaja a HubSpot.
+      await pushCandidatePhoneRevealToHubSpot(candidateId, patch.phone, 'reveal_phone_recovery');
     },
 
     logUsage: async (entry: RecoveryUsageLogEntry): Promise<void> => {

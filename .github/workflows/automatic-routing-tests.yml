@@ -58,6 +58,12 @@ jobs:
       - name: Run Agent 2A HubSpot candidate identity tests
         run: npm run test:agent2a:hubspot-candidate-identity
 
+      # AGENT2A-HUBSPOT-REVEAL-PUSH — lo revelado (teléfono, LinkedIn, correo) de un candidato que ya
+      # existe en HubSpot viaja a su contacto EN CUANTO se revela (sólo completa vacíos), y aprobar un
+      # candidato de «Primero HubSpot» lo deja sincronizado en vez de «Nunca sincronizado».
+      - name: Run Agent 2A HubSpot reveal push tests
+        run: npm run test:agent2a:hubspot-reveal-push
+
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
       # invariant that a Lusha run never touches Apollo/Tavily and that with
       # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.

@@ -110,6 +110,7 @@ import type { PhoneRevealCreditProviderKey } from './phone-reveal-credit-budget-
 import { buildTerminalPhoneSuppressionPatch } from './phone-reveal-suppression-guard';
 import { persistTerminalPhoneSuppression } from './candidate-phone-suppression-persistence';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { pushCandidatePhoneRevealToHubSpot } from '@/modules/contact-enrichment/candidate-reveal-hubspot-push.server';
 
 /**
  * Rol SINTÉTICO con el que la pata automática entra al core del fallback de Lusha
@@ -996,6 +997,8 @@ export async function callLushaFallbackLeg(args: {
           .update(update)
           .eq('id', candidateId);
         if (error) throw new Error(error.message);
+        // AGENT2A-HUBSPOT-REVEAL-PUSH — ver el webhook de Apollo: mismo envío, pata Lusha.
+        await pushCandidatePhoneRevealToHubSpot(candidateId, patch.phone, 'reveal_phone_lusha_waterfall');
       },
 
       // Diagnóstico estructurado de la pata (AGENT2A-LUSHA-PHONE-REVEAL-ERROR-DIAGNOSTIC-1).

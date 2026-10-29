@@ -133,8 +133,29 @@ export function resolveContactAutoSyncGate(
   if (hasPendingHubSpotPhoneChange(state)) {
     return { proceed: false, outcome: 'skipped_pending_manual_update' };
   }
+  // AGENT2A-HUBSPOT-FIRST-APPROVAL-SYNC — vinculado al APROBAR pero nunca sincronizado.
+  //
+  // Un candidato de «Primero HubSpot» se vincula (`linkApprovedHubSpotCandidate`) justo ANTES
+  // de esta fase, así que llega aquí con vínculo y con el estado INICIAL que escribió la
+  // aprobación. Cortarlo como «ya sincronizado» lo dejaba diciendo «Nunca sincronizado» para
+  // siempre y sin llevar a HubSpot lo que SellUp reveló. El motor lo resuelve en su rama D
+  // (reparación): completa SÓLO las propiedades vacías del contacto de HubSpot y marca
+  // `synced`. No es un PATCH del teléfono local: nunca sobrescribe lo que el CRM ya tiene.
+  //
+  // Sólo con un estado LEGIBLE de «todavía no hubo alta»: un estado ilegible, `failed`, `stale`
+  // o `synced` siguen sin tocar la red, exactamente como antes.
+  if (state && LINKED_BUT_NEVER_SYNCED.includes(state.status)) {
+    return { proceed: true };
+  }
   return { proceed: false, outcome: 'skipped_already_synced' };
 }
+
+/** Estados iniciales de la aprobación: el contacto está vinculado pero el alta no ocurrió. */
+const LINKED_BUT_NEVER_SYNCED: readonly string[] = [
+  'never_attempted',
+  'blocked_no_email',
+  'blocked_no_hubspot_company',
+];
 
 /**
  * Traduce el veredicto del motor al vocabulario del informe.
@@ -147,8 +168,12 @@ function outcomeForSyncResult(result: SyncContactToHubSpotResult): ContactAutoSy
   if (result.ok) {
     if (result.status === 'created') return 'attempted_created';
     if (result.status === 'linked_existing') return 'attempted_linked_existing';
-    // `already_synced` / `updated` son inalcanzables: el portero no deja pasar un contacto
-    // vinculado. Si llegaran, decir «se creó» sería falso, así que se reporta como intento.
+    // `already_synced`: el portero sólo deja pasar un contacto vinculado cuando el alta nunca
+    // ocurrió (vinculado al aprobar), y el motor lo cierra en su rama D — ya existía en HubSpot
+    // y quedó vinculado sin duplicar, que es exactamente `attempted_linked_existing`.
+    if (result.status === 'already_synced') return 'attempted_linked_existing';
+    // `updated` es inalcanzable: el portero nunca deja pasar un cambio pendiente. Si llegara,
+    // decir «se creó» sería falso, así que se reporta como intento.
     return 'attempted_failed';
   }
   if (result.errorCode === 'MISSING_EMAIL') return 'blocked_no_email';

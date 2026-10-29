@@ -131,6 +131,11 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   'modules/contacts/contact-hubspot-sync-runner.ts':
     'lectura — la columna entra en el SELECT del contacto, nunca en el patch',
   'modules/contacts/contact-traceability.ts': 'etiqueta de UI',
+  // AGENT2A-HUBSPOT-REVEAL-PUSH — ni lectura ni escritura de la columna: el núcleo arma un
+  // `ContactForSync` con `mobile_phone: null` sólo para reutilizar el constructor de vacíos, y
+  // únicamente `phone` / `hs_linkedin_url` pueden viajar a HubSpot.
+  'modules/contact-enrichment/candidate-reveal-hubspot-push-core.ts':
+    'ninguna — literal null para el constructor de vacíos, nunca viaja',
   'modules/contacts/types.ts': 'tipo de la fila',
   'server/agents/contact-enrichment-toolkit/existing-contacts-reader.ts':
     'lectura — snapshot previo al enriquecimiento',

@@ -13,8 +13,10 @@
 // configured, the core returns 401 (fail-closed) and nothing is processed.
 //
 // This route never creates an official contact, never approves a candidate,
-// never writes HubSpot, never touches Lusha, and never prints the raw body or
-// any phone / email / name / linkedin. The whole reveal path stays gated behind
+// never touches Lusha, and never prints the raw body or any phone / email /
+// name / linkedin. Its only HubSpot write is AGENT2A-HUBSPOT-REVEAL-PUSH: a
+// revealed number is sent to the candidate's existing HubSpot contact, filling
+// EMPTY properties only (never overwrites, best-effort, never throws). The whole reveal path stays gated behind
 // ENABLE_APOLLO_PHONE_REVEAL, which is OFF in every environment.
 //
 // Webhook validation handshake (APOLLO-PHONE-ASYNC-9): Apollo may prevalidate
@@ -55,6 +57,7 @@ import {
 } from '@/modules/contact-enrichment/phone-reveal-webhook-core';
 import { PHONE_REVEAL_OPERATION_KEY } from '@/modules/contact-enrichment/phone-reveal-core';
 import type { ContactCandidateEnrichmentMetadata } from '@/modules/contact-enrichment/types';
+import { pushCandidatePhoneRevealToHubSpot } from '@/modules/contact-enrichment/candidate-reveal-hubspot-push.server';
 
 /** Nombre de la env con la URL pública del webhook (solo referencia). */
 export const APOLLO_PHONE_REVEAL_WEBHOOK_URL_ENV = 'APOLLO_PHONE_REVEAL_WEBHOOK_URL';
@@ -265,6 +268,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           .update(update)
           .eq('id', candidateId);
         if (error) throw new Error(error.message);
+        // AGENT2A-HUBSPOT-REVEAL-PUSH — el número revelado viaja ya al contacto de HubSpot (sólo
+        // si allá está vacío). Nunca lanza: el aviso de Apollo ya quedó guardado.
+        await pushCandidatePhoneRevealToHubSpot(candidateId, patch.phone, 'reveal_phone_apollo_webhook');
       },
       logUsage: async (entry: WebhookUsageLogEntry): Promise<void> => {
         // El aviso no trae sesión: el gasto se atribuye a quien pidió el

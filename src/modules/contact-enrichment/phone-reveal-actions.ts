@@ -71,6 +71,7 @@ import {
   type PhoneRevealWaterfallStartGate,
 } from './phone-reveal-waterfall-start-gate';
 import type { ContactCandidateEnrichmentMetadata, ContactSource } from './types';
+import { pushCandidatePhoneRevealToHubSpot } from './candidate-reveal-hubspot-push.server';
 
 // Env con la URL pública del webhook async de Apollo (sin NEXT_PUBLIC). No se
 // exporta: este archivo es 'use server' y solo puede exportar async actions.
@@ -675,6 +676,8 @@ export async function revealCandidatePhoneAction(
         })
         .eq('id', candidateId);
       if (error) throw new Error(error.message);
+      // AGENT2A-HUBSPOT-REVEAL-PUSH — un número que salió de la caché también viaja a HubSpot.
+      await pushCandidatePhoneRevealToHubSpot(candidateId, patch.phone, 'reveal_phone_cache_hit');
     },
 
     logCacheHitUsage: async (entry: PhoneCacheHitUsageLogEntry): Promise<void> => {

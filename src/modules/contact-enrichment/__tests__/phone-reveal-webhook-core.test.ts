@@ -453,9 +453,13 @@ describe('ASYNC-1 webhook — guards de la ruta', () => {
     assert.equal(/approveContactCandidate|from\(['"]contacts['"]\)/.test(code), false);
   });
 
-  it('la ruta no toca Lusha ni HubSpot', () => {
+  it('la ruta no toca Lusha, y HubSpot sólo por el envío de lo revelado', () => {
     assert.equal(/lusha/i.test(code), false);
-    assert.equal(/hubspot/i.test(code), false);
+    // AGENT2A-HUBSPOT-REVEAL-PUSH — único camino permitido: el número revelado viaja al contacto
+    // de HubSpot del candidato (sólo completa vacíos, best-effort, nunca lanza).
+    const allowed = /candidate-reveal-hubspot-push|pushCandidatePhoneRevealToHubSpot|AGENT2A-HUBSPOT-REVEAL-PUSH/;
+    const offending = code.split('\n').filter((line) => /hubspot/i.test(line) && !allowed.test(line));
+    assert.deepEqual(offending, []);
   });
 
   it('la ruta lee el token del env (el token/URL del reveal no son NEXT_PUBLIC)', () => {

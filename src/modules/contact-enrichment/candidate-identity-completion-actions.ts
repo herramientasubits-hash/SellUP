@@ -15,8 +15,9 @@
 //     aparece la identidad, delega en `revealCandidatePhoneAction` sin cambiar NADA de su
 //     gobierno (flag, rol, corrida del waterfall, techo de créditos, presupuesto, privacidad).
 //
-// No escribe en HubSpot. El LinkedIn y el teléfono llegan a HubSpot al aprobar: el sync completa
-// las propiedades VACÍAS del contacto que ya existía (nunca sobrescribe).
+// AGENT2A-HUBSPOT-REVEAL-PUSH — lo revelado (LinkedIn, correo) viaja a HubSpot EN CUANTO se
+// guarda, sin esperar a la aprobación: se completan sólo las propiedades VACÍAS del contacto que
+// ya existía (nunca sobrescribe). El teléfono lo envían los caminos que lo guardan.
 
 import { redirect } from 'next/navigation';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
@@ -35,6 +36,7 @@ import {
 } from './candidate-identity-completion-core';
 import { lookupApolloIdentity, lookupLushaIdentity } from './candidate-identity-completion-providers.server';
 import { revealCandidatePhoneAction } from './phone-reveal-actions';
+import { pushCandidateRevealToHubSpot } from './candidate-reveal-hubspot-push.server';
 import type { RevealCandidatePhoneInput, RevealCandidatePhoneResult } from './phone-reveal-core';
 
 function getServiceRoleClient() {
@@ -135,6 +137,10 @@ async function runCompletion(
         if (patch.apollo_person_id) query = query.is('apollo_person_id', null);
         const { error } = await query;
         if (error) throw new Error(error.message);
+        // AGENT2A-HUBSPOT-REVEAL-PUSH — sólo si de verdad se guardó un canal nuevo.
+        if (patch.linkedin_url || patch.email) {
+          await pushCandidateRevealToHubSpot(id, patch.linkedin_url ? 'reveal_linkedin' : 'reveal_email');
+        }
       },
       async logUsage(entry, context) {
         await logProviderUsage({
