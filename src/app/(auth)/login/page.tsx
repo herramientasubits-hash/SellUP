@@ -1,5 +1,4 @@
 import { GoogleSignInButton } from '@/modules/auth/components/google-sign-in-button';
-import { LoginBrandPanel } from '@/modules/auth/components/login-brand-panel';
 import { LoginAccessCard } from '@/modules/auth/components/login-access-card';
 
 const errorMessages: Record<string, string> = {
@@ -25,24 +24,21 @@ export default async function LoginPage({
     : null;
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Panel izquierdo — branding (desktop only) */}
-      <LoginBrandPanel />
-
-      {/* Panel derecho — login */}
-      <div className="relative flex flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6 lg:py-16">
-        {/* Resplandor ambiental detrás de la card — solo desktop */}
-        <div
-          className="pointer-events-none absolute inset-0 hidden lg:block"
-          style={{
-            background:
-              'radial-gradient(ellipse 65% 55% at 50% 50%, color-mix(in srgb, var(--su-brand) 6%, transparent) 0%, transparent 75%)',
-          }}
-        />
-        <LoginAccessCard errorMessage={errorMessage}>
-          <GoogleSignInButton />
-        </LoginAccessCard>
-      </div>
-    </div>
+    // «Mínimo premium»: una sola tarjeta centrada sobre una aurora quieta con el color de la marca.
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background px-4 py-16">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-[15%] -top-[25%] size-[70vmax] rounded-full opacity-60 blur-3xl"
+        style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--su-brand) 32%, transparent), transparent 60%)' }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-[30%] -right-[20%] size-[60vmax] rounded-full opacity-50 blur-3xl"
+        style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--chart-3) 30%, transparent), transparent 60%)' }}
+      />
+      <LoginAccessCard errorMessage={errorMessage}>
+        <GoogleSignInButton />
+      </LoginAccessCard>
+    </main>
   );
 }
