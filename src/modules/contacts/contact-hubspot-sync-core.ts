@@ -540,6 +540,15 @@ export interface SyncContactDeps {
     hubspotContactId: string,
     properties: HubSpotContactFillProperties,
   ) => Promise<{ ok: true; written: HubSpotFillEmptyPropertyName[] } | { error: string }>;
+  /**
+   * AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — lectura por id de un contacto que llegó
+   * YA vinculado (los de «Primero HubSpot» se vinculan al aprobar, antes del sync). Con ella y
+   * con `fillEmptyHubSpotContactProperties`, la reparación (rama D) completa los vacíos UNA vez
+   * —lo que SellUp reveló: teléfono, LinkedIn— igual que `linked_existing`. Nunca sobrescribe.
+   *
+   * Opcional: sin ella la rama D se comporta exactamente como antes (sin red).
+   */
+  findHubSpotContactById?: (hubspotContactId: string) => Promise<HubSpotExistingContactMatch | null>;
   persistSync: (
     contactId: string,
     patch: ContactHubSpotSyncPatch,
@@ -725,6 +734,10 @@ export async function runSyncContactToHubSpot(
     // ninguna evidencia escrita de que algo local esté sin enviar. Un PATCH aquí enviaría el
     // teléfono actual «por si acaso», sobrescribiendo en HubSpot un dato que quizá es mejor.
     if (priorState?.status !== 'synced') {
+      // Completar vacíos (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). No es un PATCH del
+      // teléfono local: sólo viaja lo que HubSpot tiene VACÍO, así que no puede pisar «un dato que
+      // quizá es mejor». Best-effort: pase lo que pase aquí, la reparación sigue.
+      const fillEmpty = await fillEmptyOnLinkedContact(contact, hubspotContactId, deps);
       try {
         await deps.persistSync(contact.id, {
           hubspot_contact_id: null,
@@ -739,7 +752,7 @@ export async function runSyncContactToHubSpot(
             // Se arrastran tal cual. Un estado ilegible no autoriza a declarar que no hay nada
             // pendiente, igual que no autoriza a enviar nada.
             ...preservePendingHubSpotPhoneChange(contact.metadata),
-          }),
+          }, fillEmpty ? { fill_empty: fillEmpty } : undefined),
         });
       } catch {
         // Best-effort: el contacto SÍ está sincronizado y eso es lo que se reporta.
@@ -873,6 +886,34 @@ export async function runSyncContactToHubSpot(
           ? SYNC_MESSAGES.linkedExistingFilled
           : SYNC_MESSAGES.linkedExisting,
   };
+}
+
+/**
+ * Completado de vacíos para un contacto que llegó YA vinculado (rama D). NUNCA lanza.
+ *
+ * Sin las dos dependencias devuelve `null` (comportamiento anterior: cero red). Si no se pudo
+ * comprobar la conexión o leer el contacto, no se escribe nada: no saber qué está vacío no
+ * autoriza a escribir.
+ */
+async function fillEmptyOnLinkedContact(
+  contact: ContactForSync,
+  hubspotContactId: string,
+  deps: SyncContactDeps,
+): Promise<HubSpotFillEmptyReport | null> {
+  if (!deps.findHubSpotContactById || !deps.fillEmptyHubSpotContactProperties) return null;
+  try {
+    const connection = await deps.checkConnection();
+    if (!connection.connected || !connection.canWriteContacts) return null;
+    const existing = await deps.findHubSpotContactById(hubspotContactId);
+    if (!existing) return { outcome: 'existing_unreadable', properties: [], error: null };
+    return await fillEmptyOnExistingContact(contact, existing, deps);
+  } catch (err) {
+    return {
+      outcome: 'existing_unreadable',
+      properties: [],
+      error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_READ_ERROR',
+    };
+  }
 }
 
 /**

@@ -294,6 +294,40 @@ export async function findHubSpotContactByEmail(
   return { id: first.id, properties };
 }
 
+/**
+ * Lee un contacto de HubSpot por su id con las propiedades que SellUp puede completar
+ * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Lo usa el sync cuando el contacto ya llegó
+ * VINCULADO —los candidatos de «Primero HubSpot» se vinculan al aprobar, antes del sync— para
+ * completar sus vacíos igual que en `linked_existing`.
+ *
+ * `null` si HubSpot dice que no existe (404). Cualquier otro fallo LANZA: el llamador no debe
+ * confundir «no pude leer» con «no hay nada que completar».
+ */
+export async function findHubSpotContactById(
+  hubspotContactId: string,
+): Promise<HubSpotExistingContactMatch | null> {
+  const token = await getHubSpotToken();
+  if (!token) throw new Error('HubSpot token unavailable');
+
+  const params = new URLSearchParams({ properties: HUBSPOT_FILL_EMPTY_PROPERTY_NAMES.join(',') });
+  const response = await fetch(
+    `${HUBSPOT_BASE}/crm/v3/objects/contacts/${encodeURIComponent(hubspotContactId)}?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`HubSpot contact read error: HTTP ${response.status}`);
+
+  const data = (await response.json()) as { id?: string; properties?: Record<string, unknown> };
+  const id = typeof data.id === 'string' && data.id ? data.id : hubspotContactId;
+  if (!data.properties || typeof data.properties !== 'object') return { id };
+  const properties: HubSpotExistingContactProperties = {};
+  for (const name of HUBSPOT_FILL_EMPTY_PROPERTY_NAMES) {
+    const value = data.properties[name];
+    properties[name] = typeof value === 'string' ? value : null;
+  }
+  return { id, properties };
+}
+
 /** PATCH crudo de propiedades. Sólo devuelve el código HTTP: el cuerpo citaría el teléfono. */
 async function patchHubSpotContactProperties(
   token: string,

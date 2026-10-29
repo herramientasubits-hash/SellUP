@@ -51,6 +51,13 @@ jobs:
       - name: Run Agent 2A LinkedIn contact search tests
         run: npm run test:agent2a:linkedin-contact-search
 
+      # AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — contacto que ya existe en HubSpot sólo con
+      # correo: «Revelar LinkedIn», identificación por correo antes de «Revelar teléfono» (sólo
+      # origen HubSpot, nunca sobrescribe, nunca pide teléfono a Apollo) y completar vacíos en
+      # HubSpot al primer sync del contacto vinculado.
+      - name: Run Agent 2A HubSpot candidate identity tests
+        run: npm run test:agent2a:hubspot-candidate-identity
+
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
       # invariant that a Lusha run never touches Apollo/Tavily and that with
       # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.

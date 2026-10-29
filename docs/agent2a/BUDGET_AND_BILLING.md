@@ -273,3 +273,27 @@ Detrás de `CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED` (apagada). Una búsqueda
   el costo en USD también queda `NULL` (esta ruta sólo registra créditos).
 * No hace preflight de presupuesto antes de llamar; no agrega reglas.
 * El teléfono no se revela aquí: sigue el reveal (§ 1–4).
+
+## 11. Completar un candidato que ya existe en HubSpot (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION, 2026-10-29)
+
+Sin bandera propia (encendido). Sólo candidatos `source = 'hubspot'` en `pending_review`, con
+correo, y sólo roles que pueden revelar teléfono (`admin`, `commercial_manager`).
+
+| Caso | Apollo | Lusha | Total |
+|---|---|---|---|
+| «Revelar LinkedIn», Apollo trae LinkedIn | 1 (`person_match` por correo) | 0 | **1 crédito** |
+| «Revelar LinkedIn», Apollo sin LinkedIn | 1 | `lusha_contact_search` por correo (desconocido; nunca `enrich`) | **1 + búsqueda Lusha** |
+| «Revelar teléfono» sin identidad de Apollo | 1 (`person_match` por correo) **antes** del reveal | 0 | **1 + el reveal de siempre (§ 1–4)** |
+| «Revelar teléfono», Apollo no identifica a la persona | 1 | 0 | **1 crédito; el reveal NO corre** |
+| Ya tiene LinkedIn / ya tiene identidad / intento anterior sin resultado | 0 | 0 | **0** (el botón no se ofrece) |
+
+* El `people/match` nunca lleva `reveal_phone_number` ni `reveal_personal_emails`.
+* Guarda `apollo_person_id` y `linkedin_url` sólo si estaban vacíos, y sólo si el nombre que
+  devuelve el proveedor coincide con el del candidato (si no: `identity_mismatch`, nada guardado).
+* Con la identidad guardada, la privacidad del reveal es evaluable con la misma función del
+  servidor y el reveal sigue igual: corrida del waterfall, techo de créditos, presupuesto.
+* Registro: `provider_usage_logs` `agent2a` / `identificar_contacto`, `entry_mode =
+  candidate_identity_completion`, sin correo ni LinkedIn. Rastro del intento en
+  `enrichment_metadata.identity_completion`.
+* Al aprobar, el primer sync del contacto (ya vinculado a HubSpot) completa en HubSpot sólo las
+  propiedades vacías: teléfono, móvil, cargo, nombre, `hs_linkedin_url`. Nunca sobrescribe.

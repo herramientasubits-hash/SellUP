@@ -61,6 +61,18 @@ import { useCandidateReviewDecision } from './use-candidate-review-decision';
 import { RejectedCandidateActions } from './contact-candidate-rejected-actions';
 import { rejectionInfo } from './contact-candidate-rejection-info';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
+// AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — candidatos que ya existen en HubSpot y llegan
+// sólo con correo: «Revelar LinkedIn» y la identificación previa que habilita «Revelar teléfono».
+import {
+  revealCandidateLinkedinAction,
+  revealCandidatePhoneWithIdentityAction,
+} from '@/modules/contact-enrichment/candidate-identity-completion-actions';
+import {
+  IDENTITY_COMPLETION_COPY,
+  REVEAL_LINKEDIN_BUTTON_LABEL,
+  evaluateCandidateIdentityCompletion,
+  identityCompletionMessage,
+} from '@/modules/contact-enrichment/candidate-identity-completion-core';
 import { PHONE_REVEAL_PROCESSING_BASIS as SHARED_PHONE_REVEAL_PROCESSING_BASIS } from '@/modules/contact-enrichment/phone-reveal-processing-basis';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
 // Fallback manual Lusha (LUSHA-PHONE-FALLBACK-1): SOLO tras `no_phone_found` de
@@ -415,6 +427,13 @@ export function ContactCandidateDetailSheet({
   // Guard síncrono contra doble clic: `revealingPhone` (estado) solo deshabilita
   // el botón tras re-render; el ref corta una segunda invocación en el mismo tick.
   const revealInFlightRef = React.useRef(false);
+  // «Revelar LinkedIn» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Mismo patrón que el
+  // teléfono: un ref contra el doble clic en el mismo tick y un estado para el spinner.
+  const [revealingLinkedin, setRevealingLinkedin] = React.useState(false);
+  const [linkedinRevealMessage, setLinkedinRevealMessage] = React.useState<
+    { tone: 'success' | 'info' | 'error'; text: string } | null
+  >(null);
+  const linkedinInFlightRef = React.useRef(false);
 
   // Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3). NO inicia un reveal
   // nuevo: pide al servidor que consulte AHORA el resultado del reveal en vuelo.
@@ -744,6 +763,8 @@ export function ContactCandidateDetailSheet({
     // `useCandidateReviewDecision`; su estado pertenece al mismo candidato.
     resetReviewState();
     setRevealingPhone(false);
+    setRevealingLinkedin(false);
+    setLinkedinRevealMessage(null);
     setPhoneRevealSubmitted(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
@@ -1112,6 +1133,27 @@ export function ContactCandidateDetailSheet({
     setPhoneRevealNotice(null);
     setRevealingPhone(true);
     try {
+      // Candidato de HubSpot sin identidad de proveedor: el servidor lo identifica por correo
+      // y, sólo si aparece, sigue con el MISMO reveal (mismo payload, mismo gobierno).
+      if (phoneRevealUnlockableByIdentity) {
+        const identified = await revealCandidatePhoneWithIdentityAction({
+          candidateId: candidate.id,
+          confirmCost: true,
+          expectedMaxCredits,
+          phoneProcessingBasis: PHONE_REVEAL_PROCESSING_BASIS,
+          phoneProcessingBasisNote: undefined,
+        });
+        if (identified.status === 'identity_not_found') {
+          const message = identityCompletionMessage(identified.identityStatus, 'phone');
+          if (message.tone === 'error') setPhoneRevealError(message.text);
+          else setPhoneRevealNotice(message.text);
+          void reloadCandidate();
+          return;
+        }
+        applyPhoneRevealResult(identified);
+        if (identified.identityCompleted) void reloadCandidate();
+        return;
+      }
       const result = await revealCandidatePhoneAction({
         candidateId: candidate.id,
         confirmCost: true,
@@ -1125,6 +1167,30 @@ export function ContactCandidateDetailSheet({
     } finally {
       revealInFlightRef.current = false;
       setRevealingPhone(false);
+    }
+  }
+
+  /**
+   * «Revelar LinkedIn» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Un clic = una
+   * identificación por correo (1 crédito de Apollo; Lusha sólo si Apollo no trae el LinkedIn).
+   * No revela teléfonos. El LinkedIn vuelve en la recarga del candidato, nunca en el resultado.
+   */
+  async function handleRevealLinkedin() {
+    if (!candidate || linkedinInFlightRef.current) return;
+    linkedinInFlightRef.current = true;
+    setLinkedinRevealMessage(null);
+    setRevealingLinkedin(true);
+    try {
+      const result = await revealCandidateLinkedinAction({ candidateId: candidate.id });
+      const message = identityCompletionMessage(result.status, 'linkedin');
+      setLinkedinRevealMessage(message);
+      if (message.tone === 'success') toast.success(message.text);
+      void reloadCandidate();
+    } catch {
+      setLinkedinRevealMessage({ tone: 'error', text: IDENTITY_COMPLETION_COPY.error });
+    } finally {
+      linkedinInFlightRef.current = false;
+      setRevealingLinkedin(false);
     }
   }
 
@@ -1695,6 +1761,30 @@ export function ContactCandidateDetailSheet({
   });
   const phoneRevealIdentityEligible = phoneRevealIdentityEligibility === 'eligible';
 
+  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — un candidato que vino de HubSpot sólo con
+  // correo no tiene identidad de proveedor, pero SÍ se puede conseguir: el servidor lo identifica
+  // por correo en Apollo antes del reveal. En ese caso el botón se HABILITA (y su copy dice el
+  // crédito adicional) en vez de quedarse bloqueado para siempre. Conveniencia de UI: el
+  // servidor vuelve a decidir todo.
+  const identityCompletion = evaluateCandidateIdentityCompletion({
+    email: candidate?.email ?? null,
+    linkedinUrl: candidate?.linkedin_url ?? null,
+    apolloPersonId: candidate?.apollo_person_id ?? null,
+    source: candidate?.source ?? null,
+    sourceContactId: candidate?.source_contact_id ?? null,
+    enrichmentMetadata: candidate?.enrichment_metadata ?? null,
+  });
+  const phoneRevealUnlockableByIdentity =
+    !phoneRevealIdentityEligible &&
+    identityCompletion.phoneRevealNeedsIdentity &&
+    candidate?.status === 'pending_review';
+  const phoneRevealIdentityReady = phoneRevealIdentityEligible || phoneRevealUnlockableByIdentity;
+  const canOfferLinkedinReveal =
+    !!candidate &&
+    candidate.status === 'pending_review' &&
+    phoneRevealAuthorized === true &&
+    identityCompletion.canRevealLinkedin;
+
   const canOfferPhoneReveal =
     !!candidate &&
     phoneRevealEnabled === true &&
@@ -1989,6 +2079,47 @@ export function ContactCandidateDetailSheet({
                   >
                     {candidate.linkedin_url}
                   </a>
+                ) : canOfferLinkedinReveal || linkedinRevealMessage ? (
+                  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — el contacto vino de HubSpot sin
+                  // LinkedIn: se puede traer por su correo. Lo que cuesta se lee antes del clic.
+                  <span className="flex flex-col items-start gap-1.5">
+                    {canOfferLinkedinReveal && (
+                      <>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          className="gap-1.5"
+                          disabled={busy || revealingLinkedin || revealingPhone}
+                          onClick={() => void handleRevealLinkedin()}>
+                          {revealingLinkedin ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Buscando…
+                            </>
+                          ) : (
+                            <>
+                              <Link2 className="h-3.5 w-3.5" />
+                              {REVEAL_LINKEDIN_BUTTON_LABEL}
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          {IDENTITY_COMPLETION_COPY.linkedinHelper}
+                        </span>
+                      </>
+                    )}
+                    {linkedinRevealMessage && (
+                      <span
+                        className={
+                          linkedinRevealMessage.tone === 'error'
+                            ? 'text-xs text-destructive'
+                            : 'text-xs text-muted-foreground'
+                        }>
+                        {linkedinRevealMessage.text}
+                      </span>
+                    )}
+                  </span>
                 ) : null}
               </CandidateDetailItem>
               <CandidateDetailItem icon={Phone} label="Teléfono" className="sm:col-span-2">
@@ -2296,7 +2427,7 @@ export function ContactCandidateDetailSheet({
                           revealingPhone ||
                           revealingLegacyPhone ||
                           phoneRevealAwaitingConfirmation ||
-                          !phoneRevealIdentityEligible
+                          !phoneRevealIdentityReady
                         }
                         // Un clic = una corrida. Con el waterfall activo se dispara la
                         // modalidad que corresponde (legacy solo-Lusha o waterfall
@@ -2356,8 +2487,13 @@ export function ContactCandidateDetailSheet({
                           revelar. No se nombra proveedor ni se invita a reintentar: la
                           carencia puede ser permanente
                           (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). */}
+                      {phoneRevealUnlockableByIdentity && !phoneRevealAwaitingConfirmation && (
+                        <p className="text-xs text-muted-foreground">
+                          {IDENTITY_COMPLETION_COPY.phoneIdentityHelper}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        {!phoneRevealIdentityEligible
+                        {!phoneRevealIdentityReady
                           ? PHONE_REVEAL_IDENTITY_BLOCKED_COPY
                           : // Con la solicitud ya aceptada, el copy de autorización
                             // describiría un gasto que el usuario YA autorizó y que
@@ -2410,7 +2546,7 @@ export function ContactCandidateDetailSheet({
                           la solicitud ya aceptada se retira: describe una autorización
                           que ya se dio y que este botón no va a volver a pedir. */}
                       {waterfallActive &&
-                        phoneRevealIdentityEligible &&
+                        phoneRevealIdentityReady &&
                         !phoneRevealAwaitingConfirmation && (
                         <>
                           {waterfallAuthorizationCopy.creditBreakdown && (
