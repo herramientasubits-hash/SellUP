@@ -147,6 +147,18 @@ export type HubSpotExistingContactProperties = Partial<
 export interface HubSpotExistingContactMatch {
   id: string;
   properties?: HubSpotExistingContactProperties;
+  /**
+   * Correo del contacto en HubSpot, sólo cuando se leyó por id (AGENT2A-HUBSPOT-CANDIDATE-
+   * IDENTITY-COMPLETION). `undefined` = no se leyó; `null`/'' = vacío en HubSpot.
+   */
+  email?: string | null;
+}
+
+/** Desenlace del completado del correo de un contacto ya vinculado. */
+export interface HubSpotEmailFillReport {
+  outcome: 'filled' | 'failed';
+  /** Código mecánico (p. ej. `HUBSPOT_EMAIL_HTTP_409` si otro contacto ya usa ese correo). */
+  error: string | null;
 }
 
 /** Cuerpo del PATCH de completado: sólo claves con valor no vacío. */
@@ -540,6 +552,25 @@ export interface SyncContactDeps {
     hubspotContactId: string,
     properties: HubSpotContactFillProperties,
   ) => Promise<{ ok: true; written: HubSpotFillEmptyPropertyName[] } | { error: string }>;
+  /**
+   * AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — lectura por id de un contacto que llegó
+   * YA vinculado (los de «Primero HubSpot» se vinculan al aprobar, antes del sync). Con ella y
+   * con `fillEmptyHubSpotContactProperties`, la reparación (rama D) completa los vacíos UNA vez
+   * —lo que SellUp reveló: teléfono, LinkedIn— igual que `linked_existing`. Nunca sobrescribe.
+   *
+   * Opcional: sin ella la rama D se comporta exactamente como antes (sin red).
+   */
+  findHubSpotContactById?: (hubspotContactId: string) => Promise<HubSpotExistingContactMatch | null>;
+  /**
+   * AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — PATCH SÓLO del correo, para un contacto ya
+   * vinculado cuyo correo está VACÍO en HubSpot (p. ej. llegó sólo con LinkedIn y SellUp reveló el
+   * correo). Va aparte del resto a propósito: HubSpot rechaza un correo que ya usa otro contacto
+   * (409) y ese rechazo no puede impedir que el teléfono y el LinkedIn lleguen.
+   */
+  fillEmptyHubSpotContactEmail?: (
+    hubspotContactId: string,
+    email: string,
+  ) => Promise<{ ok: true } | { error: string }>;
   persistSync: (
     contactId: string,
     patch: ContactHubSpotSyncPatch,
@@ -605,7 +636,16 @@ export async function runSyncContactToHubSpot(
   };
 
   const email = sanitizeEmail(contact.email);
-  if (!email) {
+  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — un contacto que llegó YA vinculado desde
+  // «Primero HubSpot» puede no tener correo (sólo LinkedIn). Su identidad en HubSpot es el id
+  // durable, no el correo, así que su PRIMER sync (la reparación de la rama D, que sólo completa
+  // vacíos) no necesita correo. Todo lo demás sigue exigiéndolo exactamente como antes.
+  const linkedFirstSyncWithoutEmail =
+    !email &&
+    !!cleanString(contact.hubspot_contact_id) &&
+    readHubSpotSyncState(contact.metadata)?.status !== 'synced' &&
+    !hasPendingHubSpotPhoneChange(readHubSpotSyncState(contact.metadata));
+  if (!email && !linkedFirstSyncWithoutEmail) {
     await recordBlockedOrFailed('blocked_no_email', null);
     return { ok: false, errorCode: 'MISSING_EMAIL', message: SYNC_MESSAGES.missingEmail };
   }
@@ -725,6 +765,10 @@ export async function runSyncContactToHubSpot(
     // ninguna evidencia escrita de que algo local esté sin enviar. Un PATCH aquí enviaría el
     // teléfono actual «por si acaso», sobrescribiendo en HubSpot un dato que quizá es mejor.
     if (priorState?.status !== 'synced') {
+      // Completar vacíos (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). No es un PATCH del
+      // teléfono local: sólo viaja lo que HubSpot tiene VACÍO, así que no puede pisar «un dato que
+      // quizá es mejor». Best-effort: pase lo que pase aquí, la reparación sigue.
+      const { fillEmpty, emailFill } = await fillEmptyOnLinkedContact(contact, hubspotContactId, deps);
       try {
         await deps.persistSync(contact.id, {
           hubspot_contact_id: null,
@@ -739,7 +783,9 @@ export async function runSyncContactToHubSpot(
             // Se arrastran tal cual. Un estado ilegible no autoriza a declarar que no hay nada
             // pendiente, igual que no autoriza a enviar nada.
             ...preservePendingHubSpotPhoneChange(contact.metadata),
-          }),
+          }, fillEmpty || emailFill
+            ? { ...(fillEmpty ? { fill_empty: fillEmpty } : {}), ...(emailFill ? { email_fill: emailFill } : {}) }
+            : undefined),
         });
       } catch {
         // Best-effort: el contacto SÍ está sincronizado y eso es lo que se reporta.
@@ -755,6 +801,12 @@ export async function runSyncContactToHubSpot(
       hubspotContactId,
       message: SYNC_MESSAGES.alreadySynced,
     };
+  }
+
+  // Inalcanzable: sin correo sólo se llega aquí por la rama D, que ya devolvió.
+  if (!email) {
+    await recordBlockedOrFailed('blocked_no_email', null);
+    return { ok: false, errorCode: 'MISSING_EMAIL', message: SYNC_MESSAGES.missingEmail };
   }
 
   const account = await deps.loadAccount(contact.account_id);
@@ -873,6 +925,59 @@ export async function runSyncContactToHubSpot(
           ? SYNC_MESSAGES.linkedExistingFilled
           : SYNC_MESSAGES.linkedExisting,
   };
+}
+
+/**
+ * Completado de vacíos para un contacto que llegó YA vinculado (rama D). NUNCA lanza.
+ *
+ * Sin las dos dependencias devuelve `null` (comportamiento anterior: cero red). Si no se pudo
+ * comprobar la conexión o leer el contacto, no se escribe nada: no saber qué está vacío no
+ * autoriza a escribir.
+ */
+async function fillEmptyOnLinkedContact(
+  contact: ContactForSync,
+  hubspotContactId: string,
+  deps: SyncContactDeps,
+): Promise<{ fillEmpty: HubSpotFillEmptyReport | null; emailFill: HubSpotEmailFillReport | null }> {
+  const none = { fillEmpty: null, emailFill: null };
+  if (!deps.findHubSpotContactById || !deps.fillEmptyHubSpotContactProperties) return none;
+  let existing: HubSpotExistingContactMatch | null;
+  try {
+    const connection = await deps.checkConnection();
+    if (!connection.connected || !connection.canWriteContacts) return none;
+    existing = await deps.findHubSpotContactById(hubspotContactId);
+  } catch (err) {
+    return {
+      fillEmpty: {
+        outcome: 'existing_unreadable',
+        properties: [],
+        error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_READ_ERROR',
+      },
+      emailFill: null,
+    };
+  }
+  if (!existing) return { fillEmpty: { outcome: 'existing_unreadable', properties: [], error: null }, emailFill: null };
+
+  const fillEmpty = await fillEmptyOnExistingContact(contact, existing, deps);
+
+  // El correo, sólo si se LEYÓ y está vacío en HubSpot. `undefined` = no se leyó ⇒ no se escribe.
+  let emailFill: HubSpotEmailFillReport | null = null;
+  const localEmail = sanitizeEmail(contact.email);
+  const remoteEmail = existing.email;
+  if (
+    deps.fillEmptyHubSpotContactEmail &&
+    localEmail &&
+    remoteEmail !== undefined &&
+    !cleanString(remoteEmail)
+  ) {
+    try {
+      const written = await deps.fillEmptyHubSpotContactEmail(existing.id, localEmail);
+      emailFill = 'error' in written ? { outcome: 'failed', error: written.error } : { outcome: 'filled', error: null };
+    } catch (err) {
+      emailFill = { outcome: 'failed', error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_EMAIL_FILL_ERROR' };
+    }
+  }
+  return { fillEmpty, emailFill };
 }
 
 /**
