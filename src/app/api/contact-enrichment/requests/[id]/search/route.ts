@@ -3,6 +3,7 @@ import { runAutomaticContactEnrichmentForRequestCore } from '@/modules/contact-e
 import { activeInternalUserIdForRoute } from '@/modules/contact-enrichment/route-auth.server';
 import { canSeeContactEnrichmentRequest } from '@/modules/contact-enrichment/candidate-scope.server';
 import { createClient } from '@/lib/supabase/server';
+import { completeContactSearch } from '@/modules/contact-enrichment/contact-search-follow-up.server';
 
 /**
  * Agente 2 · buscar los contactos de una empresa con Rumbo (dueña 20-10).
@@ -10,7 +11,8 @@ import { createClient } from '@/lib/supabase/server';
  * POST: corre el mismo enrutador automático (Apollo y, si no alcanza, Lusha) que antes
  * llamaba el asistente como acción del servidor. Por ruta para que varias búsquedas
  * puedan ir a la vez y el panel se pueda cerrar sin cortarla. Los candidatos quedan
- * siempre «por revisar»: no crea contactos ni escribe en HubSpot.
+ * «por revisar», salvo los contactos de HubSpot con correo, teléfono y LinkedIn, que se
+ * aprueban solos y pasan a Contactos (Bryan 29-10, ver contact-search-follow-up-core.ts).
  */
 export const maxDuration = 300;
 
@@ -31,7 +33,8 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
         { status: 404, headers: NO_STORE },
       );
     }
-    const result = await runAutomaticContactEnrichmentForRequestCore(id, internalUserId, new Date().toISOString());
+    const routed = await runAutomaticContactEnrichmentForRequestCore(id, internalUserId, new Date().toISOString());
+    const result = await completeContactSearch(id, routed);
     return NextResponse.json({ ok: true, result }, { headers: NO_STORE });
   } catch (err) {
     console.error('[agent2] contact search failed:', err instanceof Error ? err.message : err);

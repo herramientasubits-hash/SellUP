@@ -27,6 +27,7 @@ import {
   type ContactSearchRunResponse,
   type ContactSearchRunsStore,
 } from './contact-search-runs-store';
+import { contactSearchCountsLine, summarizeContactSearch } from './contact-search-summary';
 
 async function executeContactSearch(requestId: string): Promise<ContactSearchRunResponse> {
   let response: Response;
@@ -51,7 +52,26 @@ export const CONTACT_SEARCH_REVIEW_HREF = CONTACTS_CANDIDATES_ROUTE;
 
 function announce(run: ContactSearchRun) {
   const view = { label: 'Ver en Por revisar', onClick: () => window.location.assign(CONTACT_SEARCH_REVIEW_HREF) };
-  if (run.status === 'succeeded' && run.found !== null && run.found > 0) {
+  // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): no un solo total, sino de dónde salió cada cosa.
+  const summary = run.result ? summarizeContactSearch(run.result) : null;
+  const somethingHappened =
+    summary !== null &&
+    summary.newForReview + summary.hubspotToContacts + summary.previousPending + summary.earlierToContacts > 0;
+  if (run.status === 'succeeded' && summary && somethingHappened) {
+    const fresh = summary.newForReview + summary.hubspotToContacts;
+    toast.success(
+      fresh === 0
+        ? 'Rumbo no trajo contactos nuevos'
+        : fresh === 1
+          ? 'Rumbo trajo 1 contacto'
+          : `Rumbo trajo ${fresh} contactos`,
+      {
+        description: `${run.companyName}: ${contactSearchCountsLine(summary)}.`,
+        ...(summary.totalForReview > 0 ? { action: view } : {}),
+        duration: 10000,
+      },
+    );
+  } else if (run.status === 'succeeded' && run.found !== null && run.found > 0) {
     toast.success(run.found === 1 ? 'Rumbo encontró 1 contacto' : `Rumbo encontró ${run.found} contactos`, {
       description: `${run.companyName}: quedaron en «Por revisar».`,
       action: view,

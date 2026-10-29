@@ -91,6 +91,11 @@ export interface HubSpotFirstSelection {
   skippedKnownInSellUp: number;
   skippedNotRelevant: number;
   skippedAlreadyInRun: number;
+  /**
+   * AGENT2A-COMPANY-SEARCH-COUNTS — ya estaban en «Por revisar» de una búsqueda ANTERIOR. Antes
+   * se volvían a insertar en cada búsqueda y la misma persona quedaba dos veces por revisar.
+   */
+  skippedAlreadyPending: number;
   /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — contactos de otro vendedor activo en HubSpot. */
   skippedOtherSeller: number;
 }
@@ -110,6 +115,8 @@ export function selectHubSpotFirstCandidates(input: {
   sellupContacts: readonly ExistingContactSnapshot[];
   /** IDs de HubSpot que ya son candidatos de esta corrida (reintento idempotente). */
   alreadyInRunHubspotIds: ReadonlySet<string>;
+  /** IDs de HubSpot que ya esperan revisión en OTRA corrida (búsquedas anteriores). */
+  alreadyPendingHubspotIds?: ReadonlySet<string>;
   /** Sin esto no se filtra por dueño (pruebas antiguas); la etapa siempre lo pasa. */
   ownership?: HubSpotFirstOwnership;
 }): HubSpotFirstSelection {
@@ -125,6 +132,7 @@ export function selectHubSpotFirstCandidates(input: {
     skippedKnownInSellUp: 0,
     skippedNotRelevant: 0,
     skippedAlreadyInRun: 0,
+    skippedAlreadyPending: 0,
     skippedOtherSeller: 0,
   };
   const seenInThisBatch = new Set<string>();
@@ -140,6 +148,10 @@ export function selectHubSpotFirstCandidates(input: {
     }
     if (input.alreadyInRunHubspotIds.has(hubspotId) || seenInThisBatch.has(hubspotId)) {
       result.skippedAlreadyInRun += 1;
+      continue;
+    }
+    if (input.alreadyPendingHubspotIds?.has(hubspotId)) {
+      result.skippedAlreadyPending += 1;
       continue;
     }
     if (input.ownership && !isOfferableHubSpotContact(contact.ownerId, input.ownership)) {

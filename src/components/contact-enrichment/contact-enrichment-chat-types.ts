@@ -64,6 +64,12 @@ export interface AutomaticRoutingUiResult {
   companySiteCandidates?: number;
   /** Por qué la búsqueda dejó lo que dejó (explica un cero). */
   diagnosis?: AutomaticRoutingUiDiagnosis;
+  /** Contactos de HubSpot de esta búsqueda, completos, que pasaron directo a Contactos. */
+  hubspotAutoApprovedContacts?: number;
+  /** Contactos de HubSpot de búsquedas anteriores, completos, que pasaron a Contactos. */
+  hubspotAutoApprovedEarlierContacts?: number;
+  /** Pendientes en «Por revisar» de búsquedas anteriores de la misma empresa. */
+  previousPendingReviewCandidates?: number;
 }
 
 export interface AutomaticRoutingUiDiagnosis {
@@ -81,6 +87,7 @@ export interface AutomaticRoutingUiDiagnosis {
     knownInSellUp: number;
     notRelevant: number;
     noName: number;
+    alreadyPending?: number;
   } | null;
 }
 

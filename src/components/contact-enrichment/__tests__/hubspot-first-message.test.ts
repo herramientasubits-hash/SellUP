@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildAutomaticRoutingMessage } from '../contact-enrichment-chat-reducer';
-import type { AutomaticRoutingUiResult } from '../contact-enrichment-chat-types';
+import type { AutomaticRoutingUiDiagnosis, AutomaticRoutingUiResult } from '../contact-enrichment-chat-types';
 
 function result(over: Partial<AutomaticRoutingUiResult>): AutomaticRoutingUiResult {
   return {
@@ -11,55 +11,110 @@ function result(over: Partial<AutomaticRoutingUiResult>): AutomaticRoutingUiResu
   };
 }
 
-describe('Primero HubSpot — mensaje del chat', () => {
-  it('HubSpot bastó: lo dice y avisa que no se gastaron proveedores', () => {
+function diag(
+  hubspotFirst: AutomaticRoutingUiDiagnosis['hubspotFirst'],
+  hubspotStage = 'done',
+): AutomaticRoutingUiDiagnosis {
+  return {
+    apolloSkipped: false, apolloOrganization: 'found_by_domain', apolloPeopleFound: 5, apolloRejected: 0,
+    apolloAlreadyKnown: 0, freeStages: { hubspotFirst: hubspotStage, contactBank: 'done', companySite: 'not_reached' },
+    lushaRecentZeroAt: null, lushaRan: false, hubspotFirst,
+  };
+}
+
+const hs = (over: Partial<NonNullable<AutomaticRoutingUiDiagnosis['hubspotFirst']>>) => ({
+  hubspotContacts: 0, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyPending: 0, ...over,
+});
+
+describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuentes y «Por revisar» anterior', () => {
+  it('dice cuántos tenía HubSpot, cuántos trajo, cuántos pasaron a Contactos y cuántos esperaban de antes', () => {
     const { content, tone } = buildAutomaticRoutingMessage(
-      result({ status: 'hubspot_first_satisfied', hubspotFirstCandidates: 3, hubspotFirstSatisfied: true }),
+      result({
+        hubspotFirstCandidates: 5,
+        hubspotAutoApprovedContacts: 2,
+        providerCandidatesCreated: { apollo: 3, lusha: 1 },
+        previousPendingReviewCandidates: 6,
+        diagnosis: diag(hs({ hubspotContacts: 12, otherSeller: 3, knownInSellUp: 2, notRelevant: 1, alreadyPending: 1 })),
+      }),
     );
-    assert.match(content, /3 contactos de HubSpot/);
-    assert.match(content, /no gasté Apollo ni Lusha/);
+    assert.equal(
+      content,
+      'Terminé la búsqueda:\n\n' +
+        '• De HubSpot: tiene 12 contactos de esta empresa y traje 5: 2 pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn, y 3 quedaron en «Por revisar». ' +
+        'Los otros no los traje: 1 ya estaba en «Por revisar», 2 ya están en SellUp, 3 son de otro vendedor y 1 no es de RR. HH., formación o dirección.\n' +
+        '• De otras fuentes: 4 contactos nuevos en «Por revisar» (3 de Apollo y 1 de Lusha).\n' +
+        '• De búsquedas anteriores: ya tenías 6 contactos en «Por revisar».\n\n' +
+        'Los de «Por revisar» requieren tu aprobación.',
+    );
     assert.equal(tone, undefined);
   });
 
-  it('HubSpot + proveedor: suma ambos e indica cuántos ya estaban en HubSpot', () => {
+  it('todos los de HubSpot completos: todos a Contactos', () => {
     const { content } = buildAutomaticRoutingMessage(
-      result({ hubspotFirstCandidates: 1, providerCandidatesCreated: { apollo: 2, lusha: null } }),
+      result({
+        hubspotFirstCandidates: 2,
+        hubspotAutoApprovedContacts: 2,
+        providerCandidatesCreated: { apollo: 0, lusha: null },
+        previousPendingReviewCandidates: 0,
+        diagnosis: diag(hs({ hubspotContacts: 2 })),
+      }),
     );
-    assert.match(content, /3 contactos para revisar \(1 ya estaba en HubSpot y 2 nuevos de Apollo\)/);
+    assert.match(content, /De HubSpot: tiene 2 contactos de esta empresa y traje 2: pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn\./);
+    assert.match(content, /De otras fuentes: no encontré contactos nuevos\./);
+    assert.doesNotMatch(content, /requieren tu aprobación/);
   });
 
-  it('banco de contactos bastó: lo dice y avisa que no se gastaron proveedores', () => {
+  it('ninguno de HubSpot completo: todos a «Por revisar»', () => {
     const { content } = buildAutomaticRoutingMessage(
-      result({ status: 'contact_bank_satisfied', contactBankCandidates: 3, contactBankSatisfied: true }),
+      result({ hubspotFirstCandidates: 3, diagnosis: diag(hs({ hubspotContacts: 3 })) }),
     );
-    assert.match(content, /^Encontré 3 contactos para revisar que SellUp ya conocía de esta empresa, así que no gasté Apollo ni Lusha\./);
+    assert.match(content, /De HubSpot: tiene 3 contactos de esta empresa y traje 3: quedaron en «Por revisar»\./);
   });
 
-  it('HubSpot + banco bastaron juntos: nombra las dos fuentes', () => {
+  it('banco de contactos y sitio web cuentan como otras fuentes', () => {
     const { content } = buildAutomaticRoutingMessage(
-      result({ hubspotFirstCandidates: 2, contactBankCandidates: 1, contactBankSatisfied: true }),
+      result({ contactBankCandidates: 2, companySiteCandidates: 1, providerCandidatesCreated: { apollo: 1, lusha: null } }),
     );
-    assert.match(content, /3 contactos para revisar de HubSpot y de lo que SellUp ya conocía de esta empresa/);
-  });
-
-  it('banco + proveedor: suma y dice cuántos ya los conocía SellUp', () => {
-    const { content } = buildAutomaticRoutingMessage(
-      result({ contactBankCandidates: 2, providerCandidatesCreated: { apollo: 1, lusha: null } }),
-    );
-    assert.match(content, /3 contactos para revisar \(2 ya los conocía SellUp de esta empresa y 1 nuevo de Apollo\)/);
-  });
-
-  it('personas del sitio web: las suma y avisa que vienen sin correo', () => {
-    const { content } = buildAutomaticRoutingMessage(
-      result({ companySiteCandidates: 2, providerCandidatesCreated: { apollo: 0, lusha: 0 } }),
-    );
-    assert.match(content, /^Encontré 2 contactos para revisar \(2 del sitio web de la empresa, sin correo\)\./);
-  });
-
-  it('sin HubSpot el mensaje es el de siempre', () => {
     assert.match(
-      buildAutomaticRoutingMessage(result({ providerCandidatesCreated: { apollo: 2, lusha: null } })).content,
-      /^Encontré 2 contactos para revisar\./,
+      content,
+      /De otras fuentes: 4 contactos nuevos en «Por revisar» \(1 de Apollo, 2 que SellUp ya conocía de otra ficha y 1 del sitio web, sin correo\)\./,
     );
+  });
+
+  it('empresa sin HubSpot o HubSpot caído: lo dice en su línea', () => {
+    assert.match(
+      buildAutomaticRoutingMessage(
+        result({ providerCandidatesCreated: { apollo: 1, lusha: null }, diagnosis: diag(null, 'no_hubspot_company') }),
+      ).content,
+      /De HubSpot: esta empresa no está vinculada a HubSpot\./,
+    );
+    assert.match(
+      buildAutomaticRoutingMessage(
+        result({ providerCandidatesCreated: { apollo: 1, lusha: null }, diagnosis: diag(null, 'hubspot_unavailable') }),
+      ).content,
+      /De HubSpot: no pude leerlo esta vez\./,
+    );
+  });
+
+  it('sólo pendientes de antes y uno de antes pasado a Contactos: no es un cero', () => {
+    const { content, tone } = buildAutomaticRoutingMessage(
+      result({
+        providerCandidatesCreated: { apollo: 0, lusha: null },
+        previousPendingReviewCandidates: 2,
+        hubspotAutoApprovedEarlierContacts: 1,
+        diagnosis: diag(hs({ hubspotContacts: 0 })),
+      }),
+    );
+    assert.match(content, /^Esta búsqueda no trajo contactos nuevos:/);
+    assert.match(content, /De HubSpot: no tiene contactos de esta empresa\./);
+    assert.match(content, /ya tenías 2 contactos en «Por revisar»\. Además pasé 1 de HubSpot a Contactos porque ya estaba completo\./);
+    assert.equal(tone, undefined);
+  });
+
+  it('sin el conteo nuevo usa los pendientes que el enrutador reutilizó', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({ reusedExistingCandidates: 3, providerCandidatesCreated: { apollo: 0, lusha: null } }),
+    );
+    assert.match(content, /De búsquedas anteriores: ya tenías 3 contactos en «Por revisar»\./);
   });
 });

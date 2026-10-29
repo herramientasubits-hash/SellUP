@@ -72,6 +72,16 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
    * cero con el siguiente paso en vez de un «No se encontraron contactos» a secas.
    */
   diagnosis?: AutomaticRoutingDiagnosis;
+  /**
+   * AGENT2A-COMPANY-SEARCH-COUNTS — contactos de HubSpot de ESTA búsqueda con correo, teléfono y
+   * LinkedIn que se aprobaron solos y pasaron directo a Contactos. Lo llena el paso posterior
+   * (contact-search-follow-up.server.ts), no el enrutador.
+   */
+  hubspotAutoApprovedContacts?: number;
+  /** Lo mismo, para candidatos de HubSpot que esperaban desde una búsqueda ANTERIOR. */
+  hubspotAutoApprovedEarlierContacts?: number;
+  /** Candidatos que siguen en «Por revisar» de búsquedas anteriores de la misma empresa. */
+  previousPendingReviewCandidates?: number;
 }
 
 export interface AutomaticRoutingDiagnosis {
@@ -98,6 +108,8 @@ export interface AutomaticRoutingDiagnosis {
     knownInSellUp: number;
     notRelevant: number;
     noName: number;
+    /** Ya estaban en «Por revisar» de una búsqueda anterior. */
+    alreadyPending?: number;
   } | null;
 }
 
@@ -160,6 +172,7 @@ function buildDiagnosis(
           knownInSellUp: result.hubspotFirstBreakdown.knownInSellUp,
           notRelevant: result.hubspotFirstBreakdown.notRelevant,
           noName: result.hubspotFirstBreakdown.noName,
+          alreadyPending: result.hubspotFirstBreakdown.alreadyPending ?? 0,
         }
       : null,
   };

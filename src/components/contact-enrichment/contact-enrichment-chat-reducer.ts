@@ -14,6 +14,11 @@ import type {
   ExtraCompanyData,
   ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
+import {
+  contactsCountLabel,
+  summarizeContactSearch,
+  type ContactSearchSummary,
+} from '@/modules/contact-enrichment/contact-search-summary';
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
@@ -50,8 +55,6 @@ const REQUEST_DONE =
 // ── Automatic routing copy (AGENT2-ROUTING-WIRE-1) ────────────────────────────
 
 const AUTOMATIC_SEARCHING = 'Voy a buscar contactos automáticamente…';
-
-const AUTOMATIC_APPROVAL_NOTE = 'No creé contactos finales: requieren tu aprobación.';
 
 const AUTOMATIC_ROUTING_DISABLED =
   'La búsqueda automática de contactos no está activada en este entorno. No se ejecutó ninguna búsqueda ni se crearon candidatos.';
@@ -294,14 +297,6 @@ export function createInitialContactEnrichmentChatState(
 
 // ── Automatic routing result message (backlog A3/A6) ──────────────────────────
 
-function contactsLabel(n: number): string {
-  return n === 1 ? '1 contacto' : `${n} contactos`;
-}
-
-function pendingLabel(n: number): string {
-  return n === 1 ? '1 contacto pendiente' : `${n} contactos pendientes`;
-}
-
 /** "Fuente Lusha falló." / "Fuentes Apollo y Lusha fallaron." — '' when none failed. */
 function failedSourcesNote(failed: readonly string[] | undefined): string {
   if (!failed || failed.length === 0) return '';
@@ -309,43 +304,17 @@ function failedSourcesNote(failed: readonly string[] | undefined): string {
   return ` Fuentes ${failed.slice(0, -1).join(', ')} y ${failed.at(-1)} fallaron.`;
 }
 
-/**
- * Builds the final chat message for the automatic search from the TOTAL
- * candidate count (no per-source breakdown), not from "an attempt exists".
- * A search that left 0 candidates never shows a success message. A source is
- * only named, at the end, when it failed.
+/*
+ * Mensaje final de la búsqueda automática (AGENT2A-COMPANY-SEARCH-COUNTS, Bryan 29-10):
  *
- *  • flag off                       → routing-disabled notice (warning)
- *  • blocked before any search      → could-not-complete notice (warning)
- *  • N new candidates               → "Encontré N contactos para revisar. No creé contactos finales…"
- *  • 0 new, but pending ones reused → "Esta búsqueda no trajo contactos nuevos, pero ya tienes N…"
- *  • 0 and nothing pending          → "No se encontraron contactos." (warning)
+ *  • bandera apagada                 → aviso de búsqueda desactivada (warning)
+ *  • bloqueada antes de buscar       → aviso de que no se pudo completar (warning)
+ *  • hay algo (nuevo o de antes)     → tres líneas: HubSpot (tenía / traje / a dónde fueron),
+ *                                      otras fuentes y «Por revisar» de búsquedas anteriores
+ *  • nada de nada                    → «No se encontraron contactos.» con el porqué (warning)
+ *
+ * Una fuente sólo se nombra como fallida al final, cuando falló.
  */
-/** «que SellUp ya conocía de esta empresa» / «de HubSpot y de lo que SellUp ya conocía…». */
-function freeSourcesPhrase(fromHubSpot: number, fromBank: number): string {
-  if (fromHubSpot > 0 && fromBank > 0) return 'de HubSpot y de lo que SellUp ya conocía de esta empresa';
-  if (fromHubSpot > 0) return 'de HubSpot';
-  return 'que SellUp ya conocía de esta empresa';
-}
-
-/** «2 ya estaban en HubSpot» / «1 ya lo conocía SellUp» / «2 del sitio web, sin correo». */
-function freeSourcesNote(
-  fromHubSpot: number,
-  fromBank: number,
-  fromSite = 0,
-  fromApollo = 0,
-  fromLusha = 0,
-): string {
-  // De dónde viene cada uno: lo que YA estaba (HubSpot, SellUp) y lo NUEVO (Apollo, Lusha, sitio).
-  const parts: string[] = [];
-  if (fromHubSpot > 0) parts.push(`${fromHubSpot} ya ${fromHubSpot === 1 ? 'estaba' : 'estaban'} en HubSpot`);
-  if (fromBank > 0) parts.push(`${fromBank} ya ${fromBank === 1 ? 'lo conocía' : 'los conocía'} SellUp de esta empresa`);
-  if (fromApollo > 0) parts.push(`${fromApollo} ${fromApollo === 1 ? 'nuevo' : 'nuevos'} de Apollo`);
-  if (fromLusha > 0) parts.push(`${fromLusha} ${fromLusha === 1 ? 'nuevo' : 'nuevos'} de Lusha`);
-  if (fromSite > 0) parts.push(`${fromSite} del sitio web de la empresa, sin correo`);
-  if (parts.length <= 1) return parts.join('');
-  return `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
-}
 
 /** «14 de octubre» — fecha corta para el chat. */
 function shortDate(iso: string): string {
@@ -423,6 +392,73 @@ export function explainHubSpotFirstZero(d: AutomaticRoutingUiDiagnosis | undefin
   return `\n\nHubSpot tiene ${total} de esta empresa y no usé ninguno${detail}.`;
 }
 
+/** «3 de otro vendedor, 2 ya están en SellUp y 1 ya estaba en «Por revisar»». '' si no hay motivos. */
+function hubspotSkippedDetail(hs: NonNullable<AutomaticRoutingUiDiagnosis['hubspotFirst']>): string {
+  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  const parts: string[] = [];
+  const pending = hs.alreadyPending ?? 0;
+  if (pending > 0) parts.push(`${pending} ya ${plural(pending, 'estaba', 'estaban')} en «Por revisar»`);
+  if (hs.knownInSellUp > 0) parts.push(`${hs.knownInSellUp} ya ${plural(hs.knownInSellUp, 'está', 'están')} en SellUp`);
+  if (hs.otherSeller > 0) parts.push(`${hs.otherSeller} ${plural(hs.otherSeller, 'es', 'son')} de otro vendedor`);
+  if (hs.notRelevant > 0)
+    parts.push(`${hs.notRelevant} no ${plural(hs.notRelevant, 'es', 'son')} de RR. HH., formación o dirección`);
+  if (hs.noName > 0) parts.push(`${hs.noName} no ${plural(hs.noName, 'tiene', 'tienen')} nombre`);
+  if (parts.length <= 1) return parts.join('');
+  return `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
+}
+
+/**
+ * AGENT2A-COMPANY-SEARCH-COUNTS — la línea de HubSpot: cuántos tiene allá, cuántos traje y a
+ * dónde fueron (Contactos o «Por revisar»). null cuando no hay nada que decir de HubSpot.
+ */
+function hubspotSummaryLine(result: AutomaticRoutingUiResult, s: ContactSearchSummary): string | null {
+  const stage = result.diagnosis?.freeStages?.hubspotFirst;
+  const hs = result.diagnosis?.hubspotFirst ?? null;
+  if (!hs) {
+    if (s.hubspotBrought > 0) return `De HubSpot: traje ${contactsCountLabel(s.hubspotBrought)}.`;
+    if (stage === 'no_hubspot_company') return 'De HubSpot: esta empresa no está vinculada a HubSpot.';
+    if (stage === 'hubspot_unavailable' || stage === 'error') return 'De HubSpot: no pude leerlo esta vez.';
+    return null;
+  }
+  if (hs.hubspotContacts === 0) return 'De HubSpot: no tiene contactos de esta empresa.';
+  const had = `tiene ${contactsCountLabel(hs.hubspotContacts)} de esta empresa`;
+  const skipped = hubspotSkippedDetail(hs);
+  if (s.hubspotBrought === 0) {
+    return `De HubSpot: ${had} y no traje ninguno${skipped ? ` (${skipped})` : ''}.`;
+  }
+  let where: string;
+  if (s.hubspotToContacts === 0) where = 'quedaron en «Por revisar»';
+  else if (s.hubspotToReview === 0)
+    where = 'pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn';
+  else
+    where = `${s.hubspotToContacts} pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn, y ${s.hubspotToReview} quedaron en «Por revisar»`;
+  const rest = hs.hubspotContacts - s.hubspotBrought;
+  const restNote = rest > 0 && skipped ? ` Los otros no los traje: ${skipped}.` : '';
+  return `De HubSpot: ${had} y traje ${s.hubspotBrought}: ${where}.${restNote}`;
+}
+
+/** La línea de las otras fuentes: Apollo, Lusha, lo que SellUp ya conocía y el sitio web. */
+function otherSourcesLine(s: ContactSearchSummary): string {
+  if (s.otherSources === 0) return 'De otras fuentes: no encontré contactos nuevos.';
+  const parts: string[] = [];
+  if (s.apollo > 0) parts.push(`${s.apollo} de Apollo`);
+  if (s.lusha > 0) parts.push(`${s.lusha} de Lusha`);
+  if (s.contactBank > 0) parts.push(`${s.contactBank} que SellUp ya conocía de otra ficha`);
+  if (s.companySite > 0) parts.push(`${s.companySite} del sitio web, sin correo`);
+  const detail = parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
+  return `De otras fuentes: ${contactsCountLabel(s.otherSources)} ${s.otherSources === 1 ? 'nuevo' : 'nuevos'} en «Por revisar» (${detail}).`;
+}
+
+/** La línea de lo que ya esperaba de búsquedas anteriores. */
+function previousPendingLine(s: ContactSearchSummary): string {
+  const earlier =
+    s.earlierToContacts > 0
+      ? ` Además pasé ${s.earlierToContacts} de HubSpot a Contactos porque ya ${s.earlierToContacts === 1 ? 'estaba completo' : 'estaban completos'}.`
+      : '';
+  if (s.previousPending === 0) return `De búsquedas anteriores: no tenías ninguno en «Por revisar».${earlier}`;
+  return `De búsquedas anteriores: ya tenías ${contactsCountLabel(s.previousPending)} en «Por revisar».${earlier}`;
+}
+
 export function buildAutomaticRoutingMessage(
   result: AutomaticRoutingUiResult,
 ): { content: string; tone?: AgentChatTone } {
@@ -432,54 +468,33 @@ export function buildAutomaticRoutingMessage(
 
   const apollo = result.providerCandidatesCreated?.apollo ?? null;
   const lusha = result.providerCandidatesCreated?.lusha ?? null;
-  const fromHubSpot = result.hubspotFirstCandidates ?? 0;
-  const fromBank = result.contactBankCandidates ?? 0;
-  const fromSite = result.companySiteCandidates ?? 0;
-  const free = fromHubSpot + fromBank + fromSite;
+  const free =
+    (result.hubspotFirstCandidates ?? 0) + (result.contactBankCandidates ?? 0) + (result.companySiteCandidates ?? 0);
   if (result.attempt1AttemptId == null || (apollo === null && lusha === null && free === 0)) {
     return { content: AUTOMATIC_BLOCKED, tone: 'warning' };
   }
 
-  const created = (apollo ?? 0) + (lusha ?? 0);
-  const reused = result.reusedExistingCandidates ?? 0;
   const failed = failedSourcesNote(result.failedProviders);
+  const s = summarizeContactSearch(result);
 
-  // «Primero HubSpot»: lo que ya estaba en HubSpot se ofrece antes de gastar proveedores.
-  if (result.hubspotFirstSatisfied) {
+  // Nada nuevo, nada a Contactos y nada pendiente de antes: un cero explicado, como siempre.
+  if (s.hubspotBrought === 0 && s.otherSources === 0 && s.previousPending === 0 && s.earlierToContacts === 0) {
     return {
-      content: `Encontré ${contactsLabel(fromHubSpot)} de HubSpot para revisar, así que no gasté Apollo ni Lusha. ${AUTOMATIC_APPROVAL_NOTE}`,
-    };
-  }
-  // Banco de contactos: lo que SellUp ya conocía de otra ficha de la misma compañía.
-  if (result.contactBankSatisfied) {
-    return {
-      content: `Encontré ${contactsLabel(free)} para revisar ${freeSourcesPhrase(fromHubSpot, fromBank)}, así que no gasté Apollo ni Lusha. ${AUTOMATIC_APPROVAL_NOTE}`,
-    };
-  }
-  if (free > 0) {
-    const total = created + free;
-    return {
-      content: `Encontré ${contactsLabel(total)} para revisar (${freeSourcesNote(fromHubSpot, fromBank, fromSite, apollo ?? 0, lusha ?? 0)}). ${AUTOMATIC_APPROVAL_NOTE}${failed}`,
+      content: `No se encontraron contactos.${failed}${explainHubSpotFirstZero(result.diagnosis)}${explainZeroResult(result.diagnosis)}`,
+      tone: 'warning',
     };
   }
 
-  const hubspotNote = explainHubSpotFirstZero(result.diagnosis);
-
-  if (created > 0) {
-    return {
-      content: `Encontré ${contactsLabel(created)} para revisar. ${AUTOMATIC_APPROVAL_NOTE}${failed}${hubspotNote}`,
-    };
-  }
-
-  if (reused > 0) {
-    return {
-      content: `Esta búsqueda no trajo contactos nuevos, pero ya tienes ${pendingLabel(reused)} de revisión para esta empresa.${failed}`,
-    };
-  }
-
+  // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): un solo total confundía. Se separa lo de
+  // HubSpot, lo de las otras fuentes y lo que ya estaba en «Por revisar» de antes.
+  const lines = [hubspotSummaryLine(result, s), otherSourcesLine(s), previousPendingLine(s)].filter(
+    (line): line is string => !!line,
+  );
+  const header = s.newForReview + s.hubspotToContacts > 0 ? 'Terminé la búsqueda:' : 'Esta búsqueda no trajo contactos nuevos:';
+  const note = s.totalForReview > 0 ? `\n\nLos de «Por revisar» requieren tu aprobación.` : '';
+  const why = s.newForReview + s.hubspotToContacts === 0 ? explainZeroResult(result.diagnosis) : '';
   return {
-    content: `No se encontraron contactos.${failed}${hubspotNote}${explainZeroResult(result.diagnosis)}`,
-    tone: 'warning',
+    content: `${header}\n\n${lines.map((line) => `• ${line}`).join('\n')}${note}${failed ? `\n\n${failed.trim()}` : ''}${why}`,
   };
 }
 

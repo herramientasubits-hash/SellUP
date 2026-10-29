@@ -27,6 +27,11 @@ export interface HubSpotFirstStageDeps {
   loadRunRef?: (attemptId: string) => Promise<HubSpotFirstRunRef | null>;
   readSnapshot?: (ref: HubSpotFirstRunRef) => Promise<ExistingContactsSnapshotResult>;
   loadRunHubspotCandidates?: (attemptId: string) => Promise<Array<{ hubspotId: string; hasEmail: boolean }>>;
+  /**
+   * AGENT2A-COMPANY-SEARCH-COUNTS — de estos IDs de HubSpot, cuáles ya esperan revisión en otra
+   * corrida. Falla abierto: si no se puede leer, se comporta como antes (no se omite nadie).
+   */
+  loadPendingHubspotIdsElsewhere?: (attemptId: string, hubspotIds: readonly string[]) => Promise<Set<string>>;
   insertRows?: (attemptId: string, rows: HubSpotFirstCandidateRow[]) => Promise<{ error?: string }>;
   /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — dueño de HubSpot del vendedor y directorio de dueños. */
   resolveOwnership?: (triggeredBy: string | null, accountId?: string | null) => Promise<HubSpotFirstOwnership>;
@@ -121,6 +126,8 @@ export interface HubSpotFirstBreakdown {
   notRelevant: number;
   noName: number;
   alreadyInRun: number;
+  /** Ya estaban en «Por revisar» de una búsqueda anterior: no se duplican. */
+  alreadyPending: number;
 }
 
 async function defaultLoadRunRef(attemptId: string): Promise<HubSpotFirstRunRef | null> {
@@ -151,6 +158,32 @@ async function defaultLoadRunHubspotCandidates(attemptId: string) {
   }));
 }
 
+const PENDING_LOOKUP_CHUNK = 200;
+
+async function defaultLoadPendingHubspotIdsElsewhere(
+  attemptId: string,
+  hubspotIds: readonly string[],
+): Promise<Set<string>> {
+  const admin = createSupabaseAdminClient();
+  const found = new Set<string>();
+  const unique = [...new Set(hubspotIds.filter((id) => id.trim().length > 0))];
+  for (let i = 0; i < unique.length; i += PENDING_LOOKUP_CHUNK) {
+    const chunk = unique.slice(i, i + PENDING_LOOKUP_CHUNK);
+    const { data, error } = await admin
+      .from('contact_enrichment_candidates')
+      .select('source_contact_id')
+      .eq('source', 'hubspot')
+      .eq('status', 'pending_review')
+      .neq('enrichment_run_id', attemptId)
+      .in('source_contact_id', chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.source_contact_id) found.add(String(row.source_contact_id));
+    }
+  }
+  return found;
+}
+
 async function defaultInsertRows(
   attemptId: string,
   rows: Array<HubSpotFirstCandidateRow & { created_at?: string }>,
@@ -172,6 +205,7 @@ export async function runHubSpotFirstStage(
       readExistingContactsForCompany({ accountId: ref.accountId, hubspotCompanyId: ref.hubspotCompanyId }),
     loadRunHubspotCandidates = defaultLoadRunHubspotCandidates,
     insertRows = defaultInsertRows,
+    loadPendingHubspotIdsElsewhere = defaultLoadPendingHubspotIdsElsewhere,
     resolveOwnership = defaultResolveOwnership,
     now = Date.now,
   } = deps;
@@ -190,10 +224,15 @@ export async function runHubSpotFirstStage(
     const ownership = await resolveOwnership(input.triggeredBy ?? null, ref.accountId).catch(
       (): HubSpotFirstOwnership => ({ sellerOwnerId: null, directory: null }),
     );
+    const alreadyPendingHubspotIds = await loadPendingHubspotIdsElsewhere(
+      input.attemptId,
+      snapshot.hubspot.contacts.map((c) => c.id?.trim() ?? '').filter((id) => id.length > 0),
+    ).catch(() => new Set<string>());
     const selection = selectHubSpotFirstCandidates({
       hubspotContacts: snapshot.hubspot.contacts,
       sellupContacts: snapshot.sellup.contacts,
       alreadyInRunHubspotIds: new Set(inRun.map((c) => c.hubspotId)),
+      alreadyPendingHubspotIds,
       ownership,
     });
 
@@ -217,6 +256,7 @@ export async function runHubSpotFirstStage(
         notRelevant: selection.skippedNotRelevant,
         noName: selection.skippedNoName,
         alreadyInRun: selection.skippedAlreadyInRun,
+        alreadyPending: selection.skippedAlreadyPending,
       },
     };
   } catch (err) {
