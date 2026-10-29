@@ -16,7 +16,7 @@ import {
   type BulkStopReason,
   type BulkTargetCount,
 } from './bulk-search-types';
-import {
+import { currentRoundRequestIdOf,
   readPerRoundPaidCredits,
   toBulkSearchView,
   toCreditCapBreakdown,
@@ -266,7 +266,7 @@ async function snapshot(deps: BulkSearchEngineDeps, bulkSearchId: string, userId
   const row = await deps.loadSearch(bulkSearchId, userId);
   if (!row) return null;
   const rounds = await deps.listRounds(bulkSearchId);
-  return toBulkSearchView(row, batchIdsOf(rounds), deps.now());
+  return toBulkSearchView(row, batchIdsOf(rounds), deps.now(), currentRoundRequestIdOf(rounds));
 }
 
 export async function runBulkSearchRound(
@@ -419,7 +419,7 @@ export async function controlBulkSearch(
   const row = await deps.applyControl(bulkSearchId, userId, transition.from, transition.to);
   if (row) {
     const rounds = await deps.listRounds(bulkSearchId);
-    return { ok: true, search: toBulkSearchView(row, batchIdsOf(rounds), deps.now()) };
+    return { ok: true, search: toBulkSearchView(row, batchIdsOf(rounds), deps.now(), currentRoundRequestIdOf(rounds)) };
   }
   const existing = await deps.loadSearch(bulkSearchId, userId);
   return { ok: false, code: existing ? 'INVALID_TRANSITION' : 'NOT_FOUND' };
@@ -428,6 +428,9 @@ export async function controlBulkSearch(
 export async function listBulkSearches(deps: BulkSearchEngineDeps, userId: string): Promise<BulkSearchView[]> {
   const rows = await deps.listSearches(userId);
   return Promise.all(
-    rows.map(async (row) => toBulkSearchView(row, batchIdsOf(await deps.listRounds(row.id)), deps.now())),
+    rows.map(async (row) => {
+      const rounds = await deps.listRounds(row.id);
+      return toBulkSearchView(row, batchIdsOf(rounds), deps.now(), currentRoundRequestIdOf(rounds));
+    }),
   );
 }

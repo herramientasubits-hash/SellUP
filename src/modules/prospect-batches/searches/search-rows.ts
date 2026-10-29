@@ -1,5 +1,6 @@
 import type { Tone } from '@/lib/tone';
 import type { BatchSource, BatchStatus, ProspectBatchWithMeta } from '@/modules/prospect-batches/types';
+import type { BulkSearchView } from '@/modules/prospect-batches/bulk-search/bulk-search-view';
 import { BATCH_STATUS_LABELS } from '@/modules/prospect-batches/types';
 
 /**
@@ -17,6 +18,7 @@ export interface SearchRow {
   /** Cómo se buscó: «Empresas por criterios», «Árbol de una empresa», «Archivo importado»… */
   formLabel: string;
   country: string | null;
+  industry: string | null;
   found: number;
   needsReview: number;
   approved: number;
@@ -26,6 +28,19 @@ export interface SearchRow {
   createdBy: string | null;
   /** `assigned`: no la lanzó; las cifras son sólo las empresas que le asignaron. */
   visibility: 'full' | 'assigned';
+  /**
+   * Sólo en un lote que es ronda de una búsqueda masiva (dueña 28-10: cada lote es
+   * su propia fila, para revisarlo aparte; la fila dice de qué masiva salió).
+   */
+  bulkSearch: {
+    id: string;
+    label: string;
+    /** 1, 2, 3… en el orden en que corrieron. */
+    round: number;
+    status: BulkSearchView['status'];
+    deliveredCount: number;
+    targetCount: number;
+  } | null;
 }
 
 export interface SearchesSummary {
@@ -66,6 +81,26 @@ export const SEARCH_STATUS_TONES: Readonly<Record<BatchStatus, Tone>> = {
   failed: 'negative',
 };
 
+/**
+ * Cómo se llama una búsqueda en pantalla (dueña 28-10): como la nombramos en Rumbo,
+ * «forma · país · industria» —«Empresas por criterios · México · Seguros»—, no el
+ * nombre interno del lote («Agente 1 · Pipeline · … · 28 de oct de 2026»). Sin país
+ * ni industria, el nombre guardado sin esa jerga.
+ */
+export function searchDisplayName(input: {
+  formLabel: string;
+  country: string | null | undefined;
+  industry: string | null | undefined;
+  name: string;
+}): string {
+  const parts = [input.country, input.industry].map((part) => part?.trim()).filter(Boolean);
+  if (parts.length > 0) return [input.formLabel, ...parts].join(' · ');
+  return input.name
+    .replace(/^(Agente 1 · Pipeline · |Agente 1 · |Empresas candidatas · )/, '')
+    .replace(/ · \d{1,2} (de )?[a-záéíóú]+\.?( de)? \d{4}$/i, '')
+    .trim();
+}
+
 /** El nombre de la forma de búsqueda: la de Rumbo si la guardó, si no, el origen. */
 export function searchFormLabel(source: BatchSource, metadata: Record<string, unknown> | null | undefined): string {
   const mode = typeof metadata?.search_mode === 'string' ? metadata.search_mode : null;
@@ -74,13 +109,15 @@ export function searchFormLabel(source: BatchSource, metadata: Record<string, un
 }
 
 export function toSearchRow(batch: ProspectBatchWithMeta & { visibility?: 'full' | 'assigned' }): SearchRow {
+  const formLabel = searchFormLabel(batch.source, batch.metadata as Record<string, unknown> | null);
   return {
     id: batch.id,
-    name: batch.name,
+    name: searchDisplayName({ formLabel, country: batch.country, industry: batch.industry, name: batch.name }),
     statusLabel: BATCH_STATUS_LABELS[batch.status] ?? batch.status,
     statusTone: SEARCH_STATUS_TONES[batch.status] ?? 'neutral',
-    formLabel: searchFormLabel(batch.source, batch.metadata as Record<string, unknown> | null),
+    formLabel,
     country: batch.country ?? null,
+    industry: batch.industry ?? null,
     found: batch.total_candidates ?? 0,
     needsReview: batch.needs_review_count ?? 0,
     approved: (batch.approved_count ?? 0) + (batch.converted_count ?? 0),
@@ -88,7 +125,38 @@ export function toSearchRow(batch: ProspectBatchWithMeta & { visibility?: 'full'
     createdAt: batch.created_at,
     createdBy: batch.created_by_user?.full_name ?? batch.owner?.full_name ?? null,
     visibility: batch.visibility ?? 'full',
+    bulkSearch: null,
   };
+}
+
+/** El nombre de la forma de la búsqueda masiva, el mismo del selector de Rumbo. */
+export const BULK_SEARCH_FORM_LABEL = 'Muchas empresas por criterios';
+
+/**
+ * Marca las filas que son rondas de una búsqueda masiva (dueña 28-10): siguen siendo
+ * filas propias —se revisan aparte, no se mezclan—, con la forma «Muchas empresas
+ * por criterios» y de qué masiva y en qué ronda salieron.
+ */
+export function markBulkRounds(rows: readonly SearchRow[], bulkSearches: readonly BulkSearchView[]): SearchRow[] {
+  const byBatch = new Map<string, SearchRow['bulkSearch']>();
+  for (const search of bulkSearches) {
+    search.batchIds.forEach((batchId, index) =>
+      byBatch.set(batchId, {
+        id: search.id,
+        label: search.label,
+        round: index + 1,
+        status: search.status,
+        deliveredCount: search.deliveredCount,
+        targetCount: search.targetCount,
+      }),
+    );
+  }
+  return rows.map((row) => {
+    const bulkSearch = byBatch.get(row.id);
+    if (!bulkSearch) return row;
+    const base = searchDisplayName({ formLabel: BULK_SEARCH_FORM_LABEL, country: row.country, industry: row.industry, name: row.name });
+    return { ...row, name: `${base} · Ronda ${bulkSearch.round}`, formLabel: BULK_SEARCH_FORM_LABEL, bulkSearch };
+  });
 }
 
 /** Las cifras de arriba salen de las mismas filas de la tabla: siempre cuadran. */

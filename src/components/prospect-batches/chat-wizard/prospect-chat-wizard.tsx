@@ -28,11 +28,12 @@ import type { MultiSelectOption } from '@/components/forms/multi-select';
 import { EXPLORATORY_SEARCH_LIMITS } from '@/modules/industry-catalog/schema';
 import { detectPromptInjection, normalizeCriteria } from '@/modules/industry-catalog/schema';
 import { executeWizardRunViaRoute, getAgentRunsStore } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
-import { toast } from 'sonner';
 import {
   BULK_SEARCH_STARTED_EVENT,
   createBulkSearchViaRoute,
+  listBulkSearchesViaRoute,
 } from '@/modules/prospect-batches/bulk-search/bulk-search-client';
+import { BULK_WIZARD_POLL_MS, bulkWizardSuccessAction } from '@/modules/prospect-batches/bulk-search/bulk-search-display';
 import type { BulkLaunchOutcome, BulkSearchSurface } from '@/components/prospect-batches/bulk-search/bulk-search-launch';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { ChatComposer } from '@/components/chat';
@@ -251,6 +252,9 @@ export function ProspectChatWizard({
   // AGENT1-RUN-LIVE-PROGRESS-1 — el id de la corrida en vuelo, para que la espera
   // lea su etapa. Estado (no la ref) porque se pinta.
   const [runningRequestId, setRunningRequestId] = React.useState<string | null>(null);
+  // Dueña 28-10 — una búsqueda masiva recién lanzada se queda en este panel con la
+  // MISMA espera que una búsqueda normal: la etapa en vivo es la de su ronda en curso.
+  const [bulkRun, setBulkRun] = React.useState<{ id: string; startedAtMs: number } | null>(null);
   const inFlightRequestId = state.currentStep === 'submitting' ? runningRequestId : null;
   React.useEffect(() => {
     onRunningChange?.(inFlightRequestId);
@@ -726,15 +730,44 @@ export function ProspectChatWizard({
     });
     if (result.ok) {
       window.dispatchEvent(new CustomEvent(BULK_SEARCH_STARTED_EVENT, { detail: { id: result.search.id } }));
-      toast.success(`Búsqueda masiva en marcha: hasta ${targetCount} empresas`, {
-        description: 'Sigue su avance en el Centro de procesos.',
-      });
-      onClose();
+      // Como cualquier búsqueda: el panel se queda con la espera y, al minimizarlo,
+      // sigue en el Centro de procesos.
+      setRunningRequestId(result.search.currentRoundRequestId);
+      setBulkRun({ id: result.search.id, startedAtMs: Date.parse(result.search.createdAt) || Date.now() });
+      dispatch({ type: 'BEGIN_EXECUTION' });
       return { ok: true };
     }
     if (result.code === 'ESTIMATE_CHANGED') return { ok: false, message: result.message, estimate: result.estimate };
     return { ok: false, message: result.message };
   }
+
+  // La búsqueda masiva en curso: la espera lee la etapa de su ronda y, al terminar,
+  // cierra con el mismo panel final de una búsqueda normal.
+  React.useEffect(() => {
+    if (!bulkRun || state.currentStep !== 'submitting') return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const listed = await listBulkSearchesViaRoute().catch(() => null);
+      if (cancelled) return;
+      const view = listed && listed.ok ? listed.searches.find((search) => search.id === bulkRun.id) : undefined;
+      if (view) {
+        if (view.currentRoundRequestId) setRunningRequestId(view.currentRoundRequestId);
+        const finished = bulkWizardSuccessAction(view);
+        if (finished) {
+          dispatch(finished);
+          setBulkRun(null);
+          return;
+        }
+      }
+      timer = setTimeout(poll, BULK_WIZARD_POLL_MS);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [bulkRun, state.currentStep]);
 
   // ── Execution ─────────────────────────────────────────────────────────────
 
@@ -1077,7 +1110,7 @@ export function ProspectChatWizard({
               del panel (el bloque grande de «la IA está trabajando») y su titular
               dice en vivo qué está haciendo el agente. */}
           {state.currentStep === 'submitting' && (
-            <SubmittingPanel clientRequestId={runningRequestId} />
+            <SubmittingPanel clientRequestId={runningRequestId} startedAtMs={bulkRun?.startedAtMs} />
           )}
 
           {/* Conversation history */}

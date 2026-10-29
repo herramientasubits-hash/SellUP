@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  markBulkRounds,
+  searchDisplayName,
   searchFormLabel,
   searchListHref,
   searchReviewHref,
@@ -68,5 +70,59 @@ describe('Búsquedas — el resumen y los enlaces', () => {
   it('«Ver búsqueda» lleva a Búsquedas y «Por revisar» filtra por la búsqueda', () => {
     assert.equal(searchListHref('b 1'), '/accounts?tab=busquedas&focus=b%201');
     assert.equal(searchReviewHref('b1'), '/accounts?tab=prospectos&sourceId=b1');
+  });
+});
+
+describe('Búsquedas — las rondas de una búsqueda masiva (dueña 28-10)', () => {
+  const bulk = {
+    id: 'bulk-1',
+    label: 'Búsqueda masiva · México · Seguros',
+    status: 'running' as const,
+    deliveredCount: 12,
+    targetCount: 25,
+    batchIds: ['r1', 'r2'],
+  } as never;
+
+  it('cada ronda sigue siendo su propia fila, con la forma y de qué masiva salió', () => {
+    const rows = markBulkRounds([toSearchRow(batch({ id: 'r2' })), toSearchRow(batch({ id: 'otra' })), toSearchRow(batch({ id: 'r1' }))], [bulk]);
+    assert.equal(rows.length, 3);
+    const r2 = rows.find((row) => row.id === 'r2')!;
+    assert.equal(r2.formLabel, 'Muchas empresas por criterios');
+    assert.deepEqual(r2.bulkSearch, { id: 'bulk-1', label: 'Búsqueda masiva · México · Seguros', round: 2, status: 'running', deliveredCount: 12, targetCount: 25 });
+    assert.equal(rows.find((row) => row.id === 'r1')!.bulkSearch!.round, 1);
+  });
+
+  it('una búsqueda normal no cambia', () => {
+    const [other] = markBulkRounds([toSearchRow(batch({ id: 'otra' }))], [bulk]);
+    assert.equal(other.bulkSearch, null);
+    assert.notEqual(other.formLabel, 'Muchas empresas por criterios');
+  });
+});
+
+describe('Búsquedas — el nombre, como lo nombramos en Rumbo (dueña 28-10)', () => {
+  it('forma · país · industria, sin el nombre interno del lote', () => {
+    assert.equal(
+      searchDisplayName({
+        formLabel: 'Empresas por criterios',
+        country: 'México',
+        industry: 'Seguros y Servicios Financieros',
+        name: 'Agente 1 · Pipeline · México · Seguros y Servicios Financieros · 28 de oct de 2026',
+      }),
+      'Empresas por criterios · México · Seguros y Servicios Financieros',
+    );
+  });
+
+  it('sin país ni industria, el nombre guardado sin la jerga ni la fecha', () => {
+    assert.equal(
+      searchDisplayName({ formLabel: 'Archivo importado', country: null, industry: null, name: 'Agente 1 · Pipeline · Lista de ferias · 28 de oct de 2026' }),
+      'Lista de ferias',
+    );
+    assert.equal(searchDisplayName({ formLabel: 'Archivo importado', country: null, industry: null, name: 'Clientes 2025' }), 'Clientes 2025');
+  });
+
+  it('las rondas de una masiva se nombran con su forma y su ronda', () => {
+    const bulk = { id: 'b', label: 'x', status: 'completed', deliveredCount: 30, targetCount: 25, batchIds: ['r1', 'r2'] } as never;
+    const [row] = markBulkRounds([toSearchRow(batch({ id: 'r2', country: 'México', industry: 'Seguros' }))], [bulk]);
+    assert.equal(row.name, 'Muchas empresas por criterios · México · Seguros · Ronda 2');
   });
 });

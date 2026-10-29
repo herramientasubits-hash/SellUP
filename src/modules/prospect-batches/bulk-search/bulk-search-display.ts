@@ -1,5 +1,8 @@
 import type { BulkRoundResponse } from './bulk-search-engine';
+import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import type { BulkSearchView } from './bulk-search-view';
+import type { ProspectWizardAction } from '@/modules/prospect-batches/chat-wizard/wizard-types';
+import { searchListHref } from '@/modules/prospect-batches/searches/search-rows';
 
 /**
  * Cómo se lee una búsqueda masiva en el Process Center y en Growth, y qué hace
@@ -80,4 +83,43 @@ export function bulkSearchesForTray(searches: readonly BulkSearchView[], nowMs: 
       return Number.isFinite(done) && nowMs - done < BULK_TRAY_RECENT_MS;
     })
     .slice(0, 3);
+}
+
+/** Cada cuánto el asistente abierto relee la búsqueda masiva que acaba de lanzar. */
+export const BULK_WIZARD_POLL_MS = 3_000;
+
+/**
+ * Cómo cierra el asistente una búsqueda masiva que terminó (dueña 28-10): con el
+ * MISMO panel final que una búsqueda normal, con el estado que le corresponde.
+ * `null` mientras sigue (en curso o en pausa).
+ */
+export function bulkWizardOutcome(
+  view: Pick<BulkSearchView, 'status' | 'deliveredCount' | 'targetCount' | 'batchIds'>,
+): { status: WizardExecutionStatus; batchId: string } | null {
+  if (view.status === 'running' || view.status === 'paused') return null;
+  const batchId = view.batchIds[view.batchIds.length - 1] ?? '';
+  if (view.deliveredCount >= view.targetCount) return { status: 'success_target_reached', batchId };
+  if (view.deliveredCount > 0) return { status: 'success_partial', batchId };
+  return { status: 'no_new_candidates', batchId };
+}
+
+/**
+ * El cierre del asistente cuando su búsqueda masiva terminó: el MISMO
+ * `EXECUTION_SUCCEEDED` de una búsqueda normal, con lo que la masiva entregó y un
+ * enlace a Empresas › Búsquedas. `null` mientras sigue. Sin aceptación declarada:
+ * cada ronda ya la publicó en su lote y aquí no se recalcula.
+ */
+export function bulkWizardSuccessAction(
+  view: Pick<BulkSearchView, 'id' | 'status' | 'deliveredCount' | 'targetCount' | 'batchIds'>,
+): Extract<ProspectWizardAction, { type: 'EXECUTION_SUCCEEDED' }> | null {
+  const outcome = bulkWizardOutcome(view);
+  if (!outcome) return null;
+  return {
+    type: 'EXECUTION_SUCCEEDED',
+    batchId: outcome.batchId,
+    redirectPath: searchListHref(view.id),
+    status: outcome.status,
+    candidateCount: view.deliveredCount,
+    acceptedForTarget: null,
+  };
 }

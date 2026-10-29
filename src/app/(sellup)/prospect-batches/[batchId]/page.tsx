@@ -1,6 +1,8 @@
 import { formatInAppZone } from '@/lib/format-date';
 import { MetricStrip } from "@/components/shared/metric-strip";
 import { notFound } from 'next/navigation';
+import { EMPRESAS_SEARCHES_ROUTE } from '@/config/navigation';
+import { searchDisplayName, searchFormLabel } from '@/modules/prospect-batches/searches/search-rows';
 import Link from 'next/link';
 import {
   Building2,
@@ -177,11 +179,13 @@ export default async function BatchDetailPage({ params }: Props) {
       ? [`Proveedores de ${supplierReference}`, batch.country, batch.industry].filter(Boolean).join(' · ')
       : competitorReference
       ? `${competitorSearchTitle(competitorReference.name)}${batch.country ? ` · ${batch.country}` : ''}`
-      : (isStructuredOfficial || isApolloCandidateBatch) && (batch.country || batch.industry)
-      ? isStructuredChile
-        ? `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}`
-        : `Empresas candidatas${batch.country ? ` · ${batch.country}` : ''}${batch.industry ? ` · ${batch.industry}` : ''}`
-      : batch.name;
+      : // Dueña 28-10: el mismo nombre que en Empresas › Búsquedas («forma · país · industria»).
+        searchDisplayName({
+          formLabel: searchFormLabel(batch.source, batch.metadata as Record<string, unknown> | null),
+          country: batch.country,
+          industry: isStructuredChile ? null : batch.industry,
+          name: batch.name,
+        });
 
   const chileSubtitle = isStructuredChile
     ? `Fuente oficial Chile · RES · ${formatInAppZone(batch.created_at, { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CL')}`
@@ -278,9 +282,9 @@ export default async function BatchDetailPage({ params }: Props) {
       {/* Header */}
       <PageHeader
         breadcrumbs={
-          <Breadcrumbs items={[{ label: 'Empresas', href: '/accounts' }, { label: 'Por revisar', href: '/accounts?tab=prospectos' }, pageTitle]} />
+          <Breadcrumbs items={[{ label: 'Empresas', href: '/accounts' }, { label: 'Búsquedas', href: EMPRESAS_SEARCHES_ROUTE }, pageTitle]} />
         }
-        backHref="/accounts?tab=prospectos"
+        backHref={EMPRESAS_SEARCHES_ROUTE}
         title={pageTitle}
         description={pageSubtitle}
         actions={

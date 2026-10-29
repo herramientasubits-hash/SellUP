@@ -89,3 +89,19 @@ describe('confirmar y lanzar', () => {
     assert.ok(body.includes('BULK_SEARCH_STARTED_EVENT'));
   });
 });
+
+describe('al lanzar, la misma espera que cualquier búsqueda (dueña 28-10)', () => {
+  const launch = WIZARD.slice(WIZARD.indexOf('async function handleBulkLaunch'), WIZARD.indexOf('// ── Execution'));
+  it('el asistente no se cierra: entra a «corriendo» con la ronda en curso', () => {
+    assert.doesNotMatch(launch, /onClose\(\)/);
+    assert.match(launch, /dispatch\(\{ type: 'BEGIN_EXECUTION' \}\)/);
+    assert.match(launch, /setRunningRequestId\(result\.search\.currentRoundRequestId\)/);
+  });
+  it('la espera es el SubmittingPanel de siempre y termina en el panel final de siempre', () => {
+    assert.match(WIZARD, /<SubmittingPanel clientRequestId=\{runningRequestId\} startedAtMs=\{bulkRun\?\.startedAtMs\} \/>/);
+    assert.match(launch, /dispatch\(finished\)/);
+    assert.match(launch, /bulkWizardSuccessAction\(view\)/);
+    // El único despacho de éxito literal sigue siendo el de la búsqueda normal (guarda CUT-8).
+    assert.equal(WIZARD.split("type: 'EXECUTION_SUCCEEDED'").length - 1, 1);
+  });
+});

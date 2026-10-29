@@ -23,6 +23,11 @@ export interface BulkSearchView {
   completedAt: string | null;
   /** Los lotes de sus rondas, para enlazarlos en «Por revisar». */
   batchIds: string[];
+  /**
+   * La identidad de la corrida de la ronda en curso (dueña 28-10): con ella la
+   * espera del asistente lee su etapa en vivo, igual que en una búsqueda normal.
+   */
+  currentRoundRequestId: string | null;
 }
 
 /** La fila tal como sale de `prospect_bulk_searches`. */
@@ -77,7 +82,18 @@ export function readPerRoundPaidCredits(row: Pick<BulkSearchRow, 'credit_cap_bre
   return num(row.credit_cap_breakdown?.perRoundPaid as number | undefined);
 }
 
-export function toBulkSearchView(row: BulkSearchRow, batchIds: string[], nowMs: number): BulkSearchView {
+/** La ronda en curso: la última que sigue `running`. */
+export function currentRoundRequestIdOf(rounds: readonly Pick<BulkSearchRoundRow, 'round_index' | 'status' | 'client_request_id'>[]): string | null {
+  const running = rounds.filter((round) => round.status === 'running').sort((a, b) => b.round_index - a.round_index);
+  return running[0]?.client_request_id ?? null;
+}
+
+export function toBulkSearchView(
+  row: BulkSearchRow,
+  batchIds: string[],
+  nowMs: number,
+  currentRoundRequestId: string | null = null,
+): BulkSearchView {
   const leaseUntil = row.lease_expires_at ? Date.parse(row.lease_expires_at) : Number.NaN;
   return {
     id: row.id,
@@ -95,6 +111,7 @@ export function toBulkSearchView(row: BulkSearchRow, batchIds: string[], nowMs: 
     createdAt: row.created_at,
     completedAt: row.completed_at,
     batchIds,
+    currentRoundRequestId,
   };
 }
 
