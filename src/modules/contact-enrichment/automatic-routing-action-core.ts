@@ -105,6 +105,8 @@ export interface AutomaticRoutingDiagnosis {
   hubspotFirst?: {
     hubspotContacts: number;
     otherSeller: number;
+    /** Con dueño sin poder verificar si está activo (sin directorio de HubSpot). */
+    ownerUnverified?: number;
     knownInSellUp: number;
     notRelevant: number;
     noName: number;
@@ -169,6 +171,7 @@ function buildDiagnosis(
       ? {
           hubspotContacts: result.hubspotFirstBreakdown.hubspotContacts,
           otherSeller: result.hubspotFirstBreakdown.otherSeller,
+          ownerUnverified: result.hubspotFirstBreakdown.ownerUnverified ?? 0,
           knownInSellUp: result.hubspotFirstBreakdown.knownInSellUp,
           notRelevant: result.hubspotFirstBreakdown.notRelevant,
           noName: result.hubspotFirstBreakdown.noName,

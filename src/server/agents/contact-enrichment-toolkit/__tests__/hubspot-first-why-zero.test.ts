@@ -42,13 +42,16 @@ describe('Primero HubSpot — desglose de descartes', () => {
       loadRunHubspotCandidates: async () => [],
       loadPendingHubspotIdsElsewhere: async () => new Set(),
       insertRows: async () => ({}),
-      resolveOwnership: async () => ({ sellerOwnerId: 'yo', directory: null }),
+      resolveOwnership: async () => ({
+        sellerOwnerId: 'yo',
+        directory: { activeIds: new Set(['yo', 'otro']), deactivatedIds: new Set(), poolIds: new Set() },
+      }),
     };
     const result = await runHubSpotFirstStage({ attemptId: 'r', triggeredBy: 'u' }, deps);
     assert.equal(result.status, 'done');
     assert.equal(result.status === 'done' && result.inserted, 0);
     assert.deepEqual(result.status === 'done' && result.breakdown, {
-      hubspotContacts: 5, otherSeller: 2, knownInSellUp: 1, notRelevant: 1, noName: 1, alreadyInRun: 0, alreadyPending: 0,
+      hubspotContacts: 5, otherSeller: 2, knownInSellUp: 1, notRelevant: 1, noName: 1, alreadyInRun: 0, alreadyPending: 0, ownerUnverified: 0,
     });
   });
 });
@@ -86,7 +89,7 @@ describe('Primero HubSpot — el chat explica el cero', () => {
     const { content } = buildAutomaticRoutingMessage(result);
     // AGENT2A-COMPANY-SEARCH-COUNTS: el porqué va en la línea de HubSpot del resumen.
     assert.match(content, /^Terminé la búsqueda:/);
-    assert.match(content, /De HubSpot: tiene 100 contactos de esta empresa y no traje ninguno \(3 ya están en SellUp y 97 son de otro vendedor\)\./);
+    assert.match(content, /De HubSpot: ninguno nuevo \(3 ya en SellUp y 97 de otro vendedor\)\./);
     assert.match(content, /De otras fuentes: 5 contactos nuevos en «Por revisar» \(5 de Apollo\)\./);
   });
 });
@@ -98,7 +101,7 @@ describe('Primero HubSpot — el desglose viaja en el resultado y la telemetría
       '@/modules/contact-enrichment-routing/routing-config.server'
     );
     const evidence: Record<string, unknown>[] = [];
-    const breakdown = { hubspotContacts: 100, otherSeller: 97, knownInSellUp: 3, notRelevant: 0, noName: 0, alreadyInRun: 0, alreadyPending: 0 };
+    const breakdown = { hubspotContacts: 100, otherSeller: 97, knownInSellUp: 3, notRelevant: 0, noName: 0, alreadyInRun: 0, alreadyPending: 0, ownerUnverified: 0 };
     const result = await runAutomaticContactEnrichmentFallbackForRequest(
       { requestId: 'req', triggeredBy: 'u', evaluatedAt: '2026-10-21T00:00:00.000Z' },
       {

@@ -42,8 +42,8 @@ export interface HubSpotFirstCandidateRow {
 
 /**
  * AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — de quién es cada contacto en HubSpot. Un contacto de OTRO
- * vendedor activo no se ofrece (misma regla que la toma de empresas libres): sí los sin dueño,
- * los de una bolsa, los de un dueño desactivado y los del propio vendedor.
+ * vendedor ACTIVO no se ofrece: sí los sin dueño, los de una bolsa, los de un dueño desactivado o
+ * desconocido y los del propio vendedor (ver hubspotContactOwnerVerdict).
  */
 export interface HubSpotFirstOwnership {
   /** Dueño de HubSpot del vendedor que busca; null si no se pudo saber. */
@@ -58,13 +58,34 @@ export interface HubSpotFirstOwnership {
   accountOwnerId?: string | null;
 }
 
-export function isOfferableHubSpotContact(ownerId: string | null | undefined, ownership: HubSpotFirstOwnership): boolean {
+/**
+ * Qué hacer con un contacto según su dueño en HubSpot:
+ *  - `offer`: sin dueño, propio, del dueño de la ficha, de una bolsa, o de un dueño que NO está
+ *    activo en HubSpot (desactivado o que ya no aparece). Bryan 29-10: un dueño inactivo es como
+ *    no tener dueño.
+ *  - `other_seller`: su dueño es otro vendedor ACTIVO en HubSpot. No se ofrece.
+ *  - `unverified`: tiene dueño y HubSpot no devolvió el directorio, así que no se puede saber si
+ *    está activo. No se ofrece (falla cerrado) y se cuenta aparte para no llamarlo «otro vendedor».
+ */
+export type HubSpotOwnerVerdict = 'offer' | 'other_seller' | 'unverified';
+
+export function hubspotContactOwnerVerdict(
+  ownerId: string | null | undefined,
+  ownership: HubSpotFirstOwnership,
+): HubSpotOwnerVerdict {
   const owner = ownerId?.trim() || null;
-  if (owner === null) return true;
-  if (ownership.sellerOwnerId && owner === ownership.sellerOwnerId) return true;
-  if (ownership.accountOwnerId && owner === ownership.accountOwnerId) return true;
+  if (owner === null) return 'offer';
+  if (ownership.sellerOwnerId && owner === ownership.sellerOwnerId) return 'offer';
+  if (ownership.accountOwnerId && owner === ownership.accountOwnerId) return 'offer';
   const directory = ownership.directory;
-  return !!directory && (directory.poolIds.has(owner) || directory.deactivatedIds.has(owner));
+  if (!directory) return 'unverified';
+  if (directory.poolIds.has(owner)) return 'offer';
+  // Sólo frena un dueño ACTIVO. Desactivado (`archived=true` en HubSpot) o desconocido = sin dueño.
+  return directory.activeIds.has(owner) ? 'other_seller' : 'offer';
+}
+
+export function isOfferableHubSpotContact(ownerId: string | null | undefined, ownership: HubSpotFirstOwnership): boolean {
+  return hubspotContactOwnerVerdict(ownerId, ownership) === 'offer';
 }
 
 const LEADERSHIP_TITLE =
@@ -98,6 +119,8 @@ export interface HubSpotFirstSelection {
   skippedAlreadyPending: number;
   /** AGENT2-HUBSPOT-FIRST-OWNERSHIP-1 — contactos de otro vendedor activo en HubSpot. */
   skippedOtherSeller: number;
+  /** Con dueño, pero sin directorio de HubSpot para saber si está activo (falla cerrado). */
+  skippedOwnerUnverified: number;
 }
 
 function emailKey(value: string | null | undefined): string | null {
@@ -134,6 +157,7 @@ export function selectHubSpotFirstCandidates(input: {
     skippedAlreadyInRun: 0,
     skippedAlreadyPending: 0,
     skippedOtherSeller: 0,
+    skippedOwnerUnverified: 0,
   };
   const seenInThisBatch = new Set<string>();
   const priorities = new Map<HubSpotFirstCandidateRow, number>();
@@ -154,8 +178,13 @@ export function selectHubSpotFirstCandidates(input: {
       result.skippedAlreadyPending += 1;
       continue;
     }
-    if (input.ownership && !isOfferableHubSpotContact(contact.ownerId, input.ownership)) {
+    const ownerVerdict = input.ownership ? hubspotContactOwnerVerdict(contact.ownerId, input.ownership) : 'offer';
+    if (ownerVerdict === 'other_seller') {
       result.skippedOtherSeller += 1;
+      continue;
+    }
+    if (ownerVerdict === 'unverified') {
+      result.skippedOwnerUnverified += 1;
       continue;
     }
     const email = emailKey(contact.email);

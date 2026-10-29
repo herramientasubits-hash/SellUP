@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  hubspotContactOwnerVerdict,
   hubspotFirstPriority,
   isOfferableHubSpotContact,
   selectHubSpotFirstCandidates,
@@ -38,11 +39,30 @@ describe('«HubSpot primero» — de quién es cada contacto', () => {
   });
   it('NUNCA el de otro vendedor activo', () => {
     assert.equal(isOfferableHubSpotContact('seller-other', OWNERSHIP), false);
+    assert.equal(hubspotContactOwnerVerdict('seller-other', OWNERSHIP), 'other_seller');
+  });
+  it('Bryan 29-10: un dueño que no está activo en HubSpot es como no tener dueño', () => {
+    // Desactivado (HubSpot lo devuelve con archived=true) y desconocido (ya no aparece en ninguna lista).
+    assert.equal(hubspotContactOwnerVerdict('seller-gone', OWNERSHIP), 'offer');
+    assert.equal(hubspotContactOwnerVerdict('owner-not-in-directory', OWNERSHIP), 'offer');
+  });
+  it('sin directorio, un dueño ajeno queda «sin verificar», no «otro vendedor»', () => {
+    const noDirectory: HubSpotFirstOwnership = { sellerOwnerId: 'seller-me', directory: null };
+    assert.equal(hubspotContactOwnerVerdict('seller-other', noDirectory), 'unverified');
+    assert.equal(hubspotContactOwnerVerdict('seller-me', noDirectory), 'offer');
+    const selection = selectHubSpotFirstCandidates({
+      hubspotContacts: [contact('9', 'Gerente de Recursos Humanos', 'seller-other')],
+      sellupContacts: [],
+      alreadyInRunHubspotIds: new Set(),
+      ownership: noDirectory,
+    });
+    assert.equal(selection.skippedOwnerUnverified, 1);
+    assert.equal(selection.skippedOtherSeller, 0);
   });
   it('el dueño de la FICHA también cuenta aunque busque otra persona (Grupo LALA, 22-10)', () => {
     const asLeader: HubSpotFirstOwnership = { ...OWNERSHIP, sellerOwnerId: 'leader', accountOwnerId: 'seller-other' };
     assert.equal(isOfferableHubSpotContact('seller-other', asLeader), true);
-    assert.equal(isOfferableHubSpotContact('seller-third', asLeader), false);
+    assert.equal(isOfferableHubSpotContact('seller-me', asLeader), false);
     // Sin dueño de ficha conocido, la regla de siempre.
     assert.equal(isOfferableHubSpotContact('seller-other', { ...OWNERSHIP, accountOwnerId: null }), false);
   });

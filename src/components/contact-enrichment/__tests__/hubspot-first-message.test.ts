@@ -40,8 +40,7 @@ describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuente
     assert.equal(
       content,
       'Terminé la búsqueda:\n\n' +
-        '• De HubSpot: tiene 12 contactos de esta empresa y traje 5: 2 pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn, y 3 quedaron en «Por revisar». ' +
-        'Los otros no los traje: 1 ya estaba en «Por revisar», 2 ya están en SellUp, 3 son de otro vendedor y 1 no es de RR. HH., formación o dirección.\n' +
+        '• De HubSpot: 2 completos a Contactos, 3 en «Por revisar», 2 ya en SellUp, 3 de otro vendedor y 1 de otras áreas.\n' +
         '• De otras fuentes: 4 contactos nuevos en «Por revisar» (3 de Apollo y 1 de Lusha).\n' +
         '• De búsquedas anteriores: ya tenías 6 contactos en «Por revisar».\n\n' +
         'Los de «Por revisar» requieren tu aprobación.',
@@ -59,7 +58,7 @@ describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuente
         diagnosis: diag(hs({ hubspotContacts: 2 })),
       }),
     );
-    assert.match(content, /De HubSpot: tiene 2 contactos de esta empresa y traje 2: pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn\./);
+    assert.match(content, /De HubSpot: 2 completos a Contactos\./);
     assert.match(content, /De otras fuentes: no encontré contactos nuevos\./);
     assert.doesNotMatch(content, /requieren tu aprobación/);
   });
@@ -68,7 +67,7 @@ describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuente
     const { content } = buildAutomaticRoutingMessage(
       result({ hubspotFirstCandidates: 3, diagnosis: diag(hs({ hubspotContacts: 3 })) }),
     );
-    assert.match(content, /De HubSpot: tiene 3 contactos de esta empresa y traje 3: quedaron en «Por revisar»\./);
+    assert.match(content, /De HubSpot: 3 en «Por revisar»\./);
   });
 
   it('banco de contactos y sitio web cuentan como otras fuentes', () => {
@@ -86,7 +85,7 @@ describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuente
       buildAutomaticRoutingMessage(
         result({ providerCandidatesCreated: { apollo: 1, lusha: null }, diagnosis: diag(null, 'no_hubspot_company') }),
       ).content,
-      /De HubSpot: esta empresa no está vinculada a HubSpot\./,
+      /De HubSpot: la empresa no está vinculada a HubSpot\./,
     );
     assert.match(
       buildAutomaticRoutingMessage(
@@ -109,6 +108,16 @@ describe('AGENT2A-COMPANY-SEARCH-COUNTS — el chat separa HubSpot, otras fuente
     assert.match(content, /De HubSpot: no tiene contactos de esta empresa\./);
     assert.match(content, /ya tenías 2 contactos en «Por revisar»\. Además pasé 1 de HubSpot a Contactos porque ya estaba completo\./);
     assert.equal(tone, undefined);
+  });
+
+  it('ninguno nuevo de HubSpot: dice por qué, corto; el dueño sin verificar no se llama «otro vendedor»', () => {
+    const { content } = buildAutomaticRoutingMessage(
+      result({
+        providerCandidatesCreated: { apollo: 1, lusha: null },
+        diagnosis: diag(hs({ hubspotContacts: 6, otherSeller: 3, ownerUnverified: 2, knownInSellUp: 1 })),
+      }),
+    );
+    assert.match(content, /De HubSpot: ninguno nuevo \(1 ya en SellUp, 3 de otro vendedor y 2 con dueño sin verificar\)\./);
   });
 
   it('sin el conteo nuevo usa los pendientes que el enrutador reutilizó', () => {

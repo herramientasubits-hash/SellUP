@@ -41,7 +41,7 @@ describe('Primero HubSpot — etapa', () => {
     const result = await runHubSpotFirstStage({ attemptId: 'run-1' }, deps({ inserted }));
     assert.deepEqual(result, {
       status: 'done', satisfied: true, inserted: 3, relevantWithEmail: 3,
-      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 0, alreadyPending: 0 },
+      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 0, alreadyPending: 0, ownerUnverified: 0 },
     });
     assert.equal(inserted.length, 3);
   });
@@ -71,7 +71,7 @@ describe('Primero HubSpot — etapa', () => {
     assert.equal(inserted.length, 1);
     assert.deepEqual(result, {
       status: 'done', satisfied: true, inserted: 1, relevantWithEmail: 3,
-      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 2, alreadyPending: 0 },
+      breakdown: { hubspotContacts: 3, otherSeller: 0, knownInSellUp: 0, notRelevant: 0, noName: 0, alreadyInRun: 2, alreadyPending: 0, ownerUnverified: 0 },
     });
   });
 

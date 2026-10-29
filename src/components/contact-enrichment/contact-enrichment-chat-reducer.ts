@@ -383,6 +383,9 @@ export function explainHubSpotFirstZero(d: AutomaticRoutingUiDiagnosis | undefin
   const parts: string[] = [];
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
   if (hs.otherSeller > 0) parts.push(`${hs.otherSeller} ${plural(hs.otherSeller, 'es', 'son')} de otro vendedor`);
+  const unverified = hs.ownerUnverified ?? 0;
+  if (unverified > 0)
+    parts.push(`${unverified} ${plural(unverified, 'tiene', 'tienen')} un dueño que no pude verificar si sigue activo`);
   if (hs.notRelevant > 0)
     parts.push(`${hs.notRelevant} no ${plural(hs.notRelevant, 'es', 'son')} de RR. HH., formación o dirección`);
   if (hs.knownInSellUp > 0) parts.push(`${hs.knownInSellUp} ya ${plural(hs.knownInSellUp, 'está', 'están')} en SellUp`);
@@ -392,49 +395,49 @@ export function explainHubSpotFirstZero(d: AutomaticRoutingUiDiagnosis | undefin
   return `\n\nHubSpot tiene ${total} de esta empresa y no usé ninguno${detail}.`;
 }
 
-/** «3 de otro vendedor, 2 ya están en SellUp y 1 ya estaba en «Por revisar»». '' si no hay motivos. */
-function hubspotSkippedDetail(hs: NonNullable<AutomaticRoutingUiDiagnosis['hubspotFirst']>): string {
-  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-  const parts: string[] = [];
-  const pending = hs.alreadyPending ?? 0;
-  if (pending > 0) parts.push(`${pending} ya ${plural(pending, 'estaba', 'estaban')} en «Por revisar»`);
-  if (hs.knownInSellUp > 0) parts.push(`${hs.knownInSellUp} ya ${plural(hs.knownInSellUp, 'está', 'están')} en SellUp`);
-  if (hs.otherSeller > 0) parts.push(`${hs.otherSeller} ${plural(hs.otherSeller, 'es', 'son')} de otro vendedor`);
-  if (hs.notRelevant > 0)
-    parts.push(`${hs.notRelevant} no ${plural(hs.notRelevant, 'es', 'son')} de RR. HH., formación o dirección`);
-  if (hs.noName > 0) parts.push(`${hs.noName} no ${plural(hs.noName, 'tiene', 'tienen')} nombre`);
+/** «a, b y c». */
+function joinParts(parts: readonly string[]): string {
   if (parts.length <= 1) return parts.join('');
   return `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
 }
 
+/** Por qué no se trajeron los demás, corto: «3 de otro vendedor», «2 ya en SellUp»… */
+function hubspotSkippedParts(hs: NonNullable<AutomaticRoutingUiDiagnosis['hubspotFirst']>): string[] {
+  // Los que ya estaban en «Por revisar» no se nombran aquí: van en la línea de búsquedas anteriores.
+  const parts: string[] = [];
+  const unverified = hs.ownerUnverified ?? 0;
+  if (hs.knownInSellUp > 0) parts.push(`${hs.knownInSellUp} ya en SellUp`);
+  if (hs.otherSeller > 0) parts.push(`${hs.otherSeller} de otro vendedor`);
+  if (unverified > 0) parts.push(`${unverified} con dueño sin verificar`);
+  if (hs.notRelevant > 0) parts.push(`${hs.notRelevant} de otras áreas`);
+  if (hs.noName > 0) parts.push(`${hs.noName} sin nombre`);
+  return parts;
+}
+
 /**
- * AGENT2A-COMPANY-SEARCH-COUNTS — la línea de HubSpot: cuántos tiene allá, cuántos traje y a
- * dónde fueron (Contactos o «Por revisar»). null cuando no hay nada que decir de HubSpot.
+ * AGENT2A-COMPANY-SEARCH-COUNTS — la línea de HubSpot, corta (Bryan 29-10):
+ * «De HubSpot: 2 completos a Contactos, 3 en «Por revisar» y 3 de otro vendedor.»
+ * null cuando no hay nada que decir de HubSpot.
  */
 function hubspotSummaryLine(result: AutomaticRoutingUiResult, s: ContactSearchSummary): string | null {
   const stage = result.diagnosis?.freeStages?.hubspotFirst;
   const hs = result.diagnosis?.hubspotFirst ?? null;
+  const parts: string[] = [];
+  if (s.hubspotToContacts > 0)
+    parts.push(`${s.hubspotToContacts} ${s.hubspotToContacts === 1 ? 'completo' : 'completos'} a Contactos`);
+  if (s.hubspotToReview > 0) parts.push(`${s.hubspotToReview} en «Por revisar»`);
   if (!hs) {
-    if (s.hubspotBrought > 0) return `De HubSpot: traje ${contactsCountLabel(s.hubspotBrought)}.`;
-    if (stage === 'no_hubspot_company') return 'De HubSpot: esta empresa no está vinculada a HubSpot.';
+    if (parts.length > 0) return `De HubSpot: ${joinParts(parts)}.`;
+    if (stage === 'no_hubspot_company') return 'De HubSpot: la empresa no está vinculada a HubSpot.';
     if (stage === 'hubspot_unavailable' || stage === 'error') return 'De HubSpot: no pude leerlo esta vez.';
     return null;
   }
   if (hs.hubspotContacts === 0) return 'De HubSpot: no tiene contactos de esta empresa.';
-  const had = `tiene ${contactsCountLabel(hs.hubspotContacts)} de esta empresa`;
-  const skipped = hubspotSkippedDetail(hs);
-  if (s.hubspotBrought === 0) {
-    return `De HubSpot: ${had} y no traje ninguno${skipped ? ` (${skipped})` : ''}.`;
+  const skipped = hubspotSkippedParts(hs);
+  if (parts.length === 0) {
+    return `De HubSpot: ninguno nuevo${skipped.length > 0 ? ` (${joinParts(skipped)})` : ''}.`;
   }
-  let where: string;
-  if (s.hubspotToContacts === 0) where = 'quedaron en «Por revisar»';
-  else if (s.hubspotToReview === 0)
-    where = 'pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn';
-  else
-    where = `${s.hubspotToContacts} pasaron directo a Contactos porque ya tenían correo, teléfono y LinkedIn, y ${s.hubspotToReview} quedaron en «Por revisar»`;
-  const rest = hs.hubspotContacts - s.hubspotBrought;
-  const restNote = rest > 0 && skipped ? ` Los otros no los traje: ${skipped}.` : '';
-  return `De HubSpot: ${had} y traje ${s.hubspotBrought}: ${where}.${restNote}`;
+  return `De HubSpot: ${joinParts([...parts, ...skipped])}.`;
 }
 
 /** La línea de las otras fuentes: Apollo, Lusha, lo que SellUp ya conocía y el sitio web. */

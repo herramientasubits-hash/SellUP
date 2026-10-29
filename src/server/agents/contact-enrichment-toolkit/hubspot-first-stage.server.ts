@@ -122,6 +122,8 @@ export interface HubSpotFirstBreakdown {
   /** Contactos de la empresa que devolvió HubSpot. */
   hubspotContacts: number;
   otherSeller: number;
+  /** Con dueño, pero HubSpot no devolvió el directorio para saber si está activo. */
+  ownerUnverified: number;
   knownInSellUp: number;
   notRelevant: number;
   noName: number;
@@ -252,6 +254,7 @@ export async function runHubSpotFirstStage(
       breakdown: {
         hubspotContacts: snapshot.hubspot.contacts.length,
         otherSeller: selection.skippedOtherSeller,
+        ownerUnverified: selection.skippedOwnerUnverified,
         knownInSellUp: selection.skippedKnownInSellUp,
         notRelevant: selection.skippedNotRelevant,
         noName: selection.skippedNoName,

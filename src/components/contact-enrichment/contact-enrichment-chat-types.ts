@@ -84,6 +84,8 @@ export interface AutomaticRoutingUiDiagnosis {
   hubspotFirst?: {
     hubspotContacts: number;
     otherSeller: number;
+    /** Con dueño sin poder verificar si está activo (sin directorio de HubSpot). */
+    ownerUnverified?: number;
     knownInSellUp: number;
     notRelevant: number;
     noName: number;
