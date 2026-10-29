@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, PenLine, Sparkles } from "@/icons";
+import { Check, PenLine, Search, Sparkles } from "@/icons";
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,14 +26,21 @@ import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
   contactEnrichmentChatReducer,
   createInitialContactEnrichmentChatState,
+  buildExtraDataResolveInput,
   buildResolveInput,
   classifyCompanyQuery,
+  extraDataPrefill,
+  planExtraDataResolution,
   planResolution,
 } from './contact-enrichment-chat-reducer';
 import type {
   ContactEnrichmentChatStep,
   ContactEnrichmentInitialCompany,
+  ExtraCompanyData,
+  ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   CONTACT_ENRICHMENT_COMPANY_SEARCH_UNEXPECTED_ERROR_COPY,
   CONTACT_ENRICHMENT_REQUEST_UNEXPECTED_ERROR_COPY,
@@ -57,7 +64,7 @@ export function composerPlaceholder(step: ContactEnrichmentChatStep, awaitCompan
     case 'selecting_company':
       return 'Elige una empresa para continuar';
     case 'needs_extra_data':
-      return 'Completa el dato adicional abajo';
+      return 'Completa los datos de la empresa';
     case 'confirming':
       return 'Confirma la empresa para continuar';
     case 'creating_run':
@@ -203,6 +210,12 @@ export function ContactEnrichmentChatWizard({
     setComposerText('');
     dispatch({ type: 'SUBMIT_QUERY', query });
 
+    // Un correo personal (gmail, hotmail…) no dice la empresa: se piden sus datos de una vez.
+    if (classifyCompanyQuery(query) === 'personal_email') {
+      dispatch({ type: 'RESOLVED_NONE_NEEDS_DATA', prefill: extraDataPrefill(query) });
+      return;
+    }
+
     // AGENT2A-PROD-INCIDENT: el `catch` es lo que garantiza que el paso de carga
     // SIEMPRE se cierre. Sin él, una llamada que rechaza (invocación cortada,
     // red caída, función matada por la plataforma tras esperar a HubSpot) dejaba
@@ -239,8 +252,21 @@ export function ContactEnrichmentChatWizard({
     dispatch({ type: 'SELECT_CANDIDATE', candidate: manual });
   }
 
-  function handleExtraData(domain: string, country: string) {
-    dispatch({ type: 'SUBMIT_EXTRA_DATA', domain, country });
+  /** Con nombre, país y dominio se vuelve a buscar; si no aparece, va como empresa nueva. */
+  async function handleExtraData(data: ExtraCompanyData) {
+    dispatch({ type: 'SUBMIT_EXTRA_DATA', data });
+    let result: Awaited<ReturnType<typeof resolveCompanyViaRoute>>;
+    try {
+      result = await resolveCompanyViaRoute(buildExtraDataResolveInput(data));
+    } catch {
+      dispatch({ type: 'RESOLVE_FAILED', message: CONTACT_ENRICHMENT_COMPANY_SEARCH_UNEXPECTED_ERROR_COPY });
+      return;
+    }
+    if (!result.success || !result.data) {
+      dispatch({ type: 'RESOLVE_FAILED', message: result.error ?? 'Error buscando empresa' });
+      return;
+    }
+    dispatch(planExtraDataResolution(data, result.data));
   }
 
   async function handleConfirm() {
@@ -423,7 +449,11 @@ export function ContactEnrichmentChatWizard({
             )}
 
             {state.step === 'needs_extra_data' && (
-              <ExtraDataCard onConfirm={handleExtraData} onReset={handleReset} />
+              <ExtraDataCard
+                prefill={state.extraDataPrefill ?? { name: '', domain: '' }}
+                onConfirm={handleExtraData}
+                onReset={handleReset}
+              />
             )}
 
             {state.step === 'confirming' && state.selectedCandidate && (
@@ -552,51 +582,97 @@ function AutomaticEnrichmentInfoCard() {
 }
 
 function ExtraDataCard({
+  prefill,
   onConfirm,
   onReset,
 }: {
-  onConfirm: (domain: string, country: string) => void;
+  prefill: ExtraDataPrefill;
+  onConfirm: (data: ExtraCompanyData) => void;
   onReset: () => void;
 }) {
-  const [domain, setDomain] = React.useState('');
-  const [country, setCountry] = React.useState('');
-  const hasEnough = domain.trim().length > 0 || country.trim().length > 0;
+  const [name, setName] = React.useState(prefill.name);
+  const [countryCode, setCountryCode] = React.useState<string | null>(null);
+  const [domain, setDomain] = React.useState(prefill.domain);
+  const hasEnough = name.trim().length > 0 || domain.trim().length > 0;
+  const cardRef = React.useRef<HTMLDivElement>(null);
+
+  // El formulario aparece debajo de la conversación: se lleva a la vista al montarse
+  // (antes quedaba fuera, abajo, y sólo se veía «Completa el dato adicional abajo»).
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function submit() {
+    if (!hasEnough) return;
+    onConfirm({
+      name: name.trim(),
+      domain: domain.trim(),
+      countryCode,
+      countryName: LATAM_COUNTRIES.find((c) => c.code === countryCode)?.name ?? null,
+    });
+  }
 
   return (
-    <SurfaceCard className="space-y-4 p-5">
-      <div className="space-y-3">
-        <Field label="Dominio de la empresa">
-          <Input
-            id="extra-data-domain"
-            placeholder="ejemplo.com"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            autoFocus
-          />
-        </Field>
-        <Field label="País">
-          <Input
-            id="extra-data-country"
-            placeholder="Colombia"
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
-        </Field>
-      </div>
-      <p className="text-xs text-muted-foreground">Puedes completar solo uno de los dos campos.</p>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
-          Buscar otra empresa
-        </Button>
-        <Button
-          disabled={!hasEnough}
-          onClick={() => onConfirm(domain.trim(), country.trim())}
-          className="flex-1"
+    <div ref={cardRef}>
+      <SurfaceCard className="space-y-4 p-5">
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
         >
-          <PenLine className="h-4 w-4" aria-hidden />
-          Continuar con empresa manual
-        </Button>
-      </div>
-    </SurfaceCard>
+          <Field label="Nombre de la empresa">
+            <Input
+              id="extra-data-name"
+              placeholder="Ej.: Acme S.A."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus={!prefill.name}
+            />
+          </Field>
+          <Field label="País">
+            <Select
+              value={countryCode}
+              onValueChange={(next) => setCountryCode(next ? String(next) : null)}
+              items={LATAM_COUNTRIES.map((c) => ({ value: c.code, label: c.name }))}
+            >
+              <SelectTrigger id="extra-data-country" className="w-full" aria-label="País de la empresa">
+                <SelectValue placeholder="Elige el país" />
+              </SelectTrigger>
+              <SelectContent>
+                {LATAM_COUNTRIES.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Dominio o sitio web">
+            <Input
+              id="extra-data-domain"
+              placeholder="empresa.com"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              autoFocus={Boolean(prefill.name) && !prefill.domain}
+            />
+          </Field>
+          <p className="text-xs text-muted-foreground">
+            Con el nombre o el dominio basta; el país ayuda a no confundirla con otra.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onReset} className="text-muted-foreground">
+              Buscar otra empresa
+            </Button>
+            <Button type="submit" disabled={!hasEnough} className="flex-1">
+              <Search className="h-4 w-4" aria-hidden />
+              Buscar con estos datos
+            </Button>
+          </div>
+        </form>
+      </SurfaceCard>
+    </div>
   );
 }
