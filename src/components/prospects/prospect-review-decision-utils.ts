@@ -30,6 +30,8 @@ export interface ReviewDecisionCandidate {
   matchedAccountId?: string | null;
   /** Si la revisión de duplicados consultó HubSpot; `null`/ausente = no consta. */
   hubspotChecked?: boolean | null;
+  /** Motivo de «libre en HubSpot» (reciclada, bolsa, sin dueño…), si lo es. */
+  hubspotFreeReason?: string | null;
   reviewedAt?: string | null;
   /** Populated once the prospect has been converted — enables the "Ver empresa" CTA. */
   convertedAccountId?: string | null;
@@ -167,6 +169,7 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     matchedInHubspot: hasHubspotMatch,
     matchedInSellup: !!candidate.matchedAccountId,
     hubspotChecked: candidate.hubspotChecked ?? null,
+    hubspotFreeReason: candidate.hubspotFreeReason ?? null,
   });
 
   // Q3F-5AZ.2G-1 — discard eligibility is independent of the duplicate signal:

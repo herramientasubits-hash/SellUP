@@ -20,6 +20,7 @@ import type {
   RecyclableStatus,
 } from './structured-candidate-types';
 import { normalizeCompanyName } from './normalization';
+import { buildFiscalLookupNeedles } from './fiscal-identity';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -27,8 +28,10 @@ import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit'
 const VAULT_SECRET_NAME = 'sellup_integration_hubspot';
 const INTEGRATION_KEY = 'hubspot';
 
-// Confirmed in UBITS HubSpot portal (see HUBSPOT_ACCOUNT_FIELD_MAPPING.md)
-const HUBSPOT_NIT_PROPERTY = 'nit';
+// FEEDBACK 29-10 — nombre INTERNO real en el portal de UBITS («Identificación Fiscal
+// (NIT - RFC - RUC)», ~2.800 empresas; leído de /crm/v3/properties/companies). `nit` no
+// existe allí: buscar por ella daba HTTP 400 y la empresa quedaba «sin verificar».
+const HUBSPOT_NIT_PROPERTY = 'identificaci_n_fiscal';
 
 const RECYCLABLE_INACTIVITY_DAYS = 90;
 
@@ -118,7 +121,7 @@ interface HubSpotCommercialProperties {
   name: string | null;
   domain: string | null;
   website: string | null;
-  nit: string | null;
+  identificaci_n_fiscal: string | null;
   lifecyclestage: string | null;
   hs_lead_status: string | null;
   hubspot_owner_id: string | null;
@@ -207,11 +210,13 @@ async function postCompanySearch(token: string, body: unknown): Promise<HubSpotS
   return data.results ?? [];
 }
 
-async function searchByNit(token: string, nit: string): Promise<HubSpotSearchHit[]> {
+async function searchByNit(token: string, nit: string, countryCode: string | null): Promise<HubSpotSearchHit[]> {
+  // Las mismas variantes que la revisión de duplicados (crudo, canónico y, en Colombia,
+  // con y sin dígito de verificación): HubSpot guarda el NIT como se lo cargaron.
+  const needles = buildFiscalLookupNeedles([nit], countryCode);
+  const values = [...new Set([nit.trim(), ...needles.canonical, ...needles.lookupValues].filter(Boolean))].slice(0, 16);
   const body = {
-    filterGroups: [
-      { filters: [{ propertyName: HUBSPOT_NIT_PROPERTY, operator: 'EQ', value: nit.trim() }] },
-    ],
+    filterGroups: [{ filters: [{ propertyName: HUBSPOT_NIT_PROPERTY, operator: 'IN', values }] }],
     properties: HS_COMMERCIAL_PROPERTIES,
     limit: 3,
   };
@@ -262,7 +267,7 @@ function mapHitToMatch(
     hubspotCompanyId: hit.id,
     name: p.name ?? null,
     domain: p.domain ?? null,
-    nit: p.nit ?? null,
+    nit: p[HUBSPOT_NIT_PROPERTY] ?? null,
     lifecycleStage: p.lifecyclestage ?? null,
     leadStatus: p.hs_lead_status ?? null,
     ownerId: p.hubspot_owner_id ?? null,
@@ -469,7 +474,7 @@ export async function checkHubSpotCompanyCommercialStatus(input: {
     // 1. NIT exacto — máxima confianza
     const normalizedNit = input.taxId?.replace(/[\s.\-]/g, '').trim() ?? null;
     if (normalizedNit && normalizedNit.length >= 5) {
-      const hits = await searchByNit(token, normalizedNit);
+      const hits = await searchByNit(token, normalizedNit, input.countryCode ?? null);
       if (hits.length > 0) {
         bestMatch = mapHitToMatch(hits[0], 'nit', 98);
         matchedBy = 'nit';

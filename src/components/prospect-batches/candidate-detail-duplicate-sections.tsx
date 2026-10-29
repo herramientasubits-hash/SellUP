@@ -4,7 +4,11 @@ import { Building2, Database, Layers, Link2, ListFilter } from '@/icons';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DrawerSection } from '@/components/shared/drawer-section';
-import { DUPLICATE_VERDICT_BADGE, resolveDuplicateVerdict } from '@/components/prospects/duplicate-verdict';
+import {
+  DUPLICATE_VERDICT_BADGE,
+  readHubSpotFreeReason,
+  resolveDuplicateVerdict,
+} from '@/components/prospects/duplicate-verdict';
 import { canRecheckDuplicates } from '@/modules/prospect-review/recheck-duplicates-eligibility';
 import { CandidateDuplicateRecheckButton } from './candidate-duplicate-recheck-button';
 import {
@@ -40,7 +44,9 @@ export function CandidateDuplicateStatusSection({
     matchedInHubspot: !!candidate.matched_hubspot_company_id,
     matchedInSellup: !!candidate.matched_account_id,
     hubspotChecked: sourcesChecked ? sourcesChecked.includes('hubspot') : null,
+    hubspotFreeReason: readHubSpotFreeReason(candidate.metadata),
   });
+  const hubspotFree = verdict.label === 'Libre en HubSpot';
 
   return (
     <DrawerSection
@@ -86,7 +92,9 @@ export function CandidateDuplicateStatusSection({
                 : hsDupStatus === 'possible_match'
                   ? 'Posible coincidencia HubSpot'
                   : hsDupStatus === 'no_match'
-                    ? 'Sin duplicados HubSpot'
+                    ? hubspotFree
+                      ? 'Libre en HubSpot'
+                      : 'Sin duplicados HubSpot'
                     : 'HubSpot sin validar'}
             </Badge>
           </>
