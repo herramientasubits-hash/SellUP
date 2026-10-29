@@ -54,6 +54,7 @@ import {
   type UserScope,
 } from './queries';
 
+import { buildUsageMap, type UsageMapData, type UsageMapPerson } from './usage-map';
 const BATCH_COLUMNS = 'id, created_at, created_by, country_code, industry, source, name, status, metadata';
 const CANDIDATE_COLUMNS =
   'id, batch_id, status, duplicate_status, converted_account_id, source_primary, tax_identifier, website, ' +
@@ -70,6 +71,8 @@ export interface UsageBreakdowns {
   roleLabels: Record<string, string>;
   groupNames: Record<string, string>;
   personNames: Record<string, string>;
+  /** «Mapa de uso»: uso por rol, grupo, país, persona y líder. `null` sin datos. */
+  usageMap: UsageMapData | null;
   dataQuality: UsageDataQuality;
 }
 
@@ -84,6 +87,7 @@ function empty(moneyVisible: boolean, dataQuality: UsageDataQuality): UsageBreak
     roleLabels: {},
     groupNames: {},
     personNames: {},
+    usageMap: null,
     dataQuality,
   };
 }
@@ -133,13 +137,20 @@ async function readByBatch<T>(
 }
 
 async function readPeopleAndNames(admin: AdminClient) {
-  type PersonRow = { id: string; full_name: string | null; email: string | null; role_id: string | null; group_id: string | null };
+  type PersonRow = {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    role_id: string | null;
+    group_id: string | null;
+    manager_id: string | null;
+  };
   const [peopleRead, rolesResult, groupsResult] = await Promise.all([
     fetchAllPages<PersonRow>(
       (from, to) =>
         admin
           .from('internal_users')
-          .select('id, full_name, email, role_id, group_id')
+          .select('id, full_name, email, role_id, group_id, manager_id')
           .order('id', { ascending: true })
           .range(from, to) as unknown as PageResult<PersonRow>,
     ),
@@ -172,7 +183,14 @@ async function readPeopleAndNames(admin: AdminClient) {
   }));
   const personNames: Record<string, string> = {};
   for (const p of people) personNames[p.id] = p.name ?? p.email ?? p.id.slice(0, 8);
-  return { people, roleLabels, groupNames, personNames };
+  // El líder de cada persona (jefe directo), para el «Mapa de uso» por líder.
+  const mapPeople: UsageMapPerson[] = peopleRead.rows.map((p) => ({
+    id: p.id,
+    roleKey: p.role_id ? ((roleById.get(p.role_id)?.key as string | undefined) ?? null) : null,
+    groupId: p.group_id,
+    managerId: p.manager_id,
+  }));
+  return { people, mapPeople, roleLabels, groupNames, personNames };
 }
 
 const loadBreakdowns = cache(async (key: string): Promise<UsageBreakdowns | null> => {
@@ -237,6 +255,14 @@ const loadBreakdowns = cache(async (key: string): Promise<UsageBreakdowns | null
 
     const roleGroups = aggregateRoleGroups(data.logsInScope, outcomes, batchesById, names.people);
     const searches = aggregateSearchBatches(searchBatches, outcomes, data.logsInScope);
+    const usageMap = buildUsageMap({
+      logs: data.logsInScope,
+      outcomes,
+      searches: searchBatches,
+      batchesById,
+      people: names.mapPeople,
+      moneyVisible,
+    });
     const result: UsageBreakdowns = {
       moneyVisible,
       countryTools: aggregateCountryTools(outcomes, discards, data.logsInScope, new Set(batchIds)),
@@ -246,7 +272,11 @@ const loadBreakdowns = cache(async (key: string): Promise<UsageBreakdowns | null
       searches,
       roleLabels: names.roleLabels,
       groupNames: names.groupNames,
-      personNames: namesInUse(names.personNames, roleGroups.people, searches),
+      personNames: namesInUse(names.personNames, roleGroups.people, searches, [
+        ...usageMap.matrices.persona.columns,
+        ...usageMap.matrices.lider.columns,
+      ]),
+      usageMap,
       dataQuality: {
         truncated:
           data.truncated ||
@@ -277,8 +307,10 @@ function namesInUse(
   personNames: Record<string, string>,
   people: readonly PersonUsageRow[],
   searches: readonly SearchBatchRow[],
+  mapIds: readonly string[] = [],
 ): Record<string, string> {
   const ids = new Set<string>([
+    ...mapIds,
     ...people.map((p) => p.userId),
     ...searches.map((s) => s.createdBy).filter((id): id is string => Boolean(id)),
   ]);

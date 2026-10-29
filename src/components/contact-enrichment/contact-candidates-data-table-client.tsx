@@ -52,6 +52,7 @@ import {
   type ScopeFilterState,
 } from '@/components/shared/scope-filters-client';
 import { isCandidateCreatedToday } from '@/modules/contact-enrichment/candidate-date-utils';
+import { evaluateCandidateIdentityCompletion } from '@/modules/contact-enrichment/candidate-identity-completion-core';
 import {
   describeApolloDirectPhoneHint,
   readApolloDirectPhoneHint,
@@ -225,8 +226,66 @@ function displayWebsite(value: string): string {
   return value.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
 }
 
-function EmailCell({ candidate }: { candidate: PendingContactCandidate }) {
-  if (!candidate.email) return <EmptyCell label="Sin correo" />;
+/**
+ * «Revelar» de la tabla para el canal que le falta a un candidato de HubSpot
+ * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Como «Revelar teléfono», sólo abre el
+ * detalle: el botón real y su costo viven allí.
+ */
+function channelRevealable(candidate: PendingContactCandidate, channel: 'linkedin' | 'email'): boolean {
+  if (candidate.status !== 'pending_review') return false;
+  const eligibility = evaluateCandidateIdentityCompletion({
+    email: candidate.email,
+    linkedinUrl: candidate.linkedin_url,
+    apolloPersonId: candidate.apollo_person_id ?? null,
+    source: candidate.source,
+    sourceContactId: candidate.source_contact_id,
+    enrichmentMetadata: candidate.enrichment_metadata,
+  });
+  return channel === 'linkedin' ? eligibility.canRevealLinkedin : eligibility.canRevealEmail;
+}
+
+function RevealChannelButton({
+  candidate,
+  channel,
+  onOpen,
+}: {
+  candidate: PendingContactCandidate;
+  channel: 'linkedin' | 'email';
+  onOpen: (candidate: PendingContactCandidate) => void;
+}) {
+  const Icon = channel === 'linkedin' ? Link2 : Mail;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      title={channel === 'linkedin' ? 'Abre el detalle para revelar el LinkedIn' : 'Abre el detalle para revelar el correo'}
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen(candidate);
+      }}
+    >
+      <Icon aria-hidden />
+      Revelar
+    </Button>
+  );
+}
+
+function EmailCell({
+  candidate,
+  canReveal = false,
+  onOpen,
+}: {
+  candidate: PendingContactCandidate;
+  canReveal?: boolean;
+  onOpen?: (candidate: PendingContactCandidate) => void;
+}) {
+  if (!candidate.email) {
+    if (canReveal && onOpen && channelRevealable(candidate, 'email')) {
+      return <RevealChannelButton candidate={candidate} channel="email" onOpen={onOpen} />;
+    }
+    return <EmptyCell label="Sin correo" />;
+  }
   return (
     <a
       href={`mailto:${candidate.email}`}
@@ -309,9 +368,28 @@ function PhoneRevealCell({
   );
 }
 
-/** LinkedIn: sólo se indica que existe; el enlace no se muestra, se abre en otra pestaña. */
-function LinkedinCell({ candidate }: { candidate: PendingContactCandidate }) {
-  if (!candidate.linkedin_url) return <EmptyCell label="Sin LinkedIn" />;
+/**
+ * LinkedIn: sólo se indica que existe; el enlace no se muestra, se abre en otra pestaña.
+ *
+ * Sin LinkedIn pero con correo (típico de un contacto que ya estaba en HubSpot), quien puede
+ * gastar créditos ve «Revelar», que abre el detalle: el botón real y su costo viven allí, igual
+ * que «Revelar teléfono» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION).
+ */
+function LinkedinCell({
+  candidate,
+  canReveal = false,
+  onOpen,
+}: {
+  candidate: PendingContactCandidate;
+  canReveal?: boolean;
+  onOpen?: (candidate: PendingContactCandidate) => void;
+}) {
+  if (!candidate.linkedin_url) {
+    if (canReveal && onOpen && channelRevealable(candidate, 'linkedin')) {
+      return <RevealChannelButton candidate={candidate} channel="linkedin" onOpen={onOpen} />;
+    }
+    return <EmptyCell label="Sin LinkedIn" />;
+  }
   const name = candidate.full_name || 'este contacto';
   return (
     <ExternalLinkCell
@@ -703,7 +781,9 @@ export function ContactCandidatesDataTableClient({
         id: 'contact_email',
         accessorFn: (row) => row.email ?? '',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Correo" />,
-        cell: ({ row }) => <EmailCell candidate={row.original} />,
+        cell: ({ row }) => (
+          <EmailCell candidate={row.original} canReveal={phoneRevealAuthorized} onOpen={openDetail} />
+        ),
         size: 200,
         minSize: 150,
         meta: { label: 'Correo', popoverTitle: 'Correo', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
@@ -738,7 +818,9 @@ export function ContactCandidatesDataTableClient({
         id: 'contact_linkedin',
         accessorFn: (row) => (row.linkedin_url ? 1 : 0),
         header: ({ column }) => <DataTableColumnHeader column={column} title="LinkedIn" />,
-        cell: ({ row }) => <LinkedinCell candidate={row.original} />,
+        cell: ({ row }) => (
+          <LinkedinCell candidate={row.original} canReveal={phoneRevealAuthorized} onOpen={openDetail} />
+        ),
         size: 110,
         minSize: 100,
         meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
@@ -790,7 +872,7 @@ export function ContactCandidatesDataTableClient({
         },
       },
     ],
-    [openDetail, canRevealPhone, hubspotPortalId],
+    [openDetail, canRevealPhone, phoneRevealAuthorized, hubspotPortalId],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

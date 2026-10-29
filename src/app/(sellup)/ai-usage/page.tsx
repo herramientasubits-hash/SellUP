@@ -25,6 +25,7 @@ import {
   BreakdownSkeleton,
   CountryBreakdownSection,
   RoleGroupBreakdownSection,
+  UsageMapSection,
   SearchBreakdownSection,
   CompetitorQualitySection,
 } from './breakdown-sections';
@@ -77,6 +78,7 @@ const USAGE_TABS: readonly UrlTab[] = [
   { id: 'por-rol-grupo', label: 'Por rol y grupo' },
   { id: 'por-busqueda', label: 'Por búsqueda' },
   { id: 'detalle', label: 'Detalle' },
+  { id: 'mapa-de-uso', label: 'Mapa de uso' },
 ];
 
 /**
@@ -390,6 +392,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
           <RecentActivitySection logs={recentLogs} limit={RECENT_LOGS_LIMIT} showMoney={moneyVisible} />
           <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
             <PhoneSuppressionNotEvaluablePanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="mapa-de-uso" className="space-y-6">
+          <Suspense fallback={<BreakdownSkeleton />}>
+            <UsageMapSection filters={filters} />
           </Suspense>
         </TabsContent>
       </UrlTabs>
