@@ -853,9 +853,13 @@ describe('ASYNC-1 — guards estáticos', () => {
     assert.equal(/lusha/i.test(action), false);
   });
 
-  it('no toca HubSpot (sin imports/refs de HubSpot en código)', () => {
+  it('HubSpot sólo a través del envío de lo revelado (AGENT2A-HUBSPOT-REVEAL-PUSH)', () => {
+    // El core sigue sin saber nada de HubSpot. La acción puede tocarlo por UN único camino: el
+    // envío best-effort del número revelado al contacto de HubSpot (sólo completa vacíos).
     assert.equal(/hubspot/i.test(core), false);
-    assert.equal(/hubspot/i.test(action), false);
+    const allowed = /candidate-reveal-hubspot-push|pushCandidatePhoneRevealToHubSpot|AGENT2A-HUBSPOT-REVEAL-PUSH/;
+    const offending = action.split('\n').filter((line) => /hubspot/i.test(line) && !allowed.test(line));
+    assert.deepEqual(offending, []);
   });
 
   it('no crea contacto oficial ni aprueba candidato', () => {

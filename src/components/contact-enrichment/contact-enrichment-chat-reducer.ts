@@ -11,18 +11,23 @@ import type {
   ContactEnrichmentChatAction,
   ContactEnrichmentChatState,
   ContactEnrichmentInitialCompany,
+  ExtraCompanyData,
+  ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
 const GREETING =
-  'Hola. Puedo ayudarte a preparar una búsqueda de contactos para una empresa.\n\nPara empezar, dime el nombre, dominio o HubSpot ID de la empresa.';
+  'Hola. Puedo ayudarte a preparar una búsqueda de contactos para una empresa.\n\nPara empezar, dime el nombre, dominio o HubSpot ID de la empresa. También sirve el correo de alguien que trabaje allí.';
 
 const PRELOADED_INTRO =
   'Voy a preparar el enriquecimiento de contactos para esta empresa.\n\n¿Confirmas que quieres preparar este enriquecimiento?';
 
 const NEEDS_DATA =
-  'No encontré coincidencias claras en SellUp ni HubSpot.\n\nPara buscar contactos con precisión necesito un dato adicional: dominio, país o HubSpot ID. ¿Qué dato quieres agregar?';
+  'No encontré esta empresa en SellUp ni en HubSpot.\n\nCompleta abajo su nombre, país y dominio: la vuelvo a buscar con esos datos y, si no aparece, la preparo como empresa nueva.';
+
+const NEEDS_DATA_PERSONAL_EMAIL =
+  'Ese correo es de un servicio personal, así que no me dice de qué empresa es.\n\nCompleta abajo su nombre, país y dominio y la busco.';
 
 const SKIPPED_HUBSPOT_NOTE = 'HubSpot no disponible — resultados solo desde SellUp.';
 
@@ -111,14 +116,44 @@ function appendMessages(
 
 // ── Pure query classification + resolution planning ────────────────────────────
 
-export type CompanyQueryKind = 'name' | 'domain' | 'hubspot_id';
+export type CompanyQueryKind = 'name' | 'domain' | 'hubspot_id' | 'personal_email';
+
+/** Correos de servicios personales: su dominio no dice de qué empresa es la persona. */
+export const PERSONAL_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
+  'gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.es', 'outlook.com', 'outlook.es', 'live.com',
+  'msn.com', 'yahoo.com', 'yahoo.es', 'ymail.com', 'icloud.com', 'me.com', 'aol.com', 'proton.me',
+  'protonmail.com', 'gmx.com', 'zoho.com',
+]);
+
+const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
+const EMAIL_RE = /^[^\s@]+@([^\s@]+)$/;
+const URL_RE = /^(?:https?:\/\/)?(?:www\.)?([^\s/?#:]+)(?::\d+)?(?:[/?#].*)?$/i;
+
+/**
+ * Lo escrito, leído como dominio cuando se puede: un correo de empresa
+ * (`ana.gomez@acmelatam.co`) o un enlace (`https://www.acmelatam.co/`)
+ * se buscan por su dominio (`acmelatam.co`). Antes el correo se buscaba como
+ * NOMBRE de empresa y nunca aparecía (feedback 29-10).
+ */
+export function companyQueryDomain(query: string): { domain: string; personal: boolean } | null {
+  const q = query.trim().toLowerCase();
+  const email = EMAIL_RE.exec(q);
+  if (email) {
+    const domain = email[1].replace(/^www\./, '');
+    return DOMAIN_RE.test(domain) ? { domain, personal: PERSONAL_EMAIL_DOMAINS.has(domain) } : null;
+  }
+  if (q.includes(' ')) return null;
+  const url = URL_RE.exec(q);
+  const host = url?.[1]?.replace(/^www\./, '') ?? null;
+  return host && DOMAIN_RE.test(host) ? { domain: host, personal: false } : null;
+}
 
 export function classifyCompanyQuery(query: string): CompanyQueryKind {
   const q = query.trim();
-  const isDomain = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(q) && !q.includes(' ');
-  const isHubSpotId = /^\d{6,}$/.test(q);
-  if (isHubSpotId) return 'hubspot_id';
-  if (isDomain) return 'domain';
+  if (/^\d{6,}$/.test(q)) return 'hubspot_id';
+  const domain = companyQueryDomain(q);
+  if (domain?.personal) return 'personal_email';
+  if (domain) return 'domain';
   return 'name';
 }
 
@@ -127,8 +162,43 @@ export function buildResolveInput(query: string): Record<string, string> {
   const q = query.trim();
   const kind = classifyCompanyQuery(q);
   if (kind === 'hubspot_id') return { hubspotCompanyId: q };
-  if (kind === 'domain') return { companyDomain: q };
+  if (kind === 'domain') return { companyDomain: companyQueryDomain(q)?.domain ?? q };
   return { companyName: q };
+}
+
+/** Lo que el formulario «nombre, país y dominio» trae ya escrito, según lo que se buscó. */
+export function extraDataPrefill(query: string): ExtraDataPrefill {
+  const q = query.trim();
+  const kind = classifyCompanyQuery(q);
+  const found = companyQueryDomain(q);
+  return {
+    name: kind === 'name' ? q : '',
+    domain: found && !found.personal ? found.domain : '',
+  };
+}
+
+/** Los datos del formulario, como entrada de la búsqueda de empresa. */
+export function buildExtraDataResolveInput(data: ExtraCompanyData): Record<string, string> {
+  const input: Record<string, string> = {};
+  const name = data.name.trim();
+  const domain = companyQueryDomain(data.domain)?.domain ?? data.domain.trim();
+  if (name) input.companyName = name;
+  if (domain) input.companyDomain = domain;
+  if (data.countryCode) input.companyCountryCode = data.countryCode;
+  return input;
+}
+
+/** La empresa nueva (manual) armada con el formulario, cuando tampoco aparece con esos datos. */
+export function manualCandidateFromExtraData(data: ExtraCompanyData): CompanyCandidate {
+  const domain = companyQueryDomain(data.domain)?.domain ?? (data.domain.trim() || undefined);
+  return {
+    source: 'manual',
+    name: data.name.trim() || domain || 'Empresa sin nombre',
+    domain,
+    country: data.countryName || undefined,
+    countryCode: data.countryCode || undefined,
+    matchConfidence: 0.5,
+  };
 }
 
 /**
@@ -140,26 +210,34 @@ export function planResolution(
   result: CompanyResolutionResult,
 ): ContactEnrichmentChatAction {
   const { candidates, singleMatch, selected, skippedHubSpot } = result;
-  const kind = classifyCompanyQuery(query);
 
+  // Sin coincidencias, se piden nombre, país y dominio (ya precargados con lo que se
+  // sepa) y se vuelve a buscar con ellos: antes un dominio o un ID sin coincidencia
+  // pasaba directo a «empresa manual» con el texto escrito como nombre.
   if (candidates.length === 0) {
-    if (kind === 'name') {
-      return { type: 'RESOLVED_NONE_NEEDS_DATA' };
-    }
-    const manual: CompanyCandidate = {
-      source: 'manual',
-      name: query.trim(),
-      domain: kind === 'domain' ? query.trim() : undefined,
-      hubspotCompanyId: kind === 'hubspot_id' ? query.trim() : undefined,
-      matchConfidence: 0.5,
-    };
-    return { type: 'RESOLVED_MANUAL', candidate: manual, skippedHubSpot };
+    return { type: 'RESOLVED_NONE_NEEDS_DATA', prefill: extraDataPrefill(query) };
   }
 
   if (singleMatch && selected) {
     return { type: 'RESOLVED_SINGLE', candidate: selected, skippedHubSpot };
   }
 
+  return { type: 'RESOLVED_MULTIPLE', candidates, skippedHubSpot };
+}
+
+/**
+ * Tras completar nombre, país y dominio: si con esos datos aparece, se elige como
+ * siempre; si no, se prepara como empresa nueva con SU nombre (no con lo escrito).
+ */
+export function planExtraDataResolution(
+  data: ExtraCompanyData,
+  result: CompanyResolutionResult,
+): ContactEnrichmentChatAction {
+  const { candidates, singleMatch, selected, skippedHubSpot } = result;
+  if (candidates.length === 0) {
+    return { type: 'RESOLVED_MANUAL', candidate: manualCandidateFromExtraData(data), skippedHubSpot };
+  }
+  if (singleMatch && selected) return { type: 'RESOLVED_SINGLE', candidate: selected, skippedHubSpot };
   return { type: 'RESOLVED_MULTIPLE', candidates, skippedHubSpot };
 }
 
@@ -425,12 +503,14 @@ export function contactEnrichmentChatReducer(
     }
 
     case 'RESOLVED_NONE_NEEDS_DATA': {
+      const personal = classifyCompanyQuery(state.query) === 'personal_email';
       return {
         ...state,
         step: 'needs_extra_data',
         candidates: [],
         selectedCandidate: null,
-        ...appendMessages(state, [{ role: 'assistant', content: NEEDS_DATA }]),
+        extraDataPrefill: action.prefill,
+        ...appendMessages(state, [{ role: 'assistant', content: personal ? NEEDS_DATA_PERSONAL_EMAIL : NEEDS_DATA }]),
       };
     }
 
@@ -504,28 +584,19 @@ export function contactEnrichmentChatReducer(
     }
 
     case 'SUBMIT_EXTRA_DATA': {
-      const domain = action.domain.trim();
-      const country = action.country.trim();
+      // Se vuelve a buscar con los datos completos; el resultado llega como RESOLVED_*.
+      const { data } = action;
       const parts: string[] = [];
-      if (domain) parts.push(`Dominio: ${domain}`);
-      if (country) parts.push(`País: ${country}`);
-      const manual: CompanyCandidate = {
-        source: 'manual',
-        name: state.query.trim(),
-        domain: domain || undefined,
-        country: country || undefined,
-        countryCode: country || undefined,
-        matchConfidence: 0.5,
-      };
+      if (data.name.trim()) parts.push(data.name.trim());
+      if (data.countryName) parts.push(data.countryName);
+      if (data.domain.trim()) parts.push(data.domain.trim());
       return {
         ...state,
-        step: 'confirming',
+        step: 'resolving',
         candidates: [],
-        selectedCandidate: manual,
-        ...appendMessages(state, [
-          { role: 'user', content: parts.join(' · ') || 'Sin datos adicionales' },
-          { role: 'assistant', content: MANUAL_PREPARED },
-        ]),
+        selectedCandidate: null,
+        errorMessage: null,
+        ...appendMessages(state, [{ role: 'user', content: parts.join(' · ') || 'Sin datos adicionales' }]),
       };
     }
 

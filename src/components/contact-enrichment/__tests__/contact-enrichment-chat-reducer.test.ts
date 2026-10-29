@@ -18,6 +18,9 @@ import {
   createInitialContactEnrichmentChatState,
   classifyCompanyQuery,
   buildResolveInput,
+  buildExtraDataResolveInput,
+  extraDataPrefill,
+  planExtraDataResolution,
   planResolution,
 } from '../contact-enrichment-chat-reducer';
 import type { ContactEnrichmentChatState } from '../contact-enrichment-chat-types';
@@ -116,6 +119,23 @@ describe('B — query classification', () => {
     assert.deepEqual(buildResolveInput('acme.com'), { companyDomain: 'acme.com' });
     assert.deepEqual(buildResolveInput('9988776'), { hubspotCompanyId: '9988776' });
   });
+  // Feedback 29-10: un correo se buscaba como NOMBRE y la empresa nunca aparecía.
+  it('B5 un correo de empresa se busca por su dominio', () => {
+    assert.equal(classifyCompanyQuery('ana.gomez@acmelatam.co'), 'domain');
+    assert.deepEqual(buildResolveInput('ana.gomez@acmelatam.co'), { companyDomain: 'acmelatam.co' });
+  });
+  it('B6 un enlace se busca por su sitio', () => {
+    assert.deepEqual(buildResolveInput('https://www.acmelatam.co/contacto'), { companyDomain: 'acmelatam.co' });
+    assert.deepEqual(buildResolveInput('www.acme.com'), { companyDomain: 'acme.com' });
+  });
+  it('B7 un correo personal no se toma como dominio de empresa', () => {
+    assert.equal(classifyCompanyQuery('ana.perez@gmail.com'), 'personal_email');
+    assert.deepEqual(extraDataPrefill('ana.perez@gmail.com'), { name: '', domain: '' });
+  });
+  it('B8 lo que el formulario trae ya escrito', () => {
+    assert.deepEqual(extraDataPrefill('Acme Latam'), { name: 'Acme Latam', domain: '' });
+    assert.deepEqual(extraDataPrefill('ana.gomez@acmelatam.co'), { name: '', domain: 'acmelatam.co' });
+  });
 });
 
 // ── C — Resolution planning ─────────────────────────────────────────────────
@@ -126,12 +146,27 @@ describe('C — planResolution', () => {
     assert.equal(action.type, 'RESOLVED_NONE_NEEDS_DATA');
   });
 
-  it('C2 no candidates + domain → manual candidate', () => {
+  it('C2 no candidates + domain → pide nombre, país y dominio (dominio ya escrito)', () => {
     const action = planResolution('acme.com', resolution({ candidates: [] }));
-    assert.equal(action.type, 'RESOLVED_MANUAL');
-    if (action.type === 'RESOLVED_MANUAL') {
-      assert.equal(action.candidate.source, 'manual');
-      assert.equal(action.candidate.domain, 'acme.com');
+    assert.deepEqual(action, { type: 'RESOLVED_NONE_NEEDS_DATA', prefill: { name: '', domain: 'acme.com' } });
+  });
+
+  it('C2b con los datos del formulario: si aparece se elige; si no, empresa nueva con SU nombre', () => {
+    const data = { name: 'Acme Latam', domain: 'https://acmelatam.co', countryCode: 'CO', countryName: 'Colombia' };
+    assert.deepEqual(buildExtraDataResolveInput(data), {
+      companyName: 'Acme Latam',
+      companyDomain: 'acmelatam.co',
+      companyCountryCode: 'CO',
+    });
+    const found = planExtraDataResolution(data, resolution({ candidates: [sellupCandidate()], singleMatch: true, selected: sellupCandidate() }));
+    assert.equal(found.type, 'RESOLVED_SINGLE');
+    const none = planExtraDataResolution(data, resolution({ candidates: [] }));
+    assert.equal(none.type, 'RESOLVED_MANUAL');
+    if (none.type === 'RESOLVED_MANUAL') {
+      assert.equal(none.candidate.name, 'Acme Latam');
+      assert.equal(none.candidate.domain, 'acmelatam.co');
+      assert.equal(none.candidate.countryCode, 'CO');
+      assert.equal(none.candidate.country, 'Colombia');
     }
   });
 
@@ -218,21 +253,29 @@ describe('D — reducer transitions', () => {
     assert.equal(next.selectedCandidate?.name, 'Bancolombia');
   });
 
-  it('D7 SUBMIT_EXTRA_DATA → confirming with manual candidate carrying domain/country', () => {
+  it('D7 SUBMIT_EXTRA_DATA → vuelve a buscar con los datos y los muestra como respuesta', () => {
     const start = contactEnrichmentChatReducer(blank(), {
       type: 'SUBMIT_QUERY',
       query: 'Empresa QA Snapshot Vercel 2',
     });
     const next = contactEnrichmentChatReducer(start, {
       type: 'SUBMIT_EXTRA_DATA',
-      domain: 'qa-vercel-2.example.com',
-      country: 'CO',
+      data: { name: 'Empresa QA', domain: 'qa-vercel-2.example.com', countryCode: 'CO', countryName: 'Colombia' },
     });
-    assert.equal(next.step, 'confirming');
-    assert.equal(next.selectedCandidate?.source, 'manual');
-    assert.equal(next.selectedCandidate?.name, 'Empresa QA Snapshot Vercel 2');
-    assert.equal(next.selectedCandidate?.domain, 'qa-vercel-2.example.com');
-    assert.equal(next.selectedCandidate?.country, 'CO');
+    assert.equal(next.step, 'resolving');
+    assert.equal(next.selectedCandidate, null);
+    assert.equal(next.messages.at(-1)?.content, 'Empresa QA · Colombia · qa-vercel-2.example.com');
+  });
+
+  it('D7b sin coincidencias pide los datos; con correo personal lo explica', () => {
+    const start = contactEnrichmentChatReducer(blank(), { type: 'SUBMIT_QUERY', query: 'ana@gmail.com' });
+    const next = contactEnrichmentChatReducer(start, {
+      type: 'RESOLVED_NONE_NEEDS_DATA',
+      prefill: { name: '', domain: '' },
+    });
+    assert.equal(next.step, 'needs_extra_data');
+    assert.match(String(next.messages.at(-1)?.content), /servicio personal/);
+    assert.deepEqual(next.extraDataPrefill, { name: '', domain: '' });
   });
 
   it('D8 CONFIRM → creating_run + "Confirmar empresa" bubble', () => {
