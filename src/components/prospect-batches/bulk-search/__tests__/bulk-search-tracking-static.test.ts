@@ -52,9 +52,10 @@ describe('Empresas › Búsquedas', () => {
     assert.ok(GROWTH.includes('bulkAccess.ok ? await listBulkSearchesForUser(bulkAccess.userId)'));
   });
 
-  it('las rondas se ven en su búsqueda, no como búsquedas sueltas', () => {
-    assert.ok(WORKSPACE.includes('searches.filter((row) => !roundIds.has(row.id))'));
+  it('cada lote es su fila, también las rondas, marcadas con su búsqueda masiva (dueña 28-10)', () => {
+    assert.ok(WORKSPACE.includes('markBulkRounds(searches, bulkSearches)'));
     assert.ok(WORKSPACE.includes('data={rows}'));
+    assert.ok(!WORKSPACE.includes('BulkSearchesSection'), 'no hay una sección aparte para las masivas');
   });
 });
 

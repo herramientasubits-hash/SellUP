@@ -1,4 +1,5 @@
 import type { BulkRoundResponse } from './bulk-search-engine';
+import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import type { BulkSearchView } from './bulk-search-view';
 
 /**
@@ -80,4 +81,22 @@ export function bulkSearchesForTray(searches: readonly BulkSearchView[], nowMs: 
       return Number.isFinite(done) && nowMs - done < BULK_TRAY_RECENT_MS;
     })
     .slice(0, 3);
+}
+
+/** Cada cuánto el asistente abierto relee la búsqueda masiva que acaba de lanzar. */
+export const BULK_WIZARD_POLL_MS = 3_000;
+
+/**
+ * Cómo cierra el asistente una búsqueda masiva que terminó (dueña 28-10): con el
+ * MISMO panel final que una búsqueda normal, con el estado que le corresponde.
+ * `null` mientras sigue (en curso o en pausa).
+ */
+export function bulkWizardOutcome(
+  view: Pick<BulkSearchView, 'status' | 'deliveredCount' | 'targetCount' | 'batchIds'>,
+): { status: WizardExecutionStatus; batchId: string } | null {
+  if (view.status === 'running' || view.status === 'paused') return null;
+  const batchId = view.batchIds[view.batchIds.length - 1] ?? '';
+  if (view.deliveredCount >= view.targetCount) return { status: 'success_target_reached', batchId };
+  if (view.deliveredCount > 0) return { status: 'success_partial', batchId };
+  return { status: 'no_new_candidates', batchId };
 }

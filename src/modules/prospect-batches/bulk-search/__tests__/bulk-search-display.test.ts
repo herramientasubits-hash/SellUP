@@ -11,9 +11,10 @@ import {
   bulkProgressPercent,
   bulkSearchesForTray,
   bulkSearchSummary,
+  bulkWizardOutcome,
   nextDriverStep,
 } from '../bulk-search-display';
-import type { BulkSearchView } from '../bulk-search-view';
+import { currentRoundRequestIdOf, type BulkSearchView } from '../bulk-search-view';
 
 const NOW = Date.parse('2026-10-27T18:00:00Z');
 
@@ -34,6 +35,7 @@ function view(overrides: Partial<BulkSearchView> = {}): BulkSearchView {
     createdAt: new Date(NOW - 3_600_000).toISOString(),
     completedAt: null,
     batchIds: ['b1'],
+    currentRoundRequestId: null,
     ...overrides,
   };
 }
@@ -101,5 +103,39 @@ describe('qué se ve en el Centro de procesos', () => {
       view({ id: 'old', status: 'completed', completedAt: new Date(NOW - 2 * 86_400_000).toISOString() }),
     ];
     assert.deepEqual(bulkSearchesForTray(list, NOW).map((s) => s.id), ['live', 'today']);
+  });
+});
+
+describe('el asistente abierto sigue la búsqueda masiva como una búsqueda normal (dueña 28-10)', () => {
+  it('la ronda en curso es la última que sigue corriendo', () => {
+    assert.equal(currentRoundRequestIdOf([]), null);
+    assert.equal(
+      currentRoundRequestIdOf([
+        { round_index: 0, status: 'succeeded', client_request_id: 'r0' },
+        { round_index: 1, status: 'running', client_request_id: 'r1' },
+      ]),
+      'r1',
+    );
+    assert.equal(currentRoundRequestIdOf([{ round_index: 0, status: 'succeeded', client_request_id: 'r0' }]), null);
+  });
+
+  it('mientras sigue (en curso o en pausa) no se cierra', () => {
+    assert.equal(bulkWizardOutcome(view({ status: 'running' })), null);
+    assert.equal(bulkWizardOutcome(view({ status: 'paused' })), null);
+  });
+
+  it('al terminar usa el estado del panel final de siempre, con su último lote', () => {
+    assert.deepEqual(bulkWizardOutcome(view({ status: 'completed', deliveredCount: 25, targetCount: 25, batchIds: ['a', 'b'] })), {
+      status: 'success_target_reached',
+      batchId: 'b',
+    });
+    assert.deepEqual(bulkWizardOutcome(view({ status: 'exhausted', deliveredCount: 12, targetCount: 25, batchIds: ['a'] })), {
+      status: 'success_partial',
+      batchId: 'a',
+    });
+    assert.deepEqual(bulkWizardOutcome(view({ status: 'budget_capped', deliveredCount: 0, targetCount: 25, batchIds: [] })), {
+      status: 'no_new_candidates',
+      batchId: '',
+    });
   });
 });

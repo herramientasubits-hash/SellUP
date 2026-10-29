@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ClipboardCheck, Eye, Search, UserPlus } from "@/icons";
+import { ClipboardCheck, Eye, Pause, Play, Search, UserPlus, X } from "@/icons";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, type DataTableContextMenuItem } from "@/components/data-table";
@@ -12,12 +12,16 @@ import { MetricStrip } from "@/components/shared/metric-strip";
 import { formatAppDate } from "@/lib/format-date";
 import { TONE_BADGE, type Tone } from "@/lib/tone";
 import { BatchBulkEnrichmentButton } from "@/components/contact-enrichment/batch-bulk-enrichment-button";
-import { BulkSearchesSection } from "@/components/prospect-batches/bulk-search/bulk-searches-section";
 import { BulkSearchAssignDrawer } from "@/components/prospect-batches/bulk-search/bulk-search-assign-drawer";
 import type { AssignableUser } from "@/components/assignment/assign-owner-drawer";
 import type { BulkSearchView } from "@/modules/prospect-batches/bulk-search/bulk-search-view";
+import {
+  BULK_SEARCH_STARTED_EVENT,
+  controlBulkSearchViaRoute,
+} from "@/modules/prospect-batches/bulk-search/bulk-search-client";
 import { getSearchPendingCandidatesAction } from "@/modules/prospect-batches/searches/search-assign-actions";
 import {
+  markBulkRounds,
   searchReviewHref,
   summarizeSearches,
   type SearchRow,
@@ -42,8 +46,10 @@ export interface SearchesTableClientProps {
 /**
  * Empresas › Búsquedas (dueña 28-10): todas las búsquedas de quien mira, venga de
  * Rumbo (las cinco formas), de un archivo o de una fuente oficial. Cada uno ve lo que
- * buscó o le asignaron (el líder, su equipo; Growth y admin, todo); de una búsqueda
- * ajena con empresas asignadas, sólo esa parte. Las masivas, una fila con su avance.
+ * buscó o le asignaron (el líder, su equipo); de una búsqueda ajena con empresas
+ * asignadas, sólo esa parte. Cada lote es su propia fila —también las rondas de una
+ * búsqueda masiva, que dicen de qué masiva salieron—: se revisan aparte y no se
+ * mezclan. No hay una sección aparte para las masivas.
  */
 export function SearchesTableClient({
   searches,
@@ -56,18 +62,33 @@ export function SearchesTableClient({
 }: SearchesTableClientProps) {
   const router = useRouter();
   const [assignRow, setAssignRow] = React.useState<SearchRow | null>(null);
+  const [controlError, setControlError] = React.useState<string | null>(null);
   const canAssign = assignableUsers.length > 0;
 
-  // Las rondas de una búsqueda masiva se ven en su fila, no como búsquedas sueltas.
-  const roundIds = React.useMemo(() => new Set(bulkSearches.flatMap((search) => search.batchIds)), [bulkSearches]);
+  // Cada lote es su fila; las rondas de una masiva dicen de cuál salieron.
   const rows = React.useMemo(() => {
-    const own = searches.filter((row) => !roundIds.has(row.id));
+    const all = markBulkRounds(searches, bulkSearches);
     // La búsqueda pedida desde «Ver búsqueda» va primero.
-    if (!focusSearchId) return own;
-    const focused = own.find((row) => row.id === focusSearchId);
-    return focused ? [focused, ...own.filter((row) => row.id !== focusSearchId)] : own;
-  }, [searches, roundIds, focusSearchId]);
-  const summary = React.useMemo(() => summarizeSearches(searches), [searches]);
+    if (!focusSearchId) return all;
+    const focused = all.find((row) => row.id === focusSearchId);
+    return focused ? [focused, ...all.filter((row) => row.id !== focusSearchId)] : all;
+  }, [searches, bulkSearches, focusSearchId]);
+  const summary = React.useMemo(() => summarizeSearches(rows), [rows]);
+
+  const controlBulk = React.useCallback(
+    async (id: string, action: "pause" | "resume" | "cancel") => {
+      setControlError(null);
+      const response = await controlBulkSearchViaRoute(id, action);
+      if (!response.ok) {
+        setControlError("message" in response ? response.message : "No se pudo cambiar la búsqueda.");
+        return;
+      }
+      // El Centro de procesos conduce sus rondas: al continuar, que la retome ya.
+      if (action === "resume") window.dispatchEvent(new CustomEvent(BULK_SEARCH_STARTED_EVENT, { detail: { id } }));
+      router.refresh();
+    },
+    [router],
+  );
 
   const columns = React.useMemo<ColumnDef<SearchRow, unknown>[]>(
     () => [
@@ -86,11 +107,14 @@ export function SearchesTableClient({
               </Link>
               {row.original.id === focusSearchId && <Badge variant="brand">La que buscabas</Badge>}
             </div>
-            <p className="truncate text-xs text-muted-foreground">
-              {row.original.formLabel}
-              {row.original.country ? ` · ${row.original.country}` : ""}
-              {row.original.visibility === "assigned" ? " · Sólo las que te asignaron" : ""}
-            </p>
+            {(row.original.visibility === "assigned" || row.original.bulkSearch) && (
+              <p className="truncate text-xs text-muted-foreground">
+                {row.original.bulkSearch
+                  ? `De una búsqueda masiva de hasta ${row.original.bulkSearch.targetCount} empresas`
+                  : "Sólo las que te asignaron"}
+                {row.original.bulkSearch && row.original.visibility === "assigned" ? " · Sólo las que te asignaron" : ""}
+              </p>
+            )}
           </div>
         ),
         meta: { label: "Búsqueda", disableFilter: true },
@@ -103,7 +127,7 @@ export function SearchesTableClient({
         cell: ({ row }) => <span className="text-sm">{row.original.formLabel}</span>,
         meta: {
           label: "Forma",
-          filterOptions: [...new Set(searches.map((row) => row.formLabel))].map((value) => ({ value, label: value })),
+          filterOptions: [...new Set(rows.map((row) => row.formLabel))].map((value) => ({ value, label: value })),
         },
       },
       {
@@ -174,7 +198,7 @@ export function SearchesTableClient({
           ]
         : []),
     ],
-    [searches, searchHref, focusSearchId, canEnrichBulk],
+    [rows, searchHref, focusSearchId, canEnrichBulk],
   );
 
   const contextMenu = React.useMemo(
@@ -199,9 +223,19 @@ export function SearchesTableClient({
               },
             ]
           : []),
+        // La búsqueda masiva de la que salió esta ronda, mientras siga viva.
+        ...(row.bulkSearch?.status === "running"
+          ? [{ id: "pause", label: "Pausar búsqueda masiva", icon: Pause, onClick: () => void controlBulk(row.bulkSearch!.id, "pause") }]
+          : []),
+        ...(row.bulkSearch?.status === "paused"
+          ? [{ id: "resume", label: "Continuar búsqueda masiva", icon: Play, onClick: () => void controlBulk(row.bulkSearch!.id, "resume") }]
+          : []),
+        ...(row.bulkSearch && (row.bulkSearch.status === "running" || row.bulkSearch.status === "paused")
+          ? [{ id: "cancel", label: "Cancelar búsqueda masiva", icon: X, onClick: () => void controlBulk(row.bulkSearch!.id, "cancel") }]
+          : []),
       ],
     }),
-    [router, searchHref, canAssign],
+    [router, searchHref, canAssign, controlBulk],
   );
 
   if (searches.length === 0 && bulkSearches.length === 0) {
@@ -227,8 +261,6 @@ export function SearchesTableClient({
         ]}
       />
 
-      <BulkSearchesSection searches={bulkSearches} users={assignableUsers} reviewHref="/accounts?tab=prospectos" />
-
       <DataTable
         tableId="empresas-busquedas"
         title="Búsquedas"
@@ -241,6 +273,12 @@ export function SearchesTableClient({
         contextMenu={contextMenu}
         enableColumnReorder={false}
       />
+
+      {controlError && (
+        <p role="status" className="text-xs text-destructive">
+          {controlError}
+        </p>
+      )}
 
       {assignRow && (
         <BulkSearchAssignDrawer
