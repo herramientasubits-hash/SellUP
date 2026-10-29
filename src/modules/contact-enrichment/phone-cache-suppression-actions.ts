@@ -112,6 +112,7 @@ import {
   type SuppressPhoneCacheEntryResult,
 } from './phone-cache-suppression-core';
 import type { ContactCandidateEnrichmentMetadata } from './types';
+import { resolveCandidatePhoneCompanyScope } from './candidate-company-reassignment-core';
 
 // ── Resultado (SIN PII) ────────────────────────────────────────
 
@@ -439,7 +440,8 @@ export async function suppressPhoneCacheEntryAction(
       (r.enrichment_metadata as ContactCandidateEnrichmentMetadata) ?? {};
     return {
       id: r.id as string,
-      accountId: run?.account_id ?? null,
+      // Empresa efectiva: la reasignada (si hay) manda sobre la del run.
+      accountId: resolveCandidatePhoneCompanyScope(run, enrichmentMetadata).accountId,
       enrichmentRunId: (r.enrichment_run_id as string | null) ?? null,
       createdContactId: readCreatedContactId(enrichmentMetadata),
       enrichmentMetadata,

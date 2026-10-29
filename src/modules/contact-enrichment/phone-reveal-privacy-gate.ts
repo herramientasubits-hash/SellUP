@@ -63,6 +63,7 @@ import {
 } from './provider-suppression-core';
 import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { redactDriverMessage } from './phone-reveal-core';
+import { resolveCandidatePhoneCompanyScope } from './candidate-company-reassignment-core';
 
 /**
  * Vocabulario del veredicto. Alias del que ya define el core del waterfall: el
@@ -78,7 +79,7 @@ export type PhoneRevealPrivacyGateState = PhoneRevealWaterfallSuppressionState;
  * que un `do_not_contact` es detectable.
  */
 export const PRIVACY_GATE_CANDIDATE_SELECT = `id, source, source_contact_id, phone,
-   email, linkedin_url, phone_reveal_status, apollo_person_id,
+   email, linkedin_url, phone_reveal_status, apollo_person_id, enrichment_metadata,
    run:contact_enrichment_runs ( account_id )`;
 
 export interface PhoneRevealPrivacyGateCandidateRow {
@@ -111,7 +112,8 @@ export function mapPhoneRevealPrivacyGateCandidateRow(
     email: (row.email as string | null) ?? null,
     linkedinUrl: (row.linkedin_url as string | null) ?? null,
     apolloPersonId: (row.apollo_person_id as string | null) ?? null,
-    accountId: run?.account_id ?? null,
+    // Empresa efectiva: la reasignada (si hay) manda sobre la del run.
+    accountId: resolveCandidatePhoneCompanyScope(run, row.enrichment_metadata).accountId,
   };
 }
 
