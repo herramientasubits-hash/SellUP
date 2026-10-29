@@ -373,14 +373,13 @@ export function ProspectReviewActions({
           <div className="space-y-1">
             <AlertTitle className="text-foreground">¿Aprobar y crear empresa?</AlertTitle>
             <AlertDescription className="text-xs leading-relaxed">
-              Esto validará el prospecto, creará la empresa en SellUp e intentará sincronizarla con
-              HubSpot según la configuración disponible. No se creará oportunidad ni propuesta
-              todavía.
+              SellUp valida el prospecto, crea la empresa y la registra en HubSpot. No se crea
+              oportunidad ni propuesta todavía.
             </AlertDescription>
             {view.hasHubspotMatch ? (
               <p className="text-xs font-medium text-warning">
-                Este prospecto tiene una coincidencia de HubSpot. Al aprobar, SellUp intentará
-                vincular la empresa existente.
+                Esta empresa ya está en HubSpot. Al aprobar, SellUp la enlaza con esa ficha en vez
+                de crear otra.
               </p>
             ) : (
               view.needsWarning && (

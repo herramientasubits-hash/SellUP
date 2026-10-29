@@ -48,6 +48,7 @@ import type { RescueBatchDeps } from './rescue-batch';
 import { RESCUABLE_DISPOSITION_REASON_CODES, type RescuableDispositionRow } from './rescue-dispositions';
 import { SECTOR_MISMATCH_DISCARD_REASON } from './reassign-stored';
 import { attachIndustryCatalogVersion, CLAUDE_RESCUE_METADATA_KEY, type CandidateRescuePatch } from './rescue-patch';
+import { recheckCandidateDuplicates } from '@/server/prospect-batches/candidate-duplicate-recheck.server';
 
 /** Versión de catálogo de una macroindustria (la tabla exige industria + versión). */
 async function loadIndustryCatalogVersion(industryId: string): Promise<string | null> {
@@ -506,6 +507,10 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
           actorUserId: triggeredBy as string,
           // El lote es de quien corrió la búsqueda: el rescate no cruza de lote.
           isBatchInScope: async () => true,
+          // FEEDBACK 29-10 — la rescatada se verifica en SellUp y HubSpot al volver: antes
+          // quedaba «sin verificar» y no se podía aprobar (Casa Brugal, Ron Barceló).
+          recheckDuplicates: (candidateId: string) =>
+            recheckCandidateDuplicates(createSupabaseAdminClient(), candidateId),
         },
         dispositionId,
         origin.columns ? { ...origin, columns: await withCatalogVersion(origin.columns) } : origin,

@@ -202,9 +202,9 @@ export async function persistCountrySourceCandidates(
       dataset: sourceKey,
       initiatedBy: 'agent_1',
       batchId: input.batchId ?? null,
-      // La comprobación canónica de HubSpot YA corrió en la capa previa al pago,
-      // por candidato y de sólo lectura. Repetirla aquí sería una segunda ronda
-      // de llamadas para responder lo mismo.
+      // La puerta previa al pago filtra contra HubSpot, pero sin esta revisión la
+      // candidata queda «sin verificar» y no se puede aprobar: quien llama la pide
+      // (capa gratuita, árbol, proveedores). Sólo lectura.
       runHubspotCheck: input.runHubspotCheck === true,
       metadata: {
         ...(input.metadata ?? {}),

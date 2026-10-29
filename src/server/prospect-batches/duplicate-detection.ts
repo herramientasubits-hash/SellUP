@@ -550,7 +550,7 @@ async function checkHubSpot(
         matched_description: raw?.description ?? null,
         matched_linkedin_url: raw?.linkedin_company_page ?? raw?.linkedin_url ?? null,
         matched_linkedin_bio: raw?.linkedinbio ?? null,
-        matched_tax_identifier: raw?.nit ?? raw?.identificacion_fiscal ?? raw?.rfc ?? raw?.ruc ?? raw?.tax_id ?? best.matchedTaxIdentifier ?? null,
+        matched_tax_identifier: raw?.identificaci_n_fiscal ?? raw?.rfc_mx_ ?? raw?.doc_identificacion_fiscal ?? raw?.nit ?? raw?.identificacion_fiscal ?? raw?.rfc ?? raw?.ruc ?? raw?.tax_id ?? best.matchedTaxIdentifier ?? null,
         matched_createdate: raw?.createdate ?? null,
         matched_lastmodifieddate: raw?.hs_lastmodifieddate ?? null,
         matched_by,

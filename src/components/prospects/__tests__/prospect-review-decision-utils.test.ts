@@ -78,7 +78,32 @@ describe('resolveReviewDecisionView — duplicate policy', () => {
   it('hard-blocks exact_duplicate', () => {
     const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'exact_duplicate' }));
     assert.equal(view.canApprove, false);
-    assert.match(view.blockReason ?? '', /duplicidad bloquea/i);
+    assert.match(view.blockReason ?? '', /ya existe en SellUp o en HubSpot/i);
+  });
+
+  it('dice DÓNDE está el duplicado cuando se sabe', () => {
+    const view = resolveReviewDecisionView(
+      candidate({ duplicateStatus: 'exact_duplicate', matchedHubspotCompanyId: 'hs-1' }),
+    );
+    assert.equal(view.blockReason, 'No se puede aprobar: esta empresa ya existe en HubSpot.');
+  });
+
+  it('sin verificar: dice que SellUp aún no lo sabe, no que «la verificación bloquea»', () => {
+    const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'unchecked' }));
+    assert.equal(view.canApprove, false);
+    assert.match(view.blockReason ?? '', /SellUp aún no verificó/);
+    assert.equal(view.duplicateVerdict.label, 'SellUp aún no verificó duplicidad');
+  });
+
+  it('sin coincidencia: «No es duplicado» en SellUp y HubSpot', () => {
+    const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'no_match' }));
+    assert.equal(view.duplicateVerdict.label, 'No es duplicado');
+    assert.equal(view.duplicateVerdict.detail, 'No existe en SellUp ni en HubSpot.');
+  });
+
+  it('sin coincidencia pero sin consultar HubSpot: lo dice', () => {
+    const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'no_match', hubspotChecked: false }));
+    assert.match(view.duplicateVerdict.detail, /HubSpot no se consultó/);
   });
 
   it('flags a warning for a matched HubSpot company', () => {
