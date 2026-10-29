@@ -12,6 +12,7 @@ import {
   bulkSearchesForTray,
   bulkSearchSummary,
   bulkWizardOutcome,
+  bulkWizardSuccessAction,
   nextDriverStep,
 } from '../bulk-search-display';
 import { currentRoundRequestIdOf, type BulkSearchView } from '../bulk-search-view';
@@ -137,5 +138,22 @@ describe('el asistente abierto sigue la búsqueda masiva como una búsqueda norm
       status: 'no_new_candidates',
       batchId: '',
     });
+  });
+});
+
+describe('el cierre del asistente con una masiva terminada', () => {
+  it('es el éxito de siempre, con lo entregado y el enlace a Búsquedas', () => {
+    assert.equal(bulkWizardSuccessAction(view({ status: 'running' })), null);
+    assert.deepEqual(
+      bulkWizardSuccessAction(view({ id: 'bs-1', status: 'completed', deliveredCount: 30, targetCount: 25, batchIds: ['a', 'b'] })),
+      {
+        type: 'EXECUTION_SUCCEEDED',
+        batchId: 'b',
+        redirectPath: '/accounts?tab=busquedas&focus=bs-1',
+        status: 'success_target_reached',
+        candidateCount: 30,
+        acceptedForTarget: null,
+      },
+    );
   });
 });

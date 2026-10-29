@@ -1,6 +1,8 @@
 import type { BulkRoundResponse } from './bulk-search-engine';
 import type { WizardExecutionStatus } from '@/modules/prospect-batches/chat-wizard-execution/wizard-execution-types';
 import type { BulkSearchView } from './bulk-search-view';
+import type { ProspectWizardAction } from '@/modules/prospect-batches/chat-wizard/wizard-types';
+import { searchListHref } from '@/modules/prospect-batches/searches/search-rows';
 
 /**
  * Cómo se lee una búsqueda masiva en el Process Center y en Growth, y qué hace
@@ -99,4 +101,25 @@ export function bulkWizardOutcome(
   if (view.deliveredCount >= view.targetCount) return { status: 'success_target_reached', batchId };
   if (view.deliveredCount > 0) return { status: 'success_partial', batchId };
   return { status: 'no_new_candidates', batchId };
+}
+
+/**
+ * El cierre del asistente cuando su búsqueda masiva terminó: el MISMO
+ * `EXECUTION_SUCCEEDED` de una búsqueda normal, con lo que la masiva entregó y un
+ * enlace a Empresas › Búsquedas. `null` mientras sigue. Sin aceptación declarada:
+ * cada ronda ya la publicó en su lote y aquí no se recalcula.
+ */
+export function bulkWizardSuccessAction(
+  view: Pick<BulkSearchView, 'id' | 'status' | 'deliveredCount' | 'targetCount' | 'batchIds'>,
+): Extract<ProspectWizardAction, { type: 'EXECUTION_SUCCEEDED' }> | null {
+  const outcome = bulkWizardOutcome(view);
+  if (!outcome) return null;
+  return {
+    type: 'EXECUTION_SUCCEEDED',
+    batchId: outcome.batchId,
+    redirectPath: searchListHref(view.id),
+    status: outcome.status,
+    candidateCount: view.deliveredCount,
+    acceptedForTarget: null,
+  };
 }

@@ -99,7 +99,9 @@ describe('al lanzar, la misma espera que cualquier búsqueda (dueña 28-10)', ()
   });
   it('la espera es el SubmittingPanel de siempre y termina en el panel final de siempre', () => {
     assert.match(WIZARD, /<SubmittingPanel clientRequestId=\{runningRequestId\} startedAtMs=\{bulkRun\?\.startedAtMs\} \/>/);
-    assert.match(launch, /type: 'EXECUTION_SUCCEEDED'/);
-    assert.match(launch, /bulkWizardOutcome\(view\)/);
+    assert.match(launch, /dispatch\(finished\)/);
+    assert.match(launch, /bulkWizardSuccessAction\(view\)/);
+    // El único despacho de éxito literal sigue siendo el de la búsqueda normal (guarda CUT-8).
+    assert.equal(WIZARD.split("type: 'EXECUTION_SUCCEEDED'").length - 1, 1);
   });
 });

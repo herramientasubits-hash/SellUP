@@ -33,8 +33,7 @@ import {
   createBulkSearchViaRoute,
   listBulkSearchesViaRoute,
 } from '@/modules/prospect-batches/bulk-search/bulk-search-client';
-import { BULK_WIZARD_POLL_MS, bulkWizardOutcome } from '@/modules/prospect-batches/bulk-search/bulk-search-display';
-import { searchListHref } from '@/modules/prospect-batches/searches/search-rows';
+import { BULK_WIZARD_POLL_MS, bulkWizardSuccessAction } from '@/modules/prospect-batches/bulk-search/bulk-search-display';
 import type { BulkLaunchOutcome, BulkSearchSurface } from '@/components/prospect-batches/bulk-search/bulk-search-launch';
 import { resolveWizardLushaCriteria } from '@/modules/prospect-batches/wizard-lusha-criteria';
 import { ChatComposer } from '@/components/chat';
@@ -754,16 +753,9 @@ export function ProspectChatWizard({
       const view = listed && listed.ok ? listed.searches.find((search) => search.id === bulkRun.id) : undefined;
       if (view) {
         if (view.currentRoundRequestId) setRunningRequestId(view.currentRoundRequestId);
-        const outcome = bulkWizardOutcome(view);
-        if (outcome) {
-          dispatch({
-            type: 'EXECUTION_SUCCEEDED',
-            batchId: outcome.batchId,
-            redirectPath: searchListHref(view.id),
-            status: outcome.status,
-            candidateCount: view.deliveredCount,
-            acceptedForTarget: null,
-          });
+        const finished = bulkWizardSuccessAction(view);
+        if (finished) {
+          dispatch(finished);
           setBulkRun(null);
           return;
         }
