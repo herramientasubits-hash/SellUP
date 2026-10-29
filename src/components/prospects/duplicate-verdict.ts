@@ -5,6 +5,8 @@
 // HubSpot, y quien revisaba no sabía si la empresa ya estaba creada allí.
 // Puro: sin base de datos, sin clientes.
 
+import { HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
+
 export type DuplicateVerdictKind = 'duplicate' | 'possible_duplicate' | 'not_duplicate' | 'unverified';
 
 export interface DuplicateVerdictInput {
@@ -19,6 +21,29 @@ export interface DuplicateVerdictInput {
    * asume que sí, que es lo que hace la revisión estándar.
    */
   hubspotChecked: boolean | null;
+  /**
+   * La empresa está en HubSpot pero LIBRE (reciclada, en la bolsa, sin dueño…): no es
+   * duplicado y al aprobar se enlaza a esa ficha. `null`/ausente = no es libre.
+   */
+  hubspotFreeReason?: string | null;
+}
+
+/** Por qué está libre en HubSpot, como lo dice la política de empresas libres. */
+const FREE_REASON_TEXT: Record<string, string> = HUBSPOT_FREE_REASON_LABEL;
+
+/**
+ * El motivo de «libre en HubSpot» de una candidata: lo guarda el escritor
+ * (`metadata.hubspot_free_pool`) o la importación (`validation…free_to_take`).
+ */
+export function readHubSpotFreeReason(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const meta = metadata as Record<string, unknown>;
+  const fromWriter = meta.hubspot_free_pool as Record<string, unknown> | undefined;
+  const validation = meta.validation as Record<string, unknown> | undefined;
+  const hubspotCheck = validation?.hubspot_duplicate_check as Record<string, unknown> | undefined;
+  const fromImport = hubspotCheck?.free_to_take as Record<string, unknown> | undefined;
+  const reason = fromWriter?.reason ?? fromImport?.reason;
+  return typeof reason === 'string' ? reason : null;
 }
 
 export interface DuplicateVerdict {
@@ -40,6 +65,18 @@ function whereFound(input: DuplicateVerdictInput): string {
 
 export function resolveDuplicateVerdict(input: DuplicateVerdictInput): DuplicateVerdict {
   const where = whereFound(input);
+
+  // Libre en HubSpot: sí está allí, pero se puede tomar. Se dice así (feedback 29-10:
+  // «no encontrada en HubSpot» confundía con Pintuco y Corona, recicladas).
+  if (input.hubspotFreeReason && input.duplicateStatus !== 'exact_duplicate' && input.duplicateStatus !== 'possible_duplicate') {
+    const why = FREE_REASON_TEXT[input.hubspotFreeReason] ?? 'libre';
+    return {
+      kind: 'not_duplicate',
+      label: 'Libre en HubSpot',
+      detail: `Ya está en HubSpot, libre (${why}): no es de otro vendedor. Al aprobar, SellUp la enlaza a esa ficha.`,
+      blockReason: null,
+    };
+  }
 
   // Enlazada a una empresa de HubSpot sin ser duplicado exacto: ya está creada
   // allí. Se dice así, sin rodeos, y qué hace SellUp al aprobar.

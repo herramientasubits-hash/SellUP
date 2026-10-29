@@ -101,6 +101,13 @@ describe('resolveReviewDecisionView — duplicate policy', () => {
     assert.equal(view.duplicateVerdict.detail, 'No existe en SellUp ni en HubSpot.');
   });
 
+  it('libre en HubSpot (reciclada): no es duplicado, pero dice que YA está allí', () => {
+    const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'no_match', hubspotFreeReason: 'recycled' }));
+    assert.equal(view.duplicateVerdict.label, 'Libre en HubSpot');
+    assert.match(view.duplicateVerdict.detail, /Ya está en HubSpot, libre \(reciclada/);
+    assert.equal(view.canApprove, true);
+  });
+
   it('sin coincidencia pero sin consultar HubSpot: lo dice', () => {
     const view = resolveReviewDecisionView(candidate({ duplicateStatus: 'no_match', hubspotChecked: false }));
     assert.match(view.duplicateVerdict.detail, /HubSpot no se consultó/);

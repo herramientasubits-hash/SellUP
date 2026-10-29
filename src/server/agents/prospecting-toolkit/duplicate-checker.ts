@@ -18,6 +18,7 @@
  */
 
 import { resolveHubSpotFreeToTake } from './hubspot-free-match';
+import { HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
 import type { DuplicateCheckInput, DuplicateCheckResult, DuplicateStatus } from './types';
 import { buildCompanySearchTerms } from './normalization';
 import { checkSellUpDuplicates, resolveSellUpStatus } from './sellup-duplicate-checker';
@@ -221,13 +222,18 @@ export async function checkCompanyDuplicate(
 
   // HUBSPOT-FREE-POOL-SOURCE-1 — la ficha de HubSpot con la que se enlaza al aprobar.
   const hubspotFreeToTake = resolveHubSpotFreeToTake(finalStatus, allMatches);
+  // FEEDBACK 29-10 — una empresa LIBRE en HubSpot sí está allí: decir «no encontrada en
+  // HubSpot» confundía a quien revisa (Pintuco y Corona, recicladas, se leían como nuevas).
+  const freeSummary = hubspotFreeToTake
+    ? `"${enrichedInput.name || '(sin nombre)'}" ya está en HubSpot, libre (${HUBSPOT_FREE_REASON_LABEL[hubspotFreeToTake.reason]}): no es de otro vendedor y al aprobar se enlaza a esa ficha.`
+    : null;
 
   return {
     status: finalStatus,
     confidence,
     input: enrichedInput,
     matches: allMatches,
-    summary,
+    summary: freeSummary ?? summary,
     checkedSources,
     ...(errors.length > 0 ? { errors } : {}),
     ...(hubspotFreeToTake ? { hubspotFreeToTake } : {}),
