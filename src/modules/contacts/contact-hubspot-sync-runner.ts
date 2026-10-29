@@ -40,6 +40,7 @@ import {
   associateHubSpotContactWithCompany,
   fillEmptyHubSpotContactProperties,
   findHubSpotContactById,
+  fillEmptyHubSpotContactEmail,
 } from '@/server/integrations/hubspot-contact-sync';
 
 /** Columnas del contacto que el motor necesita. Una sola definición para ambos llamadores. */
@@ -109,6 +110,8 @@ export async function buildContactHubSpotSyncDeps(
     // Contactos que llegan YA vinculados (candidatos de «Primero HubSpot»): se leen por id para
     // completar sus vacíos en la reparación del primer sync.
     findHubSpotContactById,
+    // Y el correo, aparte: un 409 (correo de otro contacto) no frena lo demás.
+    fillEmptyHubSpotContactEmail,
 
     persistSync: async (id, patch) => {
       // `hubspot_contact_id` sólo viaja cuando el intento produjo vínculo. En los intentos

@@ -277,23 +277,30 @@ Detrás de `CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED` (apagada). Una búsqueda
 ## 11. Completar un candidato que ya existe en HubSpot (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION, 2026-10-29)
 
 Sin bandera propia (encendido). Sólo candidatos `source = 'hubspot'` en `pending_review`, con
-correo, y sólo roles que pueden revelar teléfono (`admin`, `commercial_manager`).
+correo o con LinkedIn (perfil `/in/`), y sólo roles que pueden revelar teléfono (`admin`,
+`commercial_manager`). Se usa lo que el candidato SÍ tiene para revelar lo que le falta.
 
 | Caso | Apollo | Lusha | Total |
 |---|---|---|---|
-| «Revelar LinkedIn», Apollo trae LinkedIn | 1 (`person_match` por correo) | 0 | **1 crédito** |
+| «Revelar LinkedIn» (tiene correo), Apollo trae LinkedIn | 1 (`person_match` por correo) | 0 | **1 crédito** |
 | «Revelar LinkedIn», Apollo sin LinkedIn | 1 | `lusha_contact_search` por correo (desconocido; nunca `enrich`) | **1 + búsqueda Lusha** |
-| «Revelar teléfono» sin identidad de Apollo | 1 (`person_match` por correo) **antes** del reveal | 0 | **1 + el reveal de siempre (§ 1–4)** |
-| «Revelar teléfono», Apollo no identifica a la persona | 1 | 0 | **1 crédito; el reveal NO corre** |
-| Ya tiene LinkedIn / ya tiene identidad / intento anterior sin resultado | 0 | 0 | **0** (el botón no se ofrece) |
+| «Revelar correo» (tiene LinkedIn), Apollo trae correo | 1 (`person_match` por LinkedIn, `reveal_personal_emails`) | 0 | **1 crédito** |
+| «Revelar correo», Apollo sin correo | 1 | `lusha_contact_search` + `lusha_contact_enrich` sólo correos (lo que reporte Lusha) | **1 + Lusha** |
+| «Revelar teléfono» sin identidad, sólo correo o sólo LinkedIn | 1 (`person_match` con ese dato) **antes** del reveal | 0 | **1 + el reveal de siempre (§ 1–4)** |
+| «Revelar teléfono» sin identidad, con correo y LinkedIn | 1 por correo; si no aparece, 1 más por LinkedIn | 0 | **hasta 2 + el reveal de siempre** |
+| «Revelar teléfono», Apollo no identifica a la persona | 1–2 | 0 | **sólo esos créditos; el reveal NO corre** |
+| Ya tiene el dato / ya tiene identidad / intento anterior sin resultado | 0 | 0 | **0** (el botón no se ofrece) |
 
-* El `people/match` nunca lleva `reveal_phone_number` ni `reveal_personal_emails`.
-* Guarda `apollo_person_id` y `linkedin_url` sólo si estaban vacíos, y sólo si el nombre que
-  devuelve el proveedor coincide con el del candidato (si no: `identity_mismatch`, nada guardado).
+* El `people/match` nunca lleva `reveal_phone_number`; `reveal_personal_emails` sólo cuando se
+  busca el correo. Cada llamada usa UN identificador (correo o LinkedIn), nunca los dos.
+* Guarda `apollo_person_id`, `linkedin_url` y `email` sólo si estaban vacíos, y sólo si el nombre
+  que devuelve el proveedor coincide con el del candidato (si no: `identity_mismatch`).
 * Con la identidad guardada, la privacidad del reveal es evaluable con la misma función del
   servidor y el reveal sigue igual: corrida del waterfall, techo de créditos, presupuesto.
 * Registro: `provider_usage_logs` `agent2a` / `identificar_contacto`, `entry_mode =
-  candidate_identity_completion`, sin correo ni LinkedIn. Rastro del intento en
-  `enrichment_metadata.identity_completion`.
+  candidate_identity_completion`, con `purpose` y `channel` (nunca el valor). Rastro del intento
+  en `enrichment_metadata.identity_completion`.
 * Al aprobar, el primer sync del contacto (ya vinculado a HubSpot) completa en HubSpot sólo las
-  propiedades vacías: teléfono, móvil, cargo, nombre, `hs_linkedin_url`. Nunca sobrescribe.
+  propiedades vacías: teléfono, móvil, cargo, nombre, `hs_linkedin_url` y, en un PATCH aparte, el
+  correo (un 409 por correo de otro contacto queda anotado y no frena lo demás). Un contacto
+  vinculado sin correo ya no se bloquea en ese primer sync. Nunca sobrescribe.

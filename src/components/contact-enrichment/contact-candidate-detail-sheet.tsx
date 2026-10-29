@@ -62,16 +62,20 @@ import { RejectedCandidateActions } from './contact-candidate-rejected-actions';
 import { rejectionInfo } from './contact-candidate-rejection-info';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — candidatos que ya existen en HubSpot y llegan
-// sólo con correo: «Revelar LinkedIn» y la identificación previa que habilita «Revelar teléfono».
+// sólo con correo o sólo con LinkedIn: «Revelar LinkedIn», «Revelar correo» y la identificación
+// previa que habilita «Revelar teléfono».
 import {
+  revealCandidateEmailAction,
   revealCandidateLinkedinAction,
   revealCandidatePhoneWithIdentityAction,
 } from '@/modules/contact-enrichment/candidate-identity-completion-actions';
 import {
   IDENTITY_COMPLETION_COPY,
+  REVEAL_EMAIL_BUTTON_LABEL,
   REVEAL_LINKEDIN_BUTTON_LABEL,
   evaluateCandidateIdentityCompletion,
   identityCompletionMessage,
+  phoneIdentityHelperCopy,
 } from '@/modules/contact-enrichment/candidate-identity-completion-core';
 import { PHONE_REVEAL_PROCESSING_BASIS as SHARED_PHONE_REVEAL_PROCESSING_BASIS } from '@/modules/contact-enrichment/phone-reveal-processing-basis';
 import { recoverCandidatePhoneRevealNowAction } from '@/modules/contact-enrichment/phone-reveal-manual-recovery-actions';
@@ -427,13 +431,16 @@ export function ContactCandidateDetailSheet({
   // Guard síncrono contra doble clic: `revealingPhone` (estado) solo deshabilita
   // el botón tras re-render; el ref corta una segunda invocación en el mismo tick.
   const revealInFlightRef = React.useRef(false);
-  // «Revelar LinkedIn» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Mismo patrón que el
-  // teléfono: un ref contra el doble clic en el mismo tick y un estado para el spinner.
-  const [revealingLinkedin, setRevealingLinkedin] = React.useState(false);
-  const [linkedinRevealMessage, setLinkedinRevealMessage] = React.useState<
-    { tone: 'success' | 'info' | 'error'; text: string } | null
-  >(null);
-  const linkedinInFlightRef = React.useRef(false);
+  // «Revelar LinkedIn» / «Revelar correo» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Mismo
+  // patrón que el teléfono: un ref contra el doble clic en el mismo tick y un estado para el
+  // spinner. Un único ref para los dos: nunca corren dos búsquedas a la vez.
+  const [revealingChannel, setRevealingChannel] = React.useState<'linkedin' | 'email' | null>(null);
+  const [channelRevealMessage, setChannelRevealMessage] = React.useState<{
+    channel: 'linkedin' | 'email';
+    tone: 'success' | 'info' | 'error';
+    text: string;
+  } | null>(null);
+  const channelInFlightRef = React.useRef(false);
 
   // Revisión manual del resultado (APOLLO-PHONE-RECOVERY-L3). NO inicia un reveal
   // nuevo: pide al servidor que consulte AHORA el resultado del reveal en vuelo.
@@ -763,8 +770,8 @@ export function ContactCandidateDetailSheet({
     // `useCandidateReviewDecision`; su estado pertenece al mismo candidato.
     resetReviewState();
     setRevealingPhone(false);
-    setRevealingLinkedin(false);
-    setLinkedinRevealMessage(null);
+    setRevealingChannel(null);
+    setChannelRevealMessage(null);
     setPhoneRevealSubmitted(false);
     setPhoneRevealError(null);
     setPhoneRevealNotice(null);
@@ -1171,26 +1178,30 @@ export function ContactCandidateDetailSheet({
   }
 
   /**
-   * «Revelar LinkedIn» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Un clic = una
-   * identificación por correo (1 crédito de Apollo; Lusha sólo si Apollo no trae el LinkedIn).
-   * No revela teléfonos. El LinkedIn vuelve en la recarga del candidato, nunca en el resultado.
+   * «Revelar LinkedIn» / «Revelar correo» (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Un
+   * clic = una identificación con el dato que SÍ hay (correo → LinkedIn, LinkedIn → correo):
+   * 1 crédito de Apollo y Lusha sólo si Apollo no trae lo que falta. No revela teléfonos. El
+   * dato vuelve en la recarga del candidato, nunca en el resultado.
    */
-  async function handleRevealLinkedin() {
-    if (!candidate || linkedinInFlightRef.current) return;
-    linkedinInFlightRef.current = true;
-    setLinkedinRevealMessage(null);
-    setRevealingLinkedin(true);
+  async function handleRevealChannel(channel: 'linkedin' | 'email') {
+    if (!candidate || channelInFlightRef.current) return;
+    channelInFlightRef.current = true;
+    setChannelRevealMessage(null);
+    setRevealingChannel(channel);
     try {
-      const result = await revealCandidateLinkedinAction({ candidateId: candidate.id });
-      const message = identityCompletionMessage(result.status, 'linkedin');
-      setLinkedinRevealMessage(message);
+      const result =
+        channel === 'linkedin'
+          ? await revealCandidateLinkedinAction({ candidateId: candidate.id })
+          : await revealCandidateEmailAction({ candidateId: candidate.id });
+      const message = identityCompletionMessage(result.status, channel);
+      setChannelRevealMessage({ channel, ...message });
       if (message.tone === 'success') toast.success(message.text);
       void reloadCandidate();
     } catch {
-      setLinkedinRevealMessage({ tone: 'error', text: IDENTITY_COMPLETION_COPY.error });
+      setChannelRevealMessage({ channel, tone: 'error', text: IDENTITY_COMPLETION_COPY.error });
     } finally {
-      linkedinInFlightRef.current = false;
-      setRevealingLinkedin(false);
+      channelInFlightRef.current = false;
+      setRevealingChannel(null);
     }
   }
 
@@ -1779,11 +1790,10 @@ export function ContactCandidateDetailSheet({
     identityCompletion.phoneRevealNeedsIdentity &&
     candidate?.status === 'pending_review';
   const phoneRevealIdentityReady = phoneRevealIdentityEligible || phoneRevealUnlockableByIdentity;
-  const canOfferLinkedinReveal =
-    !!candidate &&
-    candidate.status === 'pending_review' &&
-    phoneRevealAuthorized === true &&
-    identityCompletion.canRevealLinkedin;
+  const canOfferChannelReveal =
+    !!candidate && candidate.status === 'pending_review' && phoneRevealAuthorized === true;
+  const canOfferLinkedinReveal = canOfferChannelReveal && identityCompletion.canRevealLinkedin;
+  const canOfferEmailReveal = canOfferChannelReveal && identityCompletion.canRevealEmail;
 
   const canOfferPhoneReveal =
     !!candidate &&
@@ -2067,7 +2077,22 @@ export function ContactCandidateDetailSheet({
             <DrawerSection icon={Phone} title="Canales de contacto">
             <DetailList>
               <CandidateDetailItem icon={Mail} label="Email">
-                {candidate.email || null}
+                {candidate.email ? (
+                  candidate.email
+                ) : canOfferEmailReveal || channelRevealMessage?.channel === 'email' ? (
+                  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — vino de HubSpot sin correo pero con
+                  // LinkedIn: se busca por el LinkedIn. Lo que cuesta se lee antes del clic.
+                  <ChannelRevealControl
+                    offer={canOfferEmailReveal}
+                    label={REVEAL_EMAIL_BUTTON_LABEL}
+                    helper={IDENTITY_COMPLETION_COPY.emailHelper}
+                    icon={Mail}
+                    running={revealingChannel === 'email'}
+                    disabled={busy || revealingChannel !== null || revealingPhone}
+                    message={channelRevealMessage?.channel === 'email' ? channelRevealMessage : null}
+                    onReveal={() => void handleRevealChannel('email')}
+                  />
+                ) : null}
               </CandidateDetailItem>
               <CandidateDetailItem icon={Link2} label="LinkedIn">
                 {candidate.linkedin_url ? (
@@ -2079,47 +2104,19 @@ export function ContactCandidateDetailSheet({
                   >
                     {candidate.linkedin_url}
                   </a>
-                ) : canOfferLinkedinReveal || linkedinRevealMessage ? (
-                  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — el contacto vino de HubSpot sin
-                  // LinkedIn: se puede traer por su correo. Lo que cuesta se lee antes del clic.
-                  <span className="flex flex-col items-start gap-1.5">
-                    {canOfferLinkedinReveal && (
-                      <>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          className="gap-1.5"
-                          disabled={busy || revealingLinkedin || revealingPhone}
-                          onClick={() => void handleRevealLinkedin()}>
-                          {revealingLinkedin ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Buscando…
-                            </>
-                          ) : (
-                            <>
-                              <Link2 className="h-3.5 w-3.5" />
-                              {REVEAL_LINKEDIN_BUTTON_LABEL}
-                            </>
-                          )}
-                        </Button>
-                        <span className="text-xs text-muted-foreground">
-                          {IDENTITY_COMPLETION_COPY.linkedinHelper}
-                        </span>
-                      </>
-                    )}
-                    {linkedinRevealMessage && (
-                      <span
-                        className={
-                          linkedinRevealMessage.tone === 'error'
-                            ? 'text-xs text-destructive'
-                            : 'text-xs text-muted-foreground'
-                        }>
-                        {linkedinRevealMessage.text}
-                      </span>
-                    )}
-                  </span>
+                ) : canOfferLinkedinReveal || channelRevealMessage?.channel === 'linkedin' ? (
+                  // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — vino de HubSpot sin LinkedIn: se
+                  // busca por su correo. Lo que cuesta se lee antes del clic.
+                  <ChannelRevealControl
+                    offer={canOfferLinkedinReveal}
+                    label={REVEAL_LINKEDIN_BUTTON_LABEL}
+                    helper={IDENTITY_COMPLETION_COPY.linkedinHelper}
+                    icon={Link2}
+                    running={revealingChannel === 'linkedin'}
+                    disabled={busy || revealingChannel !== null || revealingPhone}
+                    message={channelRevealMessage?.channel === 'linkedin' ? channelRevealMessage : null}
+                    onReveal={() => void handleRevealChannel('linkedin')}
+                  />
                 ) : null}
               </CandidateDetailItem>
               <CandidateDetailItem icon={Phone} label="Teléfono" className="sm:col-span-2">
@@ -2489,7 +2486,7 @@ export function ContactCandidateDetailSheet({
                           (AGENT2A-P0-PREAPPROVAL-PHONE-IDENTITY-2). */}
                       {phoneRevealUnlockableByIdentity && !phoneRevealAwaitingConfirmation && (
                         <p className="text-xs text-muted-foreground">
-                          {IDENTITY_COMPLETION_COPY.phoneIdentityHelper}
+                          {phoneIdentityHelperCopy(identityCompletion.identityChannels)}
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
@@ -2769,5 +2766,58 @@ export function ContactCandidateDetailSheet({
         fallback manual de Lusha (flag OFF) queda intacto arriba. */}
 
     </>
+  );
+}
+
+/**
+ * Botón «Revelar LinkedIn» / «Revelar correo» con su costo y su desenlace
+ * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Presentacional: el gasto lo decide el
+ * servidor.
+ */
+function ChannelRevealControl({
+  offer,
+  label,
+  helper,
+  icon: Icon,
+  running,
+  disabled,
+  message,
+  onReveal,
+}: {
+  offer: boolean;
+  label: string;
+  helper: string;
+  icon: React.ComponentType<{ className?: string }>;
+  running: boolean;
+  disabled: boolean;
+  message: { tone: 'success' | 'info' | 'error'; text: string } | null;
+  onReveal: () => void;
+}) {
+  return (
+    <span className="flex flex-col items-start gap-1.5">
+      {offer && (
+        <>
+          <Button type="button" variant="outline" size="xs" className="gap-1.5" disabled={disabled} onClick={onReveal}>
+            {running ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Buscando…
+              </>
+            ) : (
+              <>
+                <Icon className="h-3.5 w-3.5" />
+                {label}
+              </>
+            )}
+          </Button>
+          <span className="text-xs text-muted-foreground">{helper}</span>
+        </>
+      )}
+      {message && (
+        <span className={message.tone === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+          {message.text}
+        </span>
+      )}
+    </span>
   );
 }

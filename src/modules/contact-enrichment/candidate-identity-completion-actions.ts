@@ -7,8 +7,11 @@
 //
 //   * `revealCandidateLinkedinAction` — «Revelar LinkedIn»: identifica por correo y guarda el
 //     LinkedIn (y, de paso, la identidad de Apollo).
+//   * `revealCandidateEmailAction` — «Revelar correo»: identifica por LinkedIn y guarda el
+//     correo (y, de paso, la identidad de Apollo).
 //   * `revealCandidatePhoneWithIdentityAction` — «Revelar teléfono» para un candidato SIN
-//     identidad nativa de proveedor (los de «Primero HubSpot»): identifica primero y, sólo si
+//     identidad nativa de proveedor (los de «Primero HubSpot»): identifica primero —por correo y,
+//     si no aparece, por LinkedIn— y, sólo si
 //     aparece la identidad, delega en `revealCandidatePhoneAction` sin cambiar NADA de su
 //     gobierno (flag, rol, corrida del waterfall, techo de créditos, presupuesto, privacidad).
 //
@@ -30,10 +33,7 @@ import {
   type IdentityCompletionResult,
   type IdentityCompletionStatus,
 } from './candidate-identity-completion-core';
-import {
-  lookupApolloIdentityByEmail,
-  lookupLushaLinkedinByEmail,
-} from './candidate-identity-completion-providers.server';
+import { lookupApolloIdentity, lookupLushaIdentity } from './candidate-identity-completion-providers.server';
 import { revealCandidatePhoneAction } from './phone-reveal-actions';
 import type { RevealCandidatePhoneInput, RevealCandidatePhoneResult } from './phone-reveal-core';
 
@@ -123,12 +123,13 @@ async function runCompletion(
         if (error) throw new Error(error.message);
         return data ? mapCandidate(data) : null;
       },
-      lookupApollo: (query) => lookupApolloIdentityByEmail(query),
-      lookupLushaLinkedin: (query) => lookupLushaLinkedinByEmail(query),
+      lookupApollo: (query) => lookupApolloIdentity(query),
+      lookupLusha: (query) => lookupLushaIdentity(query),
       async persist(id, patch) {
         const update: Record<string, unknown> = { enrichment_metadata: patch.enrichment_metadata };
         if (patch.apollo_person_id) update.apollo_person_id = patch.apollo_person_id;
         if (patch.linkedin_url) update.linkedin_url = patch.linkedin_url;
+        if (patch.email) update.email = patch.email;
         let query = admin.from('contact_enrichment_candidates').update(update).eq('id', id);
         // Nunca se pisa un valor que otro proceso escribió entre la lectura y esta escritura.
         if (patch.apollo_person_id) query = query.is('apollo_person_id', null);
@@ -152,6 +153,8 @@ async function runCompletion(
           metadata: {
             entry_mode: 'candidate_identity_completion',
             purpose: context.purpose,
+            // Con qué se buscó (correo / linkedin), nunca el valor.
+            channel: context.channel,
             candidate_id: candidateId,
             hito: CANDIDATE_IDENTITY_COMPLETION_HITO,
           },
@@ -161,25 +164,52 @@ async function runCompletion(
   );
 }
 
-// ── «Revelar LinkedIn» ───────────────────────────────────────────
+// ── «Revelar LinkedIn» / «Revelar correo» ──────────────────────────
 
-export type RevealCandidateLinkedinActionResult = IdentityCompletionResult;
+function failed(status: IdentityCompletionStatus): IdentityCompletionResult {
+  return {
+    ok: false,
+    status,
+    linkedinAvailable: false,
+    emailAvailable: false,
+    providerIdentityAvailable: false,
+    linkedinProvider: null,
+    emailProvider: null,
+  };
+}
 
-export async function revealCandidateLinkedinAction(input: {
-  candidateId: string;
-}): Promise<RevealCandidateLinkedinActionResult> {
+async function revealChannel(
+  input: { candidateId: string },
+  purpose: 'linkedin' | 'email',
+): Promise<IdentityCompletionResult> {
   const candidateId = typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
   const actor = await resolveActor();
   const supabase = await createClient();
   // Alcance comercial ANTES de gastar: un candidato ajeno no existe para este actor.
   if (!candidateId || !(await canSeeContactCandidate(supabase, candidateId))) {
-    return { ok: false, status: 'candidate_not_found', linkedinAvailable: false, providerIdentityAvailable: false, linkedinProvider: null };
+    return failed('candidate_not_found');
   }
   try {
-    return await runCompletion(candidateId, 'linkedin', actor);
+    return await runCompletion(candidateId, purpose, actor);
   } catch {
-    return { ok: false, status: 'provider_error', linkedinAvailable: false, providerIdentityAvailable: false, linkedinProvider: null };
+    return failed('provider_error');
   }
+}
+
+export type RevealCandidateLinkedinActionResult = IdentityCompletionResult;
+
+/** «Revelar LinkedIn»: busca por el correo del candidato. */
+export async function revealCandidateLinkedinAction(input: {
+  candidateId: string;
+}): Promise<RevealCandidateLinkedinActionResult> {
+  return revealChannel(input, 'linkedin');
+}
+
+/** «Revelar correo»: busca por el LinkedIn del candidato. */
+export async function revealCandidateEmailAction(input: {
+  candidateId: string;
+}): Promise<IdentityCompletionResult> {
+  return revealChannel(input, 'email');
 }
 
 // ── «Revelar teléfono» con identificación previa ──────────────────
@@ -232,7 +262,7 @@ export async function revealCandidatePhoneWithIdentityAction(
   try {
     identity = await runCompletion(candidateId, 'phone', actor);
   } catch {
-    identity = { ok: false, status: 'provider_error', linkedinAvailable: false, providerIdentityAvailable: false, linkedinProvider: null };
+    identity = failed('provider_error');
   }
   // El rol lo vuelve a decir el reveal con su propio copy.
   if (identity.status === 'unauthorized_role') return revealCandidatePhoneAction(input);

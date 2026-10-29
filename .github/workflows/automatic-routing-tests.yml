@@ -52,9 +52,9 @@ jobs:
         run: npm run test:agent2a:linkedin-contact-search
 
       # AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — contacto que ya existe en HubSpot sólo con
-      # correo: «Revelar LinkedIn», identificación por correo antes de «Revelar teléfono» (sólo
-      # origen HubSpot, nunca sobrescribe, nunca pide teléfono a Apollo) y completar vacíos en
-      # HubSpot al primer sync del contacto vinculado.
+      # correo o sólo con LinkedIn: «Revelar LinkedIn» / «Revelar correo», identificación (correo y
+      # luego LinkedIn) antes de «Revelar teléfono» (sólo origen HubSpot, nunca sobrescribe, nunca
+      # pide teléfono a Apollo) y completar vacíos en HubSpot al primer sync del contacto vinculado.
       - name: Run Agent 2A HubSpot candidate identity tests
         run: npm run test:agent2a:hubspot-candidate-identity
 

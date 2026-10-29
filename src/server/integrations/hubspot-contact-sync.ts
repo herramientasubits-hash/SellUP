@@ -309,7 +309,7 @@ export async function findHubSpotContactById(
   const token = await getHubSpotToken();
   if (!token) throw new Error('HubSpot token unavailable');
 
-  const params = new URLSearchParams({ properties: HUBSPOT_FILL_EMPTY_PROPERTY_NAMES.join(',') });
+  const params = new URLSearchParams({ properties: ['email', ...HUBSPOT_FILL_EMPTY_PROPERTY_NAMES].join(',') });
   const response = await fetch(
     `${HUBSPOT_BASE}/crm/v3/objects/contacts/${encodeURIComponent(hubspotContactId)}?${params.toString()}`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -325,7 +325,30 @@ export async function findHubSpotContactById(
     const value = data.properties[name];
     properties[name] = typeof value === 'string' ? value : null;
   }
-  return { id, properties };
+  const email = data.properties.email;
+  return { id, properties, email: typeof email === 'string' ? email : null };
+}
+
+/**
+ * PATCH SÓLO del correo de un contacto ya vinculado cuyo correo está vacío en HubSpot
+ * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Separado del resto: HubSpot responde 409 si
+ * otro contacto ya usa ese correo, y eso no debe frenar el teléfono ni el LinkedIn. Sólo
+ * devuelve el código HTTP: el cuerpo citaría el correo.
+ */
+export async function fillEmptyHubSpotContactEmail(
+  hubspotContactId: string,
+  email: string,
+): Promise<{ ok: true } | { error: string }> {
+  const value = email.trim();
+  if (!value) return { error: 'EMPTY_EMAIL' };
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const result = await patchHubSpotContactProperties(token, hubspotContactId, { email: value });
+    return 'ok' in result ? { ok: true } : { error: `HUBSPOT_EMAIL_HTTP_${result.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_EMAIL_FILL_ERROR' };
+  }
 }
 
 /** PATCH crudo de propiedades. Sólo devuelve el código HTTP: el cuerpo citaría el teléfono. */

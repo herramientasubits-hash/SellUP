@@ -97,7 +97,10 @@ import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PendingContactCandidate } from '@/modules/contact-enrichment/types';
 import { PHONE_REVEAL_IDENTITY_BLOCKED_COPY } from '@/modules/contact-enrichment/phone-reveal-identity-eligibility';
-import { IDENTITY_COMPLETION_COPY } from '@/modules/contact-enrichment/candidate-identity-completion-core';
+import {
+  IDENTITY_COMPLETION_COPY,
+  phoneIdentityHelperCopy,
+} from '@/modules/contact-enrichment/candidate-identity-completion-core';
 
 let render: (typeof import('@testing-library/react'))['render'];
 let screen: (typeof import('@testing-library/react'))['screen'];
@@ -115,12 +118,14 @@ const mockLegacyStart = mock.fn<(input: unknown) => Promise<unknown>>();
 // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — identificar antes del reveal y «Revelar LinkedIn».
 const mockRevealWithIdentity = mock.fn<(input: unknown) => Promise<unknown>>();
 const mockRevealLinkedin = mock.fn<(input: unknown) => Promise<unknown>>();
+const mockRevealEmail = mock.fn<(input: unknown) => Promise<unknown>>();
 
 mock.module('@/modules/contact-enrichment/candidate-identity-completion-actions', {
   namedExports: {
     revealCandidatePhoneWithIdentityAction: (...args: unknown[]) =>
       mockRevealWithIdentity(...(args as [unknown])),
     revealCandidateLinkedinAction: (...args: unknown[]) => mockRevealLinkedin(...(args as [unknown])),
+    revealCandidateEmailAction: (...args: unknown[]) => mockRevealEmail(...(args as [unknown])),
   },
 });
 
@@ -264,7 +269,8 @@ function totalProviderCalls(): number {
     mockLushaFallback.mock.callCount() +
     mockLegacyStart.mock.callCount() +
     mockRevealWithIdentity.mock.callCount() +
-    mockRevealLinkedin.mock.callCount()
+    mockRevealLinkedin.mock.callCount() +
+    mockRevealEmail.mock.callCount()
   );
 }
 
@@ -285,6 +291,8 @@ beforeEach(() => {
   mockLegacyStart.mock.resetCalls();
   mockRevealWithIdentity.mock.resetCalls();
   mockRevealLinkedin.mock.resetCalls();
+  mockRevealEmail.mock.resetCalls();
+  mockRevealEmail.mock.mockImplementation(async () => ({ ok: true, status: 'completed' }));
   mockRevealWithIdentity.mock.mockImplementation(async () => ({
     ok: true,
     status: 'requested',
@@ -420,6 +428,8 @@ describe('botón DESHABILITADO cuando la supresión no es evaluable', () => {
       baseCandidate({
         source: 'hubspot',
         email: null,
+        // Un LinkedIn de EMPRESA no identifica a una persona: no hay con qué buscar.
+        linkedin_url: 'https://www.linkedin.com/company/prueba',
         source_contact_id: null,
         apollo_person_id: null,
         account_id: null,
@@ -444,6 +454,8 @@ describe('botón DESHABILITADO cuando la supresión no es evaluable', () => {
       baseCandidate({
         source: 'hubspot',
         email: null,
+        // Un LinkedIn de EMPRESA no identifica a una persona: no hay con qué buscar.
+        linkedin_url: 'https://www.linkedin.com/company/prueba',
         source_contact_id: null,
         apollo_person_id: null,
       }),
@@ -480,6 +492,8 @@ describe('L. 0 llamadas a proveedor', () => {
       baseCandidate({
         source: 'hubspot',
         email: null,
+        // Un LinkedIn de EMPRESA no identifica a una persona: no hay con qué buscar.
+        linkedin_url: 'https://www.linkedin.com/company/prueba',
         source_contact_id: null,
         apollo_person_id: null,
       }),
@@ -514,7 +528,7 @@ describe('HubSpot sólo con correo: «Revelar teléfono» y «Revelar LinkedIn»
     assert.equal(revealButton().disabled, false);
     const text = bodyText();
     assert.equal(text.includes(PHONE_REVEAL_IDENTITY_BLOCKED_COPY), false);
-    assert.ok(text.includes(IDENTITY_COMPLETION_COPY.phoneIdentityHelper));
+    assert.ok(text.includes(phoneIdentityHelperCopy(['email'])));
     assert.equal(totalProviderCalls(), 0, 'renderizar no gasta');
   });
 
@@ -573,6 +587,31 @@ describe('HubSpot sólo con correo: «Revelar teléfono» y «Revelar LinkedIn»
   it('con LinkedIn ya presente no se ofrece «Revelar LinkedIn»', async () => {
     await renderSheet(hubspotCandidate({ linkedin_url: 'https://www.linkedin.com/in/prueba' }));
     assert.equal(screen.queryAllByRole('button', { name: /Revelar LinkedIn/ }).length, 0);
+  });
+
+  it('sólo LinkedIn: «Revelar correo» con su costo, y el teléfono se habilita identificando por LinkedIn', async () => {
+    await renderSheet(
+      hubspotCandidate({ email: null, linkedin_url: 'https://www.linkedin.com/in/prueba' }),
+    );
+    assert.equal(screen.queryAllByRole('button', { name: /Revelar LinkedIn/ }).length, 0);
+    const emailButtons = screen.getAllByRole('button', { name: /Revelar correo/ });
+    assert.equal(emailButtons.length, 1);
+    assert.ok(bodyText().includes(IDENTITY_COMPLETION_COPY.emailHelper));
+    assert.equal(revealButton().disabled, false);
+    assert.ok(bodyText().includes(phoneIdentityHelperCopy(['linkedin'])));
+    await act(async () => {
+      fireEvent.click(emailButtons[0]);
+    });
+    assert.equal(mockRevealEmail.mock.callCount(), 1);
+    assert.deepEqual(mockRevealEmail.mock.calls[0].arguments[0], { candidateId: 'cand-identity' });
+    assert.equal(mockReveal.mock.callCount() + mockRevealWithIdentity.mock.callCount(), 0, 'no revela teléfono');
+  });
+
+  it('con correo y LinkedIn: sin botones de canal y el copy dice que usa uno después del otro', async () => {
+    await renderSheet(hubspotCandidate({ linkedin_url: 'https://www.linkedin.com/in/prueba' }));
+    assert.equal(screen.queryAllByRole('button', { name: /Revelar (LinkedIn|correo)/ }).length, 0);
+    assert.equal(revealButton().disabled, false);
+    assert.ok(bodyText().includes(phoneIdentityHelperCopy(['email', 'linkedin'])));
   });
 
   it('candidatos de Apollo sin LinkedIn NO reciben «Revelar LinkedIn» (sólo HubSpot)', async () => {
