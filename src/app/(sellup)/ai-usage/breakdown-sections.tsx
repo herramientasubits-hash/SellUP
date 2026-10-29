@@ -13,6 +13,7 @@ import type { UsageFilters } from '@/modules/ai-usage/queries';
 import { CountryToolsTable } from './country-tools-table';
 import { RoleGroupTables } from './role-group-tables';
 import { SearchBatchesTable } from './search-batches-table';
+import { UsageMapView } from './usage-map-view';
 
 export function BreakdownSkeleton() {
   return (
@@ -89,6 +90,18 @@ export async function RoleGroupBreakdownSection({
       currentQuery={currentQuery}
     />
   ));
+}
+
+/** «Mapa de uso»: uso por rol, grupo, país, persona y líder (mapa de calor y gráficos). */
+export async function UsageMapSection({ filters }: { filters: UsageFilters }) {
+  return withBreakdowns(filters, (data) =>
+    data.usageMap ? (
+      <UsageMapView
+        data={data.usageMap}
+        names={{ roleLabels: data.roleLabels, groupNames: data.groupNames, personNames: data.personNames }}
+      />
+    ) : null,
+  );
 }
 
 export async function SearchBreakdownSection({ filters }: { filters: UsageFilters }) {
