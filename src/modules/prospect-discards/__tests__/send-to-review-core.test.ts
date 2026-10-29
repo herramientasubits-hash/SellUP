@@ -600,3 +600,63 @@ describe('sendCandidateToReviewCore — competidora pequeña', () => {
     assert.equal(outcome.outcome, 'sent');
   });
 });
+
+// FEEDBACK 29-10 — lo que vuelve a revisión se verifica en SellUp y HubSpot. Antes quedaba
+// «sin verificar» y no se podía aprobar (Casa Brugal).
+describe('send-to-review-core — revisión de duplicados al volver', () => {
+  beforeEach(resetFakeState);
+  const alwaysInScope = async () => true;
+  function seedBatch(): void {
+    seed('prospect_batches', { id: 'batch-1', owner_id: 'u', created_by: 'u' });
+  }
+
+  it('fila descartada → al volver se pide la revisión de duplicados de ESA fila', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: null });
+    const rechecked: string[] = [];
+    const outcome = await sendCandidateToReviewCore(
+      {
+        supabase: makeFakeSupabase(),
+        actorUserId: 'u',
+        isBatchInScope: alwaysInScope,
+        recheckDuplicates: async (id) => { rechecked.push(id); },
+      },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    assert.deepEqual(rechecked, ['cand-1']);
+  });
+
+  it('si la revisión falla, el envío NO se deshace', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'discarded', review_notes: null });
+    const outcome = await sendCandidateToReviewCore(
+      {
+        supabase: makeFakeSupabase(),
+        actorUserId: 'u',
+        isBatchInScope: alwaysInScope,
+        recheckDuplicates: async () => { throw new Error('hubspot caído'); },
+      },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'sent');
+    assert.equal(db.prospect_candidates.get('cand-1')!.status, 'needs_review');
+  });
+
+  it('idempotente (ya estaba en revisión) → no se vuelve a verificar', async () => {
+    seedBatch();
+    seed('prospect_candidates', { id: 'cand-1', batch_id: 'batch-1', status: 'needs_review', review_notes: null });
+    let calls = 0;
+    const outcome = await sendCandidateToReviewCore(
+      {
+        supabase: makeFakeSupabase(),
+        actorUserId: 'u',
+        isBatchInScope: alwaysInScope,
+        recheckDuplicates: async () => { calls += 1; },
+      },
+      'cand-1',
+    );
+    assert.equal(outcome.outcome, 'idempotent');
+    assert.equal(calls, 0);
+  });
+});

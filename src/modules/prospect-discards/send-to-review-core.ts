@@ -43,6 +43,13 @@ export interface SendToReviewCoreDeps {
     batchId: string,
     candidateIds: string[],
   ) => Promise<{ claimedElsewhere: Array<{ candidateId: string }>; degraded: boolean }>;
+  /**
+   * FEEDBACK 29-10 — vuelve a correr la revisión de duplicados (SellUp + HubSpot) sobre la
+   * fila recién devuelta a revisión. Sin esto quedaba «sin verificar» y no se podía aprobar
+   * (Casa Brugal). Opcional e inyectado: este módulo no llama a HubSpot por su cuenta. Un
+   * fallo no deshace el envío: la fila sigue en revisión y se puede verificar desde la ficha.
+   */
+  recheckDuplicates?: (candidateId: string) => Promise<unknown>;
 }
 
 /**
@@ -81,6 +88,21 @@ export type SendToReviewCoreOutcome =
  * revisión y nadie se marca duplicado por un fallo de infraestructura.
  */
 async function reclaimAfterSend(
+  deps: SendToReviewCoreDeps,
+  sent: Extract<SendToReviewCoreOutcome, { outcome: 'sent' }>,
+): Promise<SendToReviewCoreOutcome> {
+  const outcome = await reclaimIdentities(deps, sent);
+  if (outcome.outcome === 'sent' && deps.recheckDuplicates) {
+    try {
+      await deps.recheckDuplicates(sent.candidateId);
+    } catch (err) {
+      console.error('[prospect-discards] duplicate recheck failed:', err);
+    }
+  }
+  return outcome;
+}
+
+async function reclaimIdentities(
   deps: SendToReviewCoreDeps,
   sent: Extract<SendToReviewCoreOutcome, { outcome: 'sent' }>,
 ): Promise<SendToReviewCoreOutcome> {

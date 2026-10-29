@@ -87,14 +87,14 @@ describe('Lusha no se repite donde ya dio cero', () => {
 });
 
 describe('Lusha no corre si HubSpot o el banco ya dejaron gente en esta búsqueda', () => {
-  it('HubSpot dejó 2 (sin bastar) y Apollo 0: no se paga Lusha', async () => {
+  // FEEDBACK 29-10 — lo de HubSpot se muestra, pero NO frena a Lusha: se buscan nuevos.
+  it('HubSpot dejó 2 con correo y Apollo 0: Lusha igual busca nuevos', async () => {
     const { deps, calls } = harness({
       runHubSpotFirst: async () => ({ status: 'done', satisfied: false, inserted: 2, relevantWithEmail: 2 }),
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'fallback_skipped_free_stage_candidates');
-    assert.equal(calls.lusha, 0);
-    assert.equal(calls.attempt2, 0);
+    assert.equal(result.outcome, 'fallback_executed');
+    assert.equal(calls.lusha, 1);
     // La señal de Apollo no se mezcla: su conteo sigue siendo el suyo.
     assert.equal(result.attempt1?.result.candidatesCreated, 0);
   });
@@ -108,13 +108,13 @@ describe('Lusha no corre si HubSpot o el banco ya dejaron gente en esta búsqued
     assert.equal(calls.lusha, 1);
   });
 
-  it('el banco dejó 1: tampoco se paga Lusha', async () => {
+  it('el banco dejó 1 con correo y Apollo 0: Lusha igual busca nuevos (feedback 29-10)', async () => {
     const { deps, calls } = harness({
       runContactBank: async () => ({ status: 'done', satisfied: false, inserted: 1, relevantWithEmail: 1, siblingAccounts: 1 }),
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'fallback_skipped_free_stage_candidates');
-    assert.equal(calls.lusha, 0);
+    assert.equal(result.outcome, 'fallback_executed');
+    assert.equal(calls.lusha, 1);
   });
 
   it('el sitio web solo (sin correos) NO frena a Lusha', async () => {
@@ -150,8 +150,9 @@ describe('Estados de las etapas gratuitas', () => {
       markRunSatisfiedByHubSpot: async () => {},
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'hubspot_first_satisfied');
-    assert.deepEqual(result.freeStages, { hubspot_first: 'done', contact_bank: 'not_reached', company_site: 'not_reached' });
+    // HubSpot ya no cierra la búsqueda: sigue con el resto de etapas.
+    assert.notEqual(result.outcome, 'hubspot_first_satisfied');
+    assert.equal(result.freeStages?.hubspot_first, 'done');
 
     const off = harness({});
     const offResult = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, off.deps);
@@ -159,17 +160,12 @@ describe('Estados de las etapas gratuitas', () => {
   });
 });
 
-describe('Cierre de corridas satisfechas por etapas gratuitas (código)', () => {
+describe('Las etapas gratuitas suman, no cortan (código, feedback 29-10)', () => {
   const source = readFileSync(join(__dirname, '..', 'contact-enrichment-routing-orchestrator.ts'), 'utf8');
-  const helper = source.slice(source.indexOf('async function markRunSatisfiedByFreeStage('), source.indexOf('async function defaultRunContactBank('));
-  it('escribe el total, cierra agent_runs y revisa si se cerró algo', () => {
-    assert.match(helper, /totalCandidates: total/);
-    assert.match(helper, /\.eq\('enrichment_run_id', attemptId\)/);
-    assert.match(helper, /updateAgentRunRecord\(agentRunId/);
-    assert.match(helper, /\.select\('id'\)/);
-  });
-  it('HubSpot y banco pasan por el mismo cierre', () => {
-    assert.equal(source.split('await markRunSatisfiedByFreeStage(').length - 1, 2);
+  it('ni HubSpot ni el banco cierran la corrida ni frenan a Lusha', () => {
+    assert.ok(!source.includes('markRunSatisfiedByFreeStage('));
+    assert.ok(!source.includes("return satisfiedByFreeStageResult("));
+    assert.ok(!source.includes("blockedReason: 'free_stage_candidates'"));
   });
 });
 

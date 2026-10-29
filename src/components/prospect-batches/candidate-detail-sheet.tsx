@@ -731,6 +731,8 @@ export function CandidateDetailSheet({
                 recordOrigin: candidate.record_origin,
                 duplicateStatus: candidate.duplicate_status,
                 matchedHubspotCompanyId: candidate.matched_hubspot_company_id,
+                matchedAccountId: candidate.matched_account_id,
+                hubspotChecked: dc?.sources_checked ? dc.sources_checked.includes('hubspot') : null,
                 reviewedAt: candidate.reviewed_at,
                 convertedAccountId: candidate.converted_account_id,
                 needsAssignee: candidate.needs_assignee,
@@ -742,6 +744,7 @@ export function CandidateDetailSheet({
               candidate={candidate}
               isAutoValidated={isAutoValidated}
               validationMetaSheet={validationMetaSheet}
+              onCandidateUpdated={onCandidateUpdated}
             />
 
             {/* Coincidencias de Duplicidad */}

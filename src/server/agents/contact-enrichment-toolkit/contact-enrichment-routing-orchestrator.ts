@@ -27,7 +27,6 @@
 // database layer; the loser observes 'already_exists' and never calls Lusha.
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { updateAgentRun as updateAgentRunRecord } from '@/modules/usage-tracking/logging';
 import {
   assertAutomaticRoutingEnvironmentIsSafe,
   UnsafeSupabaseEnvironmentError,
@@ -233,71 +232,6 @@ async function defaultRunHubSpotFirst(attemptId: string, triggeredBy?: string): 
   return runHubSpotFirstStage({ attemptId, triggeredBy: triggeredBy ?? null });
 }
 
-async function defaultMarkRunSatisfiedByHubSpot(
-  attemptId: string,
-  stage: Extract<HubSpotFirstStageResult, { status: 'done' }>,
-): Promise<void> {
-  await markRunSatisfiedByFreeStage(attemptId, stage.inserted, {
-    hubspot_first: {
-      satisfied: true,
-      candidates_inserted: stage.inserted,
-      relevant_with_email: stage.relevantWithEmail,
-    },
-  });
-}
-
-/**
- * Cierra una corrida que una etapa gratuita dejó lista para revisión (AGENT2-AUDIT-FIXES-1).
- * Antes sólo se cambiaba el estado de la búsqueda: el registro del agente (`agent_runs`) quedaba
- * «en curso» para siempre y `totalCandidates` en 0 aunque hubiera candidatos (Davivienda, 20-10).
- * Ahora escribe el total, cierra el registro del agente igual que Apollo y deja rastro si la
- * corrida ya no estaba en un estado que se pudiera cerrar.
- */
-async function markRunSatisfiedByFreeStage(
-  attemptId: string,
-  inserted: number,
-  summaryPatch: Record<string, unknown>,
-): Promise<void> {
-  const admin = createSupabaseAdminClient();
-  const { data: current } = await admin
-    .from('contact_enrichment_runs')
-    .select('summary, agent_run_id')
-    .eq('id', attemptId)
-    .maybeSingle();
-  const currentSummary = (current?.summary as Record<string, unknown> | null) ?? {};
-  // El total sale de las filas reales: HubSpot pudo dejar gente antes de que el banco bastara.
-  const { count: rowsInRun } = await admin
-    .from('contact_enrichment_candidates')
-    .select('id', { count: 'exact', head: true })
-    .eq('enrichment_run_id', attemptId);
-  const total = typeof rowsInRun === 'number' && rowsInRun >= inserted ? rowsInRun : inserted;
-  const { data: updated, error } = await admin
-    .from('contact_enrichment_runs')
-    .update({
-      status: 'ready_for_review',
-      summary: { ...currentSummary, ...summaryPatch, totalCandidates: total },
-    })
-    .eq('id', attemptId)
-    .in('status', ['pending', 'resolving', 'ready_to_enrich'])
-    .select('id');
-  if (error || !updated || updated.length === 0) {
-    console.error('[contact-enrichment] free stage could not close run', {
-      attemptId,
-      error: error?.message ?? 'run_not_in_closable_status',
-    });
-    return;
-  }
-  const agentRunId = typeof current?.agent_run_id === 'string' ? current.agent_run_id : null;
-  if (agentRunId) {
-    await updateAgentRunRecord(agentRunId, {
-      status: 'completed',
-      finished_at: new Date().toISOString(),
-      results_generated: total,
-      estimated_cost_usd: 0,
-    });
-  }
-}
-
 async function defaultRunContactBank(attemptId: string): Promise<ContactBankStageResult | null> {
   if (!isContactEnrichmentContactBankEnabled()) return null;
   return runContactBankStage({ attemptId });
@@ -306,20 +240,6 @@ async function defaultRunContactBank(attemptId: string): Promise<ContactBankStag
 async function defaultRunCompanySite(attemptId: string, triggeredBy: string): Promise<CompanySiteStageResult | null> {
   if (!isContactEnrichmentCompanySiteEnabled()) return null;
   return runCompanySiteStage({ attemptId, triggeredBy });
-}
-
-async function defaultMarkRunSatisfiedByContactBank(
-  attemptId: string,
-  stage: Extract<ContactBankStageResult, { status: 'done' }>,
-): Promise<void> {
-  await markRunSatisfiedByFreeStage(attemptId, stage.inserted, {
-    contact_bank: {
-      satisfied: true,
-      candidates_inserted: stage.inserted,
-      relevant_with_email: stage.relevantWithEmail,
-      same_company_accounts: stage.siblingAccounts,
-    },
-  });
 }
 
 async function defaultEvaluateRecentFallbackZero(
@@ -510,7 +430,7 @@ export interface AutomaticRoutingOrchestratorDeps {
    * escribe nada. Falla abierto: ante cualquier error el flujo sigue con Apollo/Lusha.
    */
   runHubSpotFirst?: (attemptId: string, triggeredBy?: string) => Promise<HubSpotFirstStageResult | null>;
-  /** Marca la corrida como lista para revisión cuando HubSpot bastó. */
+  /** @deprecated FEEDBACK 29-10 — HubSpot ya no cierra la búsqueda; se ignora. */
   markRunSatisfiedByHubSpot?: (attemptId: string, stage: Extract<HubSpotFirstStageResult, { status: 'done' }>) => Promise<void>;
   /**
    * AGENT2-CONTACT-BANK-1 — banco de contactos por empresa. Devuelve `null` cuando la bandera
@@ -518,7 +438,7 @@ export interface AutomaticRoutingOrchestratorDeps {
    * nada. Falla abierto: ante cualquier error el flujo sigue con Apollo/Lusha.
    */
   runContactBank?: (attemptId: string) => Promise<ContactBankStageResult | null>;
-  /** Marca la corrida como lista para revisión cuando el banco bastó. */
+  /** @deprecated FEEDBACK 29-10 — el banco ya no cierra la búsqueda; se ignora. */
   markRunSatisfiedByContactBank?: (
     attemptId: string,
     stage: Extract<ContactBankStageResult, { status: 'done' }>,
@@ -582,7 +502,6 @@ export async function runAutomaticContactEnrichmentFallbackForRequest(
     contactBank: null,
     companySite: null,
     statuses: { hubspot_first: 'not_reached', contact_bank: 'not_reached', company_site: 'not_reached' },
-    relevantWithEmail: 0,
     hubspotBreakdown: null,
   };
   const result = await runAutomaticRoutingCore(input, deps, freeStagesCtx);
@@ -602,8 +521,6 @@ interface FreeStagesCtx {
   contactBank: NonNullable<AutomaticRoutingOrchestratorResult['contactBank']> | null;
   companySite: NonNullable<AutomaticRoutingOrchestratorResult['companySite']> | null;
   statuses: FreeStageStatusesV1;
-  /** Candidatos relevantes CON correo que dejaron HubSpot y el banco en esta búsqueda. */
-  relevantWithEmail: number;
   hubspotBreakdown: HubSpotFirstBreakdown | null;
 }
 
@@ -625,22 +542,6 @@ async function runFreeStage<T extends { status: string }>(
   }
 }
 
-function satisfiedByFreeStageResult(
-  outcome: 'hubspot_first_satisfied' | 'contact_bank_satisfied',
-): Omit<AutomaticRoutingOrchestratorResult, 'freeStages'> {
-  return {
-    outcome,
-    automaticRoutingEnabled: true,
-    attempt1: null,
-    attempt2: null,
-    fallbackExecuted: false,
-    wouldRecommendFallback: false,
-    fallbackReason: 'not_applicable',
-    blockedReason: null,
-    reusedExistingCandidates: 0,
-  };
-}
-
 async function runAutomaticRoutingCore(
   input: AutomaticRoutingOrchestratorInput,
   deps: AutomaticRoutingOrchestratorDeps,
@@ -654,9 +555,7 @@ async function runAutomaticRoutingCore(
     createFallbackAttempt = defaultCreateFallbackAttempt,
     runLushaAttempt = defaultRunLushaAttempt,
     runHubSpotFirst = defaultRunHubSpotFirst,
-    markRunSatisfiedByHubSpot = defaultMarkRunSatisfiedByHubSpot,
     runContactBank = defaultRunContactBank,
-    markRunSatisfiedByContactBank = defaultMarkRunSatisfiedByContactBank,
     runCompanySite = defaultRunCompanySite,
     evaluateRecentFallbackZero = defaultEvaluateRecentFallbackZero,
     evaluateLocalCandidateReuse = defaultEvaluateLocalCandidateReuse,
@@ -711,80 +610,37 @@ async function runAutomaticRoutingCore(
 
   // AGENT2-HUBSPOT-FIRST-1 — primero lo que HubSpot ya sabe de la empresa (gratis). Con la
   // bandera apagada `runHubSpotFirst` devuelve null y esta rama no existe. Falla abierto.
+  // FEEDBACK 29-10 — HubSpot SUMA, no reemplaza: lo que ya está en HubSpot se muestra (marcado
+  // como de HubSpot) y la búsqueda sigue con Apollo y Lusha para traer gente NUEVA. Apollo ya
+  // descarta a quien está en HubSpot (snapshot de contactos existentes), así que no se repite
+  // a nadie. Por eso estos contactos tampoco cuentan para frenar a Lusha más abajo.
   const hubspotRun = await runFreeStage(() => runHubSpotFirst(resolved1.attemptId, input.triggeredBy));
   const hubspotFirst = hubspotRun.stage;
   freeStagesCtx.statuses.hubspot_first = hubspotRun.status;
   if (hubspotFirst?.status === 'done') {
-    freeStagesCtx.relevantWithEmail += hubspotFirst.relevantWithEmail;
     freeStagesCtx.hubspotBreakdown = hubspotFirst.breakdown ?? null;
     freeStagesCtx.hubspotFirst = {
       attemptId: resolved1.attemptId,
       inserted: hubspotFirst.inserted,
-      satisfied: hubspotFirst.satisfied,
+      // Nunca «bastan»: HubSpot ya no detiene la búsqueda de nuevos.
+      satisfied: false,
     };
-    if (hubspotFirst.satisfied) {
-      await markRunSatisfiedByHubSpot(resolved1.attemptId, hubspotFirst);
-      await writeRoutingTelemetry(
-        resolved1.attemptId,
-        buildRunColumns('primary', 'not_applicable'),
-        buildSummaryBlock({
-          role: 'primary',
-          policy,
-          actualProvider: config.primaryProvider,
-          wouldRecommendFallback: false,
-          fallbackReason: 'not_applicable',
-          fallbackExecuted: false,
-          fallbackAttemptRunId: null,
-          triggeredByAttemptRunId: null,
-          evaluatedAt: input.evaluatedAt,
-          evidence: {
-            hubspot_first_satisfied: true,
-            hubspot_candidates_inserted: hubspotFirst.inserted,
-            hubspot_relevant_with_email: hubspotFirst.relevantWithEmail,
-          },
-        }),
-      );
-      return satisfiedByFreeStageResult('hubspot_first_satisfied');
-    }
   }
 
   // AGENT2-CONTACT-BANK-1 — después, lo que SellUp ya conocía de otra ficha de la misma compañía
   // (gratis). Con la bandera apagada `runContactBank` devuelve null y esta rama no existe.
+  // FEEDBACK 29-10 — igual que HubSpot, el banco SUMA y no frena: lo que ya conocíamos se muestra
+  // y la búsqueda sigue con Apollo y Lusha para traer gente nueva (que ya descartan a los conocidos).
   const bankRun = await runFreeStage(() => runContactBank(resolved1.attemptId));
   const contactBank = bankRun.stage;
   freeStagesCtx.statuses.contact_bank = bankRun.status;
   if (contactBank?.status === 'done') {
-    freeStagesCtx.relevantWithEmail += contactBank.relevantWithEmail;
     freeStagesCtx.contactBank = {
       attemptId: resolved1.attemptId,
       inserted: contactBank.inserted,
-      satisfied: contactBank.satisfied,
+      // Nunca «bastan»: el banco ya no detiene la búsqueda de nuevos.
+      satisfied: false,
     };
-    if (contactBank.satisfied) {
-      await markRunSatisfiedByContactBank(resolved1.attemptId, contactBank);
-      await writeRoutingTelemetry(
-        resolved1.attemptId,
-        buildRunColumns('primary', 'not_applicable'),
-        buildSummaryBlock({
-          role: 'primary',
-          policy,
-          actualProvider: config.primaryProvider,
-          wouldRecommendFallback: false,
-          fallbackReason: 'not_applicable',
-          fallbackExecuted: false,
-          fallbackAttemptRunId: null,
-          triggeredByAttemptRunId: null,
-          evaluatedAt: input.evaluatedAt,
-          evidence: {
-            contact_bank_satisfied: true,
-            contact_bank_candidates_inserted: contactBank.inserted,
-            contact_bank_relevant_with_email: contactBank.relevantWithEmail,
-            contact_bank_same_company_accounts: contactBank.siblingAccounts,
-          },
-        }),
-      );
-      return satisfiedByFreeStageResult('contact_bank_satisfied');
-    }
   }
 
   const attempt1Result = await runApolloAttempt(resolved1.attemptId, input.triggeredBy);
@@ -962,41 +818,6 @@ async function runAutomaticRoutingCore(
       fallbackReason: signal.fallbackReasonForTelemetry,
       blockedReason: null,
       reusedExistingCandidates: localReuse.actionableReusableCandidateCount,
-    };
-  }
-
-  // AGENT2-AUDIT-FIXES-1 — gente relevante CON correo que «Primero HubSpot» o el banco ya dejaron
-  // en ESTA búsqueda. Se decide aquí, como compuerta propia, y NO se suma al conteo de Apollo: la
-  // señal de respaldo sigue siendo la verdad de Apollo. Sin correo (o del sitio web) no frena a
-  // Lusha, que es justamente quien aporta correos.
-  const freeStageReviewable = freeStagesCtx.relevantWithEmail;
-  if (freeStageReviewable > 0) {
-    await writeRoutingTelemetry(
-      resolved1.attemptId,
-      buildRunColumns('primary', signal.fallbackReasonForTelemetry),
-      buildSummaryBlock({
-        role: 'primary',
-        policy,
-        actualProvider: config.primaryProvider,
-        wouldRecommendFallback: true,
-        fallbackReason: signal.fallbackReasonForTelemetry,
-        fallbackExecuted: false,
-        fallbackAttemptRunId: null,
-        triggeredByAttemptRunId: null,
-        evaluatedAt: input.evaluatedAt,
-        evidence: { blocked_reason: 'free_stage_candidates', free_stage_candidates: freeStageReviewable },
-      }),
-    );
-    return {
-      outcome: 'fallback_skipped_free_stage_candidates',
-      automaticRoutingEnabled: true,
-      attempt1,
-      attempt2: null,
-      fallbackExecuted: false,
-      wouldRecommendFallback: true,
-      fallbackReason: signal.fallbackReasonForTelemetry,
-      blockedReason: 'free_stage_candidates',
-      reusedExistingCandidates: 0,
     };
   }
 

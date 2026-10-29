@@ -49,17 +49,16 @@ describe('Primero HubSpot — orquestador', () => {
     assert.equal(result.hubspotFirst, undefined);
   });
 
-  it('HubSpot bastó: no se llama a Apollo ni a Lusha y la corrida pasa a revisión', async () => {
+  // FEEDBACK 29-10 — HubSpot suma, no reemplaza: aunque traiga «bastantes», Apollo busca nuevos.
+  it('HubSpot trajo bastantes: igual se llama a Apollo para traer gente nueva', async () => {
     const { deps, calls } = harness({
       runHubSpotFirst: async () => ({ status: 'done', satisfied: true, inserted: 3, relevantWithEmail: 3 }),
     });
     const result = await runAutomaticContactEnrichmentFallbackForRequest(INPUT, deps);
-    assert.equal(result.outcome, 'hubspot_first_satisfied');
-    assert.equal(calls.apollo, 0);
-    assert.equal(calls.lusha, 0);
-    assert.equal(calls.marked, 1);
-    assert.equal(calls.telemetry, 1);
-    assert.deepEqual(result.hubspotFirst, { attemptId: 'attempt-1', inserted: 3, satisfied: true });
+    assert.notEqual(result.outcome, 'hubspot_first_satisfied');
+    assert.equal(calls.apollo, 1);
+    assert.equal(calls.marked, 0);
+    assert.deepEqual(result.hubspotFirst, { attemptId: 'attempt-1', inserted: 3, satisfied: false });
   });
 
   it('HubSpot trajo algo pero no bastó: Apollo corre y el resultado conserva lo de HubSpot', async () => {

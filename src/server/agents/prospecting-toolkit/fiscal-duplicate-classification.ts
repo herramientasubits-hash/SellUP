@@ -152,13 +152,14 @@ export function classifyFiscalDuplicateIdentity(params: {
  * propiedades nuevas.
  */
 export const HUBSPOT_FISCAL_PROPERTIES = [
-  'nit',
-  'identificacion_fiscal',
-  'rfc',
-  'ruc',
-  'tax_id',
-  'tax_identifier',
-  'identificacion_fiscal_nit_rfc_ruc',
+  // FEEDBACK 29-10 — los nombres INTERNOS reales del portal de UBITS (leídos de
+  // /crm/v3/properties/companies). La lista anterior (`nit`, `identificacion_fiscal`,
+  // `rfc`, `ruc`, `tax_id`, …) no existía en el portal: buscar por ellas daba HTTP 400
+  // (7 grupos > máximo 5, y propiedades inexistentes), la revisión de HubSpot fallaba
+  // para toda empresa con NIT y la candidata quedaba «sin verificar».
+  'identificaci_n_fiscal', // «Identificación Fiscal (NIT - RFC - RUC)» — ~2.800 empresas
+  'rfc_mx_', // «RFC (MX)»
+  'doc_identificacion_fiscal', // «Identificación fiscal de la empresa»
 ] as const;
 
 /**

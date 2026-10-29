@@ -312,7 +312,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '123456789',
-      properties: { country: 'CO', nit: '123456789' },
+      properties: { country: 'CO', identificaci_n_fiscal: '123456789' },
     });
     assert.equal(match.confidence, 95);
     assert.equal(match.status, 'existing_in_hubspot');
@@ -322,7 +322,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '123456789',
-      properties: { country: 'MX', nit: '123456789' },
+      properties: { country: 'MX', identificaci_n_fiscal: '123456789' },
     });
     assert.equal(match.confidence, 85);
     assert.equal(match.status, 'possible_duplicate');
@@ -332,7 +332,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '123456789',
-      properties: { country: null, nit: '123456789' },
+      properties: { country: null, identificaci_n_fiscal: '123456789' },
     });
     assert.equal(match.confidence, 85);
   });
@@ -341,7 +341,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: null,
       candidateTaxId: '123456789',
-      properties: { country: 'CO', nit: '123456789' },
+      properties: { country: 'CO', identificaci_n_fiscal: '123456789' },
     });
     assert.equal(match.confidence, 85);
   });
@@ -351,7 +351,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
       const match = hubSpotFiscalMatch({
         candidateCountryCode: 'CO',
         candidateTaxId: '900.123.456',
-        properties: { country: 'CO', nit: stored },
+        properties: { country: 'CO', identificaci_n_fiscal: stored },
       });
       assert.equal(match.confidence, 95, `almacenado ${stored} debería probar identidad`);
     }
@@ -361,7 +361,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '900123456',
-      properties: { country: 'CO', nit: '900999999' },
+      properties: { country: 'CO', identificaci_n_fiscal: '900999999' },
     });
     assert.equal(match.confidence, 85);
   });
@@ -370,7 +370,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '900123456',
-      properties: { country: 'Colombia', nit: '900123456' },
+      properties: { country: 'Colombia', identificaci_n_fiscal: '900123456' },
     });
     assert.equal(match.confidence, 85, 'recall menor, pero jamás identidad global falsa');
     assert.equal(match.status, 'possible_duplicate');
@@ -380,7 +380,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
     const match = hubSpotFiscalMatch({
       candidateCountryCode: 'MX',
       candidateTaxId: 'ABC-010203-XY9',
-      properties: { country: 'MX', nit: null, rfc: 'ABC010203XY9' },
+      properties: { country: 'MX', identificaci_n_fiscal: null, rfc_mx_: 'ABC010203XY9' },
     });
     assert.equal(match.confidence, 95);
   });
@@ -399,7 +399,7 @@ describe('§ 33 · matriz HubSpot — el `95` se gana, no se regala', () => {
       candidateCountryCode: 'CO',
       candidateTaxId: '900123456',
       isOfficialTaxId: false,
-      properties: { country: 'CO', nit: '900123456' },
+      properties: { country: 'CO', identificaci_n_fiscal: '900123456' },
     });
     assert.equal(match.confidence, 85);
     assert.equal(match.status, 'possible_duplicate');
@@ -485,7 +485,7 @@ describe('§ 35 · regresión de NAMESPACE de país en los PRODUCTORES', () => {
       hubSpotFiscalMatch({
         candidateCountryCode: 'CO',
         candidateTaxId: '123456789',
-        properties: { country: 'MX', nit: '123456789' },
+        properties: { country: 'MX', identificaci_n_fiscal: '123456789' },
       }).confidence,
       95,
     );
@@ -524,7 +524,7 @@ describe('§§ 36, 37 · integración con el lector COMPARTIDO de CUT-L7', () =>
     const hubspot = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '900123456',
-      properties: { country: 'CO', nit: '900123456' },
+      properties: { country: 'CO', identificaci_n_fiscal: '900123456' },
     });
     assert.equal(hubspot.confidence, 95);
     assert.equal(classifyDuplicateIdentityEvidence(hubspot).strength, 'strong');
@@ -542,7 +542,7 @@ describe('§§ 36, 37 · integración con el lector COMPARTIDO de CUT-L7', () =>
     const hubspot = hubSpotFiscalMatch({
       candidateCountryCode: 'CO',
       candidateTaxId: '123456789',
-      properties: { country: 'MX', nit: '123456789' },
+      properties: { country: 'MX', identificaci_n_fiscal: '123456789' },
     });
     const evidence = classifyDuplicateIdentityEvidence(hubspot);
     assert.equal(evidence.strength, 'weak');
@@ -601,7 +601,7 @@ describe('§§ 24-27 · flujos — ninguno se bloquea por identidad fiscal falsa
     const hubspot = hubSpotFiscalMatch({
       candidateCountryCode: 'MX',
       candidateTaxId: '123456789',
-      properties: { country: 'CO', nit: '123456789' },
+      properties: { country: 'CO', identificaci_n_fiscal: '123456789' },
     });
     assert.equal(hubspot.status, 'possible_duplicate');
     assert.equal(hasStrongIdentityDuplicateMatch([hubspot], 'hubspot'), false);
@@ -720,7 +720,8 @@ describe('§§ 14-21 · HubSpot — el `95` detrás de la validación canónica'
     const classifier = readCode(CLASSIFIER_SRC);
     assert.match(classifier, /'country', 'pais'/);
     assert.match(classifier, /HUBSPOT_FISCAL_PROPERTIES/);
-    assert.equal(HUBSPOT_FISCAL_PROPERTIES.length, 7);
+    // FEEDBACK 29-10 — sólo las propiedades que EXISTEN en el portal (≤ 5 grupos de HubSpot).
+    assert.equal(HUBSPOT_FISCAL_PROPERTIES.length, 3);
   });
 
   it('§§ 19-20 · las agujas viajan en UN filtro `IN` acotado, no en más grupos', () => {

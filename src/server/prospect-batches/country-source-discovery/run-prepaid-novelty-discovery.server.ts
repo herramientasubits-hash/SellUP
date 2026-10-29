@@ -715,6 +715,10 @@ async function runFreeCatalogLayer(
           requestedByUserId: input.requestedByUserId,
           batchId: canonicalBatchId,
           metadata: { prepaid_novelty: { ...gate.telemetry, ...unverifiedTelemetry } },
+          // FEEDBACK 29-10 — la puerta previa filtra contra HubSpot pero no deja constancia en
+          // la candidata: sin esta revisión (de sólo lectura) quedaba «sin verificar» y no se
+          // podía aprobar nunca (29 en Prod). Ahora queda «sin coincidencia» o la coincidencia real.
+          runHubspotCheck: true,
         })
       : { batchId: null as string | null, writtenCount: 0, skippedCount: 0, failed: false };
 
