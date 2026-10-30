@@ -10,6 +10,7 @@
  */
 
 import type { RunAutomaticContactEnrichmentForRequestResult } from './automatic-routing-action-core';
+import { summarizeContactSearch } from './contact-search-summary';
 
 export type ContactSearchRunStatus = 'running' | 'succeeded' | 'failed';
 
@@ -21,7 +22,7 @@ export interface ContactSearchRun {
   status: ContactSearchRunStatus;
   startedAtMs: number;
   finishedAtMs: number | null;
-  /** Contactos nuevos que quedaron para revisar (o `null` si no se sabe). */
+  /** Contactos que quedaron en «Por revisar» de la empresa, nuevos y de antes (o `null` si no se sabe). */
   found: number | null;
   message: string | null;
   /** Lanzada en otra carga de la página: su respuesta ya no llega aquí. */
@@ -58,19 +59,12 @@ const LOST_MESSAGE = 'Perdimos la conexión con la búsqueda, pero sigue en el s
 const LOST_RESPONSE_CODES: ReadonlySet<string> = new Set(['bad_response', 'network']);
 
 /**
- * Contactos nuevos que dejó para revisar: lo que creó cada proveedor, lo que ya estaba, lo que
- * HubSpot ya tenía y lo que SellUp conocía de otra ficha de la misma compañía.
+ * Lo que queda esperando en «Por revisar» de esta empresa: lo nuevo de esta búsqueda (HubSpot
+ * sin lo que pasó directo a Contactos, más las otras fuentes) y lo que ya estaba de antes.
+ * Ver contact-search-summary.ts (AGENT2A-COMPANY-SEARCH-COUNTS).
  */
 export function contactsFound(result: RunAutomaticContactEnrichmentForRequestResult): number {
-  const created = result.providerCandidatesCreated ?? { apollo: null, lusha: null };
-  return (
-    (created.apollo ?? 0) +
-    (created.lusha ?? 0) +
-    (result.reusedExistingCandidates ?? 0) +
-    (result.hubspotFirstCandidates ?? 0) +
-    (result.contactBankCandidates ?? 0) +
-    (result.companySiteCandidates ?? 0)
-  );
+  return summarizeContactSearch(result).totalForReview;
 }
 
 export interface ContactSearchRunsStore {

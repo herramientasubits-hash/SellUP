@@ -137,7 +137,8 @@ describe('AUTOMATIC_ROUTING_SETTLED', () => {
     assert.equal(next.step, 'done');
     assert.deepEqual(next.automaticResult, result);
     const last = next.messages.at(-1);
-    assert.match(last?.content ?? '', /^Encontré 3 contactos para revisar\. No creé contactos finales/);
+    assert.match(last?.content ?? '', /^Terminé la búsqueda:/);
+    assert.match(last?.content ?? '', /De otras fuentes: 3 contactos nuevos en «Por revisar»/);
     assert.match(last?.content ?? '', /requieren tu aprobación/);
     assert.equal(last?.tone, undefined);
   });
@@ -177,16 +178,22 @@ describe('AUTOMATIC_ROUTING_SETTLED', () => {
 
 // ── AGENT2A-ZERO-CANDIDATES-MESSAGE (backlog A3/A6) ──────────────────────────
 
-describe('buildAutomaticRoutingMessage — total count only, sources named only when they fail', () => {
-  it('candidates from Apollo + Lusha → one total, no source names', () => {
+describe('buildAutomaticRoutingMessage — HubSpot, otras fuentes y «Por revisar» anterior por separado', () => {
+  it('candidates from Apollo + Lusha → one line for other sources, by source', () => {
     const msg = buildAutomaticRoutingMessage(
-      automaticResult({ status: 'fallback_executed', providerCandidatesCreated: { apollo: 1, lusha: 2 } }),
+      automaticResult({
+        status: 'fallback_executed',
+        providerCandidatesCreated: { apollo: 1, lusha: 2 },
+        previousPendingReviewCandidates: 0,
+      }),
     );
     assert.equal(
       msg.content,
-      'Encontré 3 contactos para revisar. No creé contactos finales: requieren tu aprobación.',
+      'Terminé la búsqueda:\n\n' +
+        '• De otras fuentes: 3 contactos nuevos en «Por revisar» (1 de Apollo y 2 de Lusha).\n' +
+        '• De búsquedas anteriores: no tenías ninguno en «Por revisar».\n\n' +
+        'Los de «Por revisar» requieren tu aprobación.',
     );
-    assert.doesNotMatch(msg.content, /Apollo|Lusha/);
     assert.equal(msg.tone, undefined);
   });
 
@@ -194,7 +201,7 @@ describe('buildAutomaticRoutingMessage — total count only, sources named only 
     const msg = buildAutomaticRoutingMessage(
       automaticResult({ status: 'no_fallback_needed', providerCandidatesCreated: { apollo: 1, lusha: null } }),
     );
-    assert.match(msg.content, /^Encontré 1 contacto para revisar\./);
+    assert.match(msg.content, /De otras fuentes: 1 contacto nuevo en «Por revisar»/);
   });
 
   it('candidates found but one source failed → count + "Fuente X falló."', () => {
@@ -205,7 +212,7 @@ describe('buildAutomaticRoutingMessage — total count only, sources named only 
         failedProviders: ['Lusha'],
       }),
     );
-    assert.match(msg.content, /^Encontré 2 contactos para revisar\./);
+    assert.match(msg.content, /De otras fuentes: 2 contactos nuevos/);
     assert.match(msg.content, /Fuente Lusha falló\.$/);
   });
 
@@ -247,10 +254,8 @@ describe('buildAutomaticRoutingMessage — total count only, sources named only 
         providerCandidatesCreated: { apollo: 0, lusha: null },
       }),
     );
-    assert.equal(
-      msg.content,
-      'Esta búsqueda no trajo contactos nuevos, pero ya tienes 2 contactos pendientes de revisión para esta empresa.',
-    );
+    assert.match(msg.content, /^Esta búsqueda no trajo contactos nuevos:/);
+    assert.match(msg.content, /De búsquedas anteriores: ya tenías 2 contactos en «Por revisar»\./);
     assert.equal(msg.tone, undefined);
   });
 

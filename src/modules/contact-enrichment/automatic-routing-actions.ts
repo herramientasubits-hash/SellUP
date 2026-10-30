@@ -23,6 +23,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveUserForEnrichment } from './actions';
 import { canSeeContactEnrichmentRequest } from './candidate-scope.server';
+import { completeContactSearch } from './contact-search-follow-up.server';
 import {
   runAutomaticContactEnrichmentForRequestCore,
   type RunAutomaticContactEnrichmentForRequestResult,
@@ -35,9 +36,11 @@ export async function runAutomaticContactEnrichmentForRequestAction(
   // Alcance comercial: una solicitud ajena se trata como id inválido — el núcleo corta antes de
   // crear intentos o llamar proveedores, así que no gasta créditos.
   const allowed = await canSeeContactEnrichmentRequest(await createClient(), requestId);
-  return runAutomaticContactEnrichmentForRequestCore(
+  const result = await runAutomaticContactEnrichmentForRequestCore(
     allowed ? requestId : null,
     internalUserId,
     new Date().toISOString(),
   );
+  // Contactos de HubSpot completos → Contactos; conteo de «Por revisar» anterior (Bryan 29-10).
+  return allowed && typeof requestId === 'string' ? completeContactSearch(requestId.trim(), result) : result;
 }
