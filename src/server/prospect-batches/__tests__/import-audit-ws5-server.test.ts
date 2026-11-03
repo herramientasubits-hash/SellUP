@@ -134,8 +134,9 @@ describe('precheckImportDuplicates — consultas dirigidas, NIT normalizado', ()
     assert.equal(result.reason, 'Mismo identificador fiscal');
     // Nunca se lee la tabla completa: toda consulta va filtrada por valores.
     assert.ok(queries.every((q) => q.column && q.values.length > 0));
-    // Candidatos descartados y cuentas borradas no cuentan.
-    assert.ok(queries.filter((q) => q.table === 'accounts').every((q) => q.filters.includes('is:deleted_at')));
+    // Candidatos descartados no cuentan. `accounts` no tiene `deleted_at` en
+    // Prod: filtrar por ella devolvía 400 y cortaba la importación.
+    assert.ok(queries.filter((q) => q.table === 'accounts').every((q) => !q.filters.some((f) => f.includes('deleted_at'))));
     assert.ok(queries.filter((q) => q.table === 'prospect_candidates').every((q) => q.filters.includes('neq:status:discarded')));
   });
 
