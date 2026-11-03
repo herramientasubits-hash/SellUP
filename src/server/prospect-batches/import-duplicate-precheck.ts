@@ -100,7 +100,10 @@ async function fetchByColumn(
       .from(table)
       .select('normalized_name, country_code, domain, tax_identifier')
       .in(column, part);
-    query = table === 'accounts' ? query.is('deleted_at', null) : query.neq('status', 'discarded');
+    // `accounts` no tiene borrado lógico (no existe `deleted_at`: filtrar por
+    // ella daba 400 en Prod y cortaba toda importación). Una cuenta archivada
+    // sigue siendo la misma empresa, así que también cuenta como duplicado.
+    if (table === 'prospect_candidates') query = query.neq('status', 'discarded');
     const { data, error } = await query;
     // Fallo de lectura ⇒ se propaga: la ruta responde error, no «sin coincidencias».
     if (error) throw new Error(`precheck ${table}.${column}: ${error.message}`);
