@@ -127,7 +127,7 @@ describe('1. un reveal llega a HubSpot sin aprobar', () => {
 });
 
 describe('2. nunca sobrescribe', () => {
-  it('lo que HubSpot ya tiene no viaja', async () => {
+  it('`phone` con OTRO número ⇒ no se pisa; el revelado va a `mobilephone` (AGENT2A-REVEAL-PHONE-SLOTS)', async () => {
     const spy = newSpy();
     const report = await runCandidateRevealHubSpotPush(
       'cand-1',
@@ -139,7 +139,10 @@ describe('2. nunca sobrescribe', () => {
       }),
     );
     assert.equal(report.outcome, 'filled');
-    assert.deepEqual(Object.keys(spy.filled[0].properties), ['hs_linkedin_url']);
+    assert.deepEqual(spy.filled[0].properties, {
+      mobilephone: '+57 300 111 2222',
+      hs_linkedin_url: 'https://www.linkedin.com/in/ana-perez',
+    });
   });
 
   it('todo lleno ⇒ cero escrituras y `nothing_to_fill`', async () => {
@@ -149,7 +152,11 @@ describe('2. nunca sobrescribe', () => {
       'reveal_phone_recovery',
       makeDeps(spy, {
         existing: hubspotContact({
-          properties: { phone: '+57 1 999', hs_linkedin_url: 'https://linkedin.com/in/x', mobilephone: null },
+          properties: {
+            phone: '+57 1 999',
+            hs_linkedin_url: 'https://linkedin.com/in/x',
+            mobilephone: '+57 310 000 0000',
+          },
         }),
       }),
     );
@@ -318,5 +325,105 @@ describe('6. resolveCandidateHubSpotContactId', () => {
       resolveCandidateHubSpotContactId({ source: 'lusha', sourceContactId: 'l-1', matchedHubSpotContactId: '  ' }),
       null,
     );
+  });
+});
+
+describe('AGENT2A-REVEAL-PHONE-SLOTS · resolución por el contacto oficial y teléfonos por campo', () => {
+  const apolloApproved = (overrides: Partial<CandidateRevealPushCandidate> = {}) =>
+    candidate({
+      status: 'approved',
+      source: 'apollo',
+      sourceContactId: 'apollo-person-1',
+      matchedHubSpotContactId: null,
+      matchedContactsId: 'contact-9',
+      linkedinUrl: null,
+      ...overrides,
+    });
+
+  it('candidato de Apollo aprobado: el contacto de HubSpot sale del contacto oficial', async () => {
+    const spy = newSpy();
+    const asked: string[] = [];
+    const deps = makeDeps(spy, { candidate: apolloApproved(), existing: hubspotContact({ id: 'hs-900' }) });
+    deps.loadOfficialContactHubSpotId = async (contactId) => {
+      asked.push(contactId);
+      return 'hs-900';
+    };
+    const report = await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_apollo_webhook', deps);
+    assert.deepEqual(asked, ['contact-9']);
+    assert.equal(report.outcome, 'filled');
+    assert.deepEqual(spy.reads, ['hs-900']);
+    assert.deepEqual(spy.filled[0].properties, { phone: '+57 300 111 2222' });
+  });
+
+  it('el emparejamiento propio del candidato manda: no se consulta el contacto oficial', async () => {
+    const spy = newSpy();
+    let asked = false;
+    const deps = makeDeps(spy, { candidate: candidate({ matchedContactsId: 'contact-9' }) });
+    deps.loadOfficialContactHubSpotId = async () => {
+      asked = true;
+      return 'hs-otro';
+    };
+    await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_apollo_webhook', deps);
+    assert.equal(asked, false);
+    assert.deepEqual(spy.reads, ['hs-77']);
+  });
+
+  it('contacto oficial sin vínculo con HubSpot ⇒ `not_in_hubspot`, cero red', async () => {
+    const spy = newSpy();
+    const deps = makeDeps(spy, { candidate: apolloApproved() });
+    deps.loadOfficialContactHubSpotId = async () => null;
+    const report = await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_recovery', deps);
+    assert.equal(report.outcome, 'not_in_hubspot');
+    assert.deepEqual(spy.reads, []);
+  });
+
+  it('la lectura del contacto oficial falla ⇒ `not_in_hubspot`, nunca lanza', async () => {
+    const spy = newSpy();
+    const deps = makeDeps(spy, { candidate: apolloApproved() });
+    deps.loadOfficialContactHubSpotId = async () => {
+      throw new Error('db down');
+    };
+    const report = await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_recovery', deps);
+    assert.equal(report.outcome, 'not_in_hubspot');
+  });
+
+  it('HubSpot sin números y DOS revelados ⇒ uno a `phone` y otro a `mobilephone`', async () => {
+    const spy = newSpy();
+    const deps = makeDeps(spy, { candidate: candidate({ linkedinUrl: null }) });
+    deps.loadRevealedPhones = async () => [
+      { phone: '+57 300 111 2222', type: 'direct_dial' },
+      { phone: '+57 315 444 5555', type: 'other' },
+    ];
+    await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_lusha_waterfall', deps);
+    assert.deepEqual(spy.filled[0].properties, {
+      phone: '+57 300 111 2222',
+      mobilephone: '+57 315 444 5555',
+    });
+  });
+
+  it('`phone` ya tiene ESE mismo número ⇒ no viaja nada de teléfono', async () => {
+    const spy = newSpy();
+    const report = await runCandidateRevealHubSpotPush(
+      'cand-1',
+      'reveal_phone_cache_hit',
+      makeDeps(spy, {
+        candidate: candidate({ linkedinUrl: null }),
+        existing: hubspotContact({
+          properties: { phone: '3001112222', mobilephone: null, hs_linkedin_url: null },
+        }),
+      }),
+    );
+    assert.equal(report.outcome, 'nothing_to_fill');
+    assert.deepEqual(spy.filled, []);
+  });
+
+  it('la colección falla ⇒ viaja el escalar del candidato', async () => {
+    const spy = newSpy();
+    const deps = makeDeps(spy, { candidate: candidate({ linkedinUrl: null }) });
+    deps.loadRevealedPhones = async () => {
+      throw new Error('db down');
+    };
+    await runCandidateRevealHubSpotPush('cand-1', 'reveal_phone_recovery', deps);
+    assert.deepEqual(spy.filled[0].properties, { phone: '+57 300 111 2222' });
   });
 });

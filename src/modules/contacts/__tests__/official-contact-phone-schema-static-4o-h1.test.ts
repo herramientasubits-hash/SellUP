@@ -793,6 +793,11 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
     'src/modules/contact-enrichment/phone-cache-suppression-core.ts': /4O-H2/,
     'src/modules/contact-enrichment/post-approval-reveal-read.ts':
       /POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1/,
+    // AGENT2A-REVEAL-PHONE-SLOTS — TERCER lector, y por la misma regla: UN archivo, sólo SELECT.
+    // La segunda fase de un reveal necesita los números VIVOS del contacto (no sólo el escalar)
+    // para mandar dos números a `phone` / `mobilephone`. Ninguna escritura: la colección sigue
+    // escribiéndose sólo dentro de la transacción de la 128.
+    'src/modules/contacts/contact-phones-for-hubspot-read.ts': /AGENT2A-REVEAL-PHONE-SLOTS/,
   };
 
   it('ningún archivo de producción nombra las tablas oficiales', () => {
@@ -866,6 +871,7 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONE_SOURCES_TABLE)',
       'src/modules/contact-enrichment/post-approval-reveal-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
+      'src/modules/contacts/contact-phones-for-hubspot-read.ts → from(contact_phones)',
     ]);
 
     const reader = productionSources.find(

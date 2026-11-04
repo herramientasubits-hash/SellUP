@@ -90,7 +90,9 @@ describe('el entrypoint es único y ya no depende de ninguna bandera', () => {
     assert.equal(/createClient\(\)/.test(entry), false, 'el cliente se construye perezosamente');
     // Y sí se construye donde toca: dentro del lector.
     const lazy = runner.slice(runner.indexOf('loadSubject:'));
-    assert.match(lazy, /const supabase = await createClient\(\);/);
+    // AGENT2A-APPROVED-REVEAL-CONTACT-SYNC: el disparador de servidor de un reveal (sin sesión)
+    // inyecta su cliente; sin él, el del usuario se construye aquí, perezosamente, como siempre.
+    assert.match(lazy, /const supabase = wiring\.client \?\? \(await createClient\(\)\);/);
   });
 
   it('el core sigue recibiendo el booleano ya resuelto y NO lee el entorno', () => {
