@@ -5,6 +5,8 @@
 //     se aprueba solo y pasa directo a Contactos (con la MISMA aprobación que el botón
 //     «Aprobar»: alcance, deduplicación, transacción y vínculo con su ficha de HubSpot).
 //  2. El chat dice por separado cuántos quedan en «Por revisar» de búsquedas anteriores.
+//  3. (Bryan 04-11) Y cuántos contactos de la empresa ya están aprobados, de esta búsqueda y
+//     de las anteriores: así, aunque no encuentre nada nuevo, se ve lo que ya se hizo.
 //
 // Falla ABIERTO: si algo de esto no se puede leer o aprobar, la búsqueda ya terminó y se
 // devuelve su resultado tal cual (los candidatos siguen en «Por revisar», como antes).
@@ -31,6 +33,8 @@ export interface ContactSearchFollowUpDeps {
   loadPendingCandidates: (runIds: readonly string[]) => Promise<FollowUpPendingCandidate[]>;
   /** La aprobación normal de un candidato (la del botón «Aprobar»). */
   approveCandidate: (candidateId: string) => Promise<{ ok: boolean }>;
+  /** Candidatos `approved` de esas corridas (opcional: sin él no se informa el total). */
+  countApprovedCandidates?: (runIds: readonly string[]) => Promise<number>;
   maxAutoApprovals?: number;
 }
 
@@ -47,9 +51,11 @@ export async function runContactSearchFollowUp(
   const current = new Set(currentRunIds);
 
   let earlierRunIds: string[] = [];
+  let earlierKnown = true;
   try {
     earlierRunIds = (await deps.loadEarlierCompanyRunIds(requestId, currentRunIds)).filter((id) => !current.has(id));
   } catch (err) {
+    earlierKnown = false;
     console.error('[contact-search-follow-up] earlier runs lookup failed', { requestId, error: err });
   }
 
@@ -87,10 +93,24 @@ export async function runContactSearchFollowUp(
     (c) => !current.has(c.enrichment_run_id) && !approved.has(c.id),
   ).length;
 
+  // Bryan 04-11: los aprobados de la empresa, de esta búsqueda y de las anteriores. Sin las
+  // corridas anteriores el total saldría corto, así que en ese caso no se informa (el aviso
+  // muestra sólo lo aprobado ahora).
+  let approvedTotal: number | undefined;
+  if (earlierKnown && deps.countApprovedCandidates) {
+    try {
+      const counted = await deps.countApprovedCandidates([...currentRunIds, ...earlierRunIds]);
+      approvedTotal = Math.max(counted, approvedNow + approvedEarlier);
+    } catch (err) {
+      console.error('[contact-search-follow-up] approved count failed', { requestId, error: err });
+    }
+  }
+
   return {
     ...result,
     hubspotAutoApprovedContacts: approvedNow,
     hubspotAutoApprovedEarlierContacts: approvedEarlier,
     previousPendingReviewCandidates: previousPending,
+    ...(approvedTotal !== undefined ? { approvedContactsTotal: approvedTotal } : {}),
   };
 }

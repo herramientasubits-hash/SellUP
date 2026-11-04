@@ -1,10 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { ChatPanel } from '@/components/chat';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
-import { CONTACT_SEARCH_REVIEW_HREF } from '@/modules/contact-enrichment/contact-search-runs-client';
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { ContactEnrichmentWizard } from './contact-enrichment-wizard';
 import { ContactEnrichmentHubSpotIdBatch } from './contact-enrichment-hubspot-id-batch';
@@ -70,7 +68,6 @@ export function ContactEnrichmentDrawer({
   const linkedinSearchEnabled = useLinkedinSearchFlag(open);
   const isBatch = mode === 'hubspot_id_batch';
   const isLinkedin = mode === 'linkedin';
-  const router = useRouter();
 
   const backToCompanyMode = React.useCallback(() => {
     setBusy(false);
@@ -84,22 +81,18 @@ export function ContactEnrichmentDrawer({
     onOpenChange(false);
     window.dispatchEvent(new window.CustomEvent(AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT));
   };
-  // Dueña 20-10: al terminar con contactos, «Por revisar» con lo encontrado (como con empresas).
-  const showFoundContacts = () => {
-    onOpenChange(false);
-    router.push(CONTACT_SEARCH_REVIEW_HREF);
-    router.refresh();
-  };
+  // Bryan 04-11: al terminar una búsqueda el panel ya no se cierra ni lleva a «Por revisar»
+  // (antes, dueña 20-10): la conversación sigue con otra empresa. A «Por revisar» se va desde el
+  // aviso o el Centro de procesos.
 
   // F1 — «Nueva conversación» abre SIEMPRE en «Por empresa» con la caja vacía. Si hay un lote
   // en curso, el primer clic lo cancela y deja a la vista su reporte «Cancelado»; el siguiente
   // abre la conversación nueva.
   const startNewConversation = () => {
     if (wizardRef.current?.cancelInProgress?.()) return;
-    if (mode === 'single') {
-      wizardRef.current?.reset();
-      return;
-    }
+    // El lote vive fuera del panel (sigue al minimizar): su reinicio limpia esa conversación.
+    wizardRef.current?.reset();
+    if (mode === 'single') return;
     backToCompanyMode();
   };
 
@@ -176,7 +169,6 @@ export function ContactEnrichmentDrawer({
           onBusyChange={setBusy}
           initialCompany={preloadedCompany ?? undefined}
           onCreateManualContact={onCreateManualContact}
-          onFoundContacts={showFoundContacts}
           placeholder={SEARCH_MODE_PLACEHOLDER.single}
         />
       )}

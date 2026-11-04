@@ -82,6 +82,11 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   hubspotAutoApprovedEarlierContacts?: number;
   /** Candidatos que siguen en «Por revisar» de búsquedas anteriores de la misma empresa. */
   previousPendingReviewCandidates?: number;
+  /**
+   * Bryan 04-11 — contactos aprobados de la empresa (esta búsqueda y las anteriores, con el
+   * alcance del vendedor). Ausente si no se pudo contar.
+   */
+  approvedContactsTotal?: number;
 }
 
 export interface AutomaticRoutingDiagnosis {

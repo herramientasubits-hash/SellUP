@@ -2,7 +2,7 @@
  * AGENT2A D1 — Búsqueda por lotes con ID de HubSpot: núcleo puro.
  *
  * Parseo de la entrada (espacios, comas, repetidos, 1–10 IDs) y el recorrido por
- * empresa: resolver por ID → request → enrutado automático. Dobles en memoria:
+ * empresa: resolver por ID → request → la búsqueda de una empresa sola (Bryan 04-11). Dobles en memoria:
  * sin Supabase, sin HubSpot, sin proveedores.
  */
 
@@ -12,11 +12,14 @@ import assert from 'node:assert/strict';
 import {
   HUBSPOT_ID_BATCH_MAX_IDS,
   parseHubSpotIdBatchInput,
+  buildHubSpotIdBatchNotice,
   pickCandidateForHubSpotId,
+  prepareHubSpotIdBatchItem,
   processHubSpotIdBatchItem,
   runHubSpotIdBatch,
   summarizeHubSpotIdBatch,
   type HubSpotIdBatchItemDeps,
+  type HubSpotIdBatchPrepareDeps,
 } from '../hubspot-id-batch-core';
 import type { CompanyCandidate, CompanyResolutionResult } from '../types';
 import type { RunAutomaticContactEnrichmentForRequestResult } from '../automatic-routing-action-core';
@@ -117,9 +120,17 @@ const HUBSPOT_ACME: CompanyCandidate = {
   matchConfidence: 1,
 };
 
-function makeDeps(overrides: Partial<HubSpotIdBatchItemDeps> = {}) {
+interface Harness {
+  resolveCompany: HubSpotIdBatchPrepareDeps['resolveCompany'];
+  createRequest: HubSpotIdBatchPrepareDeps['createRequest'];
+  loadRequestAccountId: HubSpotIdBatchPrepareDeps['loadRequestAccountId'];
+  /** La búsqueda por la ruta (en el panel, el registro de búsquedas en segundo plano). */
+  search: HubSpotIdBatchItemDeps['search'];
+}
+
+function makeDeps(overrides: Partial<Harness> = {}) {
   const calls: string[] = [];
-  const deps: HubSpotIdBatchItemDeps = {
+  const h: Harness = {
     resolveCompany: async (id) => {
       calls.push(`resolve:${id}`);
       return resolution([HUBSPOT_ACME]);
@@ -132,45 +143,56 @@ function makeDeps(overrides: Partial<HubSpotIdBatchItemDeps> = {}) {
       calls.push(`account:${requestId}`);
       return 'acc-1';
     },
-    countPendingCandidatesForAccount: async (accountId) => {
-      calls.push(`pending:${accountId}`);
-      return 2;
-    },
-    runAutomaticRouting: async (requestId) => {
-      calls.push(`routing:${requestId}`);
-      return routing();
+    search: async (prepared) => {
+      calls.push(`search:${prepared.requestId}`);
+      return { ok: true, result: routing({ previousPendingReviewCandidates: 2 }) };
     },
     ...overrides,
+  };
+  const deps: HubSpotIdBatchItemDeps = {
+    prepare: (id) =>
+      prepareHubSpotIdBatchItem(id, {
+        resolveCompany: h.resolveCompany,
+        createRequest: h.createRequest,
+        loadRequestAccountId: h.loadRequestAccountId,
+      }),
+    search: (prepared) => h.search(prepared),
   };
   return { deps, calls };
 }
 
 // ── Recorrido por empresa ─────────────────────────────────────────────────────
 
-describe('processHubSpotIdBatchItem', () => {
-  it('empresa encontrada: request + pendientes previos ANTES de buscar + contactos nuevos', async () => {
+describe('processHubSpotIdBatchItem — el mismo camino que una empresa sola', () => {
+  it('empresa encontrada: prepara (resolver + request) y busca por la ruta; trae aprobados y por aprobar', async () => {
     const { deps, calls } = makeDeps({
-      runAutomaticRouting: async (requestId) => {
-        calls.push(`routing:${requestId}`);
-        return routing({ providerCandidatesCreated: { apollo: 3, lusha: 2 } });
+      search: async (prepared) => {
+        calls.push(`search:${prepared.requestId}:${prepared.accountId}:${prepared.name}`);
+        return {
+          ok: true,
+          result: routing({
+            providerCandidatesCreated: { apollo: 3, lusha: 2 },
+            hubspotFirstCandidates: 3,
+            hubspotAutoApprovedContacts: 1,
+            previousPendingReviewCandidates: 2,
+            approvedContactsTotal: 6,
+          }),
+        };
       },
     });
     const result = await processHubSpotIdBatchItem('65498491', deps);
 
-    assert.deepEqual(calls, [
-      'resolve:65498491',
-      'request:Acme SAS',
-      'account:req-1',
-      'pending:acc-1',
-      'routing:req-1',
-    ]);
+    assert.deepEqual(calls, ['resolve:65498491', 'request:Acme SAS', 'account:req-1', 'search:req-1:acc-1:Acme SAS']);
     assert.deepEqual(result, {
       hubspotCompanyId: '65498491',
       status: 'processed',
       name: 'Acme SAS',
       country: 'Colombia',
       accountId: 'acc-1',
-      contactsFound: 5,
+      approvedContacts: 6,
+      approvedNow: 1,
+      // 2 de HubSpot por aprobar + 3 de Apollo + 2 de Lusha
+      contactsFound: 7,
       previousPendingContacts: 2,
       routingDisabled: false,
       errorMessage: null,
@@ -207,23 +229,32 @@ describe('processHubSpotIdBatchItem', () => {
     assert.equal(result.status, 'error');
     assert.equal(result.name, 'Acme SAS');
     assert.equal(result.errorMessage, 'Ya hay un enriquecimiento en curso');
-    assert.ok(!calls.some((c) => c.startsWith('routing:')));
+    assert.ok(!calls.some((c) => c.startsWith('search:')));
   });
 
-  it('enrutado bloqueado → error con el motivo, conservando nombre y pendientes previos', async () => {
+  it('búsqueda bloqueada → error con el motivo, conservando el nombre', async () => {
     const { deps } = makeDeps({
-      runAutomaticRouting: async () => routing({ success: false, blockedReason: 'budget_exceeded' }),
+      search: async () => ({ ok: true, result: routing({ success: false, blockedReason: 'budget_exceeded' }) }),
     });
     const result = await processHubSpotIdBatchItem('65498491', deps);
     assert.equal(result.status, 'error');
     assert.equal(result.errorMessage, 'budget_exceeded');
-    assert.equal(result.previousPendingContacts, 2);
+    assert.equal(result.name, 'Acme SAS');
+  });
+
+  it('la ruta no respondió (conexión perdida): error con su mensaje', async () => {
+    const { deps } = makeDeps({ search: async () => ({ ok: false, message: 'Perdimos la conexión' }) });
+    const result = await processHubSpotIdBatchItem('65498491', deps);
+    assert.equal(result.status, 'error');
+    assert.equal(result.errorMessage, 'Perdimos la conexión');
   });
 
   it('búsqueda automática apagada: se marca, 0 contactos', async () => {
     const { deps } = makeDeps({
-      runAutomaticRouting: async () =>
-        routing({ automaticRoutingEnabled: false, providerCandidatesCreated: { apollo: null, lusha: null } }),
+      search: async () => ({
+        ok: true,
+        result: routing({ automaticRoutingEnabled: false, providerCandidatesCreated: { apollo: null, lusha: null } }),
+      }),
     });
     const result = await processHubSpotIdBatchItem('65498491', deps);
     assert.equal(result.status, 'processed');
@@ -268,8 +299,8 @@ describe('pickCandidateForHubSpotId', () => {
   });
 });
 
-describe('summarizeHubSpotIdBatch', () => {
-  it('separa procesadas, no encontradas y errores, y suma los contactos', async () => {
+describe('summarizeHubSpotIdBatch y el aviso único del lote', () => {
+  it('separa procesadas, no encontradas y errores, y suma las cifras', async () => {
     const { deps } = makeDeps();
     const ok = await processHubSpotIdBatchItem('65498491', deps);
     const summary = summarizeHubSpotIdBatch([
@@ -280,8 +311,36 @@ describe('summarizeHubSpotIdBatch', () => {
     assert.equal(summary.processed.length, 1);
     assert.deepEqual(summary.notFoundIds, ['777']);
     assert.equal(summary.errors.length, 1);
-    assert.equal(summary.totalContactsFound, 3);
-    assert.equal(summary.totalPreviousPending, 2);
+    assert.deepEqual(summary.counts, { approvedTotal: 0, approvedNow: 0, foundForReview: 3, previousPending: 2 });
+  });
+
+  it('el aviso suma las empresas con las dos líneas de siempre', () => {
+    const row = {
+      hubspotCompanyId: '1', status: 'processed' as const, name: 'A', country: null, accountId: 'a',
+      approvedContacts: 5, approvedNow: 1, contactsFound: 2, previousPendingContacts: 3,
+      routingDisabled: false, errorMessage: null,
+    };
+    const notice = buildHubSpotIdBatchNotice([row, { ...row, hubspotCompanyId: '2', approvedNow: 0 }], false);
+    assert.equal(notice.title, 'Lote terminado · 2 empresas');
+    assert.equal(
+      notice.description,
+      '10 contactos aprobados | 1 contacto nuevo\n10 contactos por aprobar | 4 encontrados, 6 de ejecuciones anteriores',
+    );
+    assert.equal(notice.review, true);
+    assert.equal(notice.kind, 'success');
+  });
+
+  it('el aviso de un lote sin empresas existentes no ofrece revisar', () => {
+    const notice = buildHubSpotIdBatchNotice(
+      [{
+        hubspotCompanyId: '9', status: 'not_found', name: null, country: null, accountId: null,
+        approvedContacts: 0, approvedNow: 0, contactsFound: 0, previousPendingContacts: 0,
+        routingDisabled: false, errorMessage: null,
+      }],
+      false,
+    );
+    assert.equal(notice.review, false);
+    assert.equal(notice.kind, 'info');
   });
 });
 
@@ -295,11 +354,11 @@ describe('runHubSpotIdBatch (cancelación)', () => {
         calls.push(`resolve:${id}`);
         return resolution([{ ...HUBSPOT_ACME, hubspotCompanyId: id }]);
       },
-      runAutomaticRouting: async (requestId) => {
-        calls.push(`routing:${requestId}`);
+      search: async (prepared) => {
+        calls.push(`search:${prepared.requestId}`);
         // El usuario pulsa «Nueva conversación» mientras la PRIMERA empresa está buscando.
         cancelled = true;
-        return routing();
+        return { ok: true, result: routing() };
       },
     });
     const outcome = await runHubSpotIdBatch(['111', '222', '333'], {
@@ -312,8 +371,8 @@ describe('runHubSpotIdBatch (cancelación)', () => {
     assert.equal(outcome.results[0].hubspotCompanyId, '111');
     assert.equal(outcome.cancelled, true);
     assert.deepEqual(outcome.notStartedIds, ['222', '333']);
-    // El enrutado (único camino a Apollo y Lusha) corrió UNA vez: sólo para la primera.
-    assert.equal(calls.filter((c) => c.startsWith('routing:')).length, 1);
+    // La búsqueda (único camino a Apollo y Lusha) corrió UNA vez: sólo para la primera.
+    assert.equal(calls.filter((c) => c.startsWith('search:')).length, 1);
     assert.equal(calls.filter((c) => c.startsWith('resolve:')).length, 1);
     assert.ok(!calls.some((c) => c.includes('222') || c.includes('333')));
   });

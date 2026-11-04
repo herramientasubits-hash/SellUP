@@ -6,18 +6,19 @@
  *     «Buscar por lote de HubSpot IDs» (F1: antes era el rótulo «ID»);
  *   - al pulsarlo, el agente saluda con las instrucciones (1 a 10 IDs por coma);
  *   - la entrada se limpia de espacios y se busca empresa por empresa;
- *   - al terminar hay una tabla Nombre | País | Contactos encontrados |
- *     Contactos por revisar (ejecuciones anteriores) | HubSpot ID, la lista
- *     «Empresas no encontradas en HubSpot» y «Enriquecer otras empresas».
+ *   - Bryan 04-11: cada empresa se prepara en el servidor y se busca por la MISMA ruta que una
+ *     empresa sola; al terminar hay una tabla Nombre | País | Aprobados (nuevos) |
+ *     Por aprobar (encontrados / anteriores) | HubSpot ID y la lista «Empresas no encontradas
+ *     en HubSpot»; la caja sigue activa para pegar más IDs; minimizar ya no corta el lote.
  *
- * La acción de servidor es un doble: sin red, sin proveedores, sin créditos.
+ * La acción de servidor y la ruta son dobles: sin red, sin proveedores, sin créditos.
  */
 import '../../chat/__tests__/jsdom-setup';
 
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import type { HubSpotIdBatchItemResult } from '@/modules/contact-enrichment/hubspot-id-batch-core';
+import type { HubSpotIdBatchPrepared } from '@/modules/contact-enrichment/hubspot-id-batch-core';
 
 for (const proto of [window.HTMLElement.prototype, window.Element.prototype]) {
   const p = proto as unknown as Record<string, unknown>;
@@ -44,56 +45,62 @@ if (typeof window.matchMedia !== 'function') {
 
 let rtl: typeof import('@testing-library/react');
 
-const ROWS: Record<string, HubSpotIdBatchItemResult> = {
-  '65498491': {
-    hubspotCompanyId: '65498491',
-    status: 'processed',
-    name: 'Acme SAS',
-    country: 'Colombia',
-    accountId: 'acc-1',
-    contactsFound: 4,
-    previousPendingContacts: 2,
-    routingDisabled: false,
-    errorMessage: null,
+const COMPANIES: Record<string, { name: string; country: string }> = {
+  '65498491': { name: 'Acme SAS', country: 'Colombia' },
+  '65498497': { name: 'Globex', country: 'México' },
+};
+
+/** Lo que devuelve la ruta de búsqueda para cada request (el resultado de una empresa sola). */
+const SEARCH_RESULTS: Record<string, Record<string, unknown>> = {
+  'req-65498491': {
+    hubspotFirstCandidates: 2,
+    hubspotAutoApprovedContacts: 1,
+    providerCandidatesCreated: { apollo: 3, lusha: null },
+    previousPendingReviewCandidates: 2,
+    approvedContactsTotal: 5,
   },
-  '65498497': {
-    hubspotCompanyId: '65498497',
-    status: 'processed',
-    name: 'Globex',
-    country: 'México',
-    accountId: 'acc-2',
-    contactsFound: 0,
-    previousPendingContacts: 3,
-    routingDisabled: false,
-    errorMessage: null,
+  'req-65498497': {
+    providerCandidatesCreated: { apollo: 0, lusha: null },
+    previousPendingReviewCandidates: 3,
+    approvedContactsTotal: 0,
   },
 };
 
-/** Si está puesto, cada empresa espera a que se abra (para probar el corte al desmontar). */
+/** Si está puesto, cada empresa espera a que se abra (para probar el minimizar). */
 let itemGate: Promise<void> | null = null;
 
-const mockRunItem = mock.fn<(id: unknown) => Promise<HubSpotIdBatchItemResult>>(async (id) => {
+const mockRunItem = mock.fn<(id: unknown) => Promise<HubSpotIdBatchPrepared>>(async (id) => {
   if (itemGate) await itemGate;
   const key = String(id);
-  return (
-    ROWS[key] ?? {
-      hubspotCompanyId: key,
-      status: 'not_found',
-      name: null,
-      country: null,
-      accountId: null,
-      contactsFound: 0,
-      previousPendingContacts: 0,
-      routingDisabled: false,
-      errorMessage: null,
-    }
-  );
+  const company = COMPANIES[key];
+  if (!company) return { status: 'not_found', hubspotCompanyId: key };
+  return { status: 'ready', hubspotCompanyId: key, ...company, accountId: `acc-${key}`, requestId: `req-${key}` };
 });
+
+const searchedRequests: string[] = [];
+(globalThis as unknown as { fetch: unknown }).fetch = async (url: string) => {
+  const requestId = String(url).split('/requests/')[1]?.split('/')[0] ?? '';
+  searchedRequests.push(requestId);
+  return {
+    redirected: false,
+    url: `http://localhost${String(url)}`,
+    ok: true,
+    json: async () => ({
+      ok: true,
+      result: {
+        success: true, status: 'no_fallback_needed', automaticRoutingEnabled: true, fallbackExecuted: false,
+        attempt1AttemptId: 'a1', attempt2AttemptId: null, blockedReason: null, reusedExistingCandidates: 0,
+        providerCandidatesCreated: { apollo: null, lusha: null }, failedProviders: [],
+        ...(SEARCH_RESULTS[requestId] ?? {}),
+      },
+    }),
+  };
+};
 const mockResolve = mock.fn(async () => ({ success: true, data: { candidates: [] } }));
 const mockPush = mock.fn((href: string) => href);
 
 mock.module('@/modules/contact-enrichment/hubspot-id-batch-actions', {
-  namedExports: { runHubSpotIdBatchItemAction: (id: unknown) => mockRunItem(id) },
+  namedExports: { prepareHubSpotIdBatchItemAction: (id: unknown) => mockRunItem(id) },
 });
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
@@ -111,6 +118,7 @@ mock.module('next/navigation', {
 });
 
 let ContactEnrichmentDrawer: (typeof import('../contact-enrichment-drawer'))['ContactEnrichmentDrawer'];
+let resetHubSpotIdBatchConversationForTests: () => void;
 let ShellAgentPanelSlotProvider: (typeof import('@/components/layout/shell-agent-panel-slot'))['ShellAgentPanelSlotProvider'];
 
 function Shell() {
@@ -129,6 +137,7 @@ function Shell() {
 before(async () => {
   rtl = await import('@testing-library/react');
   ({ ContactEnrichmentDrawer } = await import('../contact-enrichment-drawer'));
+  ({ resetHubSpotIdBatchConversationForTests } = await import('../contact-enrichment-hubspot-id-batch'));
   ({ ShellAgentPanelSlotProvider } = await import('@/components/layout/shell-agent-panel-slot'));
 });
 
@@ -137,6 +146,8 @@ beforeEach(() => {
   mockRunItem.mock.resetCalls();
   mockResolve.mock.resetCalls();
   mockPush.mock.resetCalls();
+  searchedRequests.length = 0;
+  resetHubSpotIdBatchConversationForTests();
 });
 
 afterEach(() => {
@@ -194,18 +205,22 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     assert.deepEqual(headers, [
       'Nombre',
       'País',
-      'Contactos encontrados',
-      'Contactos por revisar (ejecuciones anteriores)',
+      'Aprobados (nuevos)',
+      'Por aprobar (encontrados / anteriores)',
       'HubSpot ID',
     ]);
     const rows = rtl.within(report).getAllByRole('row').slice(1);
     assert.deepEqual(
       rows.map((row) => Array.from(row.querySelectorAll('td')).map((td) => td.textContent)),
       [
-        ['Acme SAS', 'Colombia', '4', '2', '65498491'],
-        ['Globex', 'México', '0', '3', '65498497'],
+        ['Acme SAS', 'Colombia', '5 (1)', '6 (4 / 2)', '65498491'],
+        ['Globex', 'México', '0 (0)', '3 (0 / 3)', '65498497'],
       ],
     );
+    // Cada empresa existente se buscó por la ruta de una empresa sola; la inexistente no.
+    assert.deepEqual(searchedRequests, ['req-65498491', 'req-65498497']);
+    await rtl.screen.findByText(/5 contactos aprobados \| 1 contacto nuevo/);
+    await rtl.screen.findByText(/9 contactos por aprobar \| 4 encontrados, 5 de ejecuciones anteriores/);
 
     const notFound = rtl.screen.getByTestId('hubspot-id-batch-not-found');
     assert.match(notFound.textContent ?? '', /Empresas no encontradas en HubSpot/);
@@ -215,18 +230,19 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     assert.deepEqual(mockPush.mock.calls.map((call) => call.arguments[0]), ['/contacts?tab=candidates']);
   });
 
-  it('«Enriquecer otras empresas» deja hacer una nueva búsqueda', async () => {
+  it('al terminar la caja sigue activa y otra lista sigue en la misma conversación', async () => {
     await openBatchMode();
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
     await send('65498491');
-    const restart = await rtl.screen.findByTestId('hubspot-id-batch-restart', undefined, { timeout: 5000 });
-    assert.match(restart.textContent ?? '', /Enriquecer otras empresas/);
-    rtl.fireEvent.click(restart);
-    await rtl.waitFor(() => assert.equal(rtl.screen.queryByTestId('hubspot-id-batch-report'), null));
-    assert.equal(composer().disabled, false);
-    await send('65498497');
     await rtl.screen.findByTestId('hubspot-id-batch-report', undefined, { timeout: 5000 });
-    assert.equal(mockRunItem.mock.callCount(), 2);
+    assert.equal(rtl.screen.queryByTestId('hubspot-id-batch-restart'), null);
+    await rtl.waitFor(() => assert.equal(composer().disabled, false));
+    assert.equal(composer().placeholder, 'Pega más Company IDs separados por coma');
+    await send('65498497');
+    await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 2), { timeout: 5000 });
+    await rtl.screen.findByText(/0 contactos aprobados \| 0 contactos nuevos/, undefined, { timeout: 5000 });
+    // Lo anterior sigue en la conversación.
+    assert.ok(rtl.screen.getAllByText('65498491').length >= 1);
   });
 
   it('más de 10 IDs o valores no numéricos: avisa y no busca nada', async () => {
@@ -239,7 +255,7 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     assert.equal(mockRunItem.mock.callCount(), 0);
   });
 
-  it('si se minimiza el panel a mitad de la lista, no lanza las empresas que faltan', async () => {
+  it('Bryan 04-11 — si se minimiza el panel a mitad de la lista, el lote SIGUE (como una empresa sola)', async () => {
     let open!: () => void;
     itemGate = new Promise<void>((resolve) => {
       open = resolve;
@@ -248,11 +264,12 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
     await send('65498491,65498497,111222');
     await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 1));
-    // Minimizar desmonta el lote (el panel vuelve al modo de una empresa y se cierra).
+    // Minimizar desmonta el lote (el panel vuelve al modo de una empresa y se cierra)…
     rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-minimize'));
     open();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(mockRunItem.mock.callCount(), 1);
+    // …pero las empresas que faltan se buscan igual, con su fila en el Centro de procesos.
+    await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 3), { timeout: 5000 });
+    await rtl.waitFor(() => assert.deepEqual(searchedRequests, ['req-65498491', 'req-65498497']), { timeout: 5000 });
   });
 
   it('volver a pulsar el botón de HubSpot regresa al asistente de una empresa', async () => {

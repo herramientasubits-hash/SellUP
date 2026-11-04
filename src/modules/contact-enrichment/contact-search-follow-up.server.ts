@@ -87,6 +87,22 @@ async function loadPendingCandidates(runIds: readonly string[]): Promise<FollowU
   return rows;
 }
 
+async function countApprovedCandidates(runIds: readonly string[]): Promise<number> {
+  const admin = createSupabaseAdminClient();
+  let total = 0;
+  for (let i = 0; i < runIds.length; i += RUN_ID_CHUNK) {
+    const chunk = runIds.slice(i, i + RUN_ID_CHUNK);
+    const { count, error } = await admin
+      .from('contact_enrichment_candidates')
+      .select('id', { count: 'exact', head: true })
+      .in('enrichment_run_id', chunk)
+      .eq('status', 'approved');
+    if (error) throw new Error(error.message);
+    total += count ?? 0;
+  }
+  return total;
+}
+
 /**
  * Después de la búsqueda: pasa a Contactos los contactos de HubSpot completos y cuenta lo que
  * sigue en «Por revisar» de búsquedas anteriores. Nunca lanza.
@@ -100,6 +116,7 @@ export async function completeContactSearch(
       loadEarlierCompanyRunIds,
       loadPendingCandidates,
       approveCandidate: (candidateId) => approveContactCandidate(candidateId),
+      countApprovedCandidates,
     });
   } catch (err) {
     console.error('[contact-search-follow-up] failed', { requestId, error: err });

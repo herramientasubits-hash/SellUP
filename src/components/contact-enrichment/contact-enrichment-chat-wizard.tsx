@@ -20,7 +20,6 @@ import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-com
 // Dueña 20-10: la búsqueda corre fuera del panel (por ruta), para minimizarlo o cerrarlo,
 // hacer varias a la vez y seguirla en el Centro de procesos.
 import { getContactSearchRunsStore, newContactSearchRunId } from '@/modules/contact-enrichment/contact-search-runs-client';
-import { contactsFound } from '@/modules/contact-enrichment/contact-search-runs-store';
 import { ContactSearchLoader } from './contact-search-loader';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
@@ -30,6 +29,7 @@ import {
   buildResolveInput,
   classifyCompanyQuery,
   extraDataPrefill,
+  isComposerUnlocked,
   planExtraDataResolution,
   planResolution,
 } from './contact-enrichment-chat-reducer';
@@ -54,6 +54,9 @@ import type { ManualContactContext } from './contact-enrichment-chat-types';
 
 /** F1 — lo que dice la caja en el modo «Por empresa» mientras espera la empresa. */
 export const COMPANY_MODE_PLACEHOLDER = 'Nombre o dominio de la empresa';
+
+/** Bryan 04-11 — terminada una búsqueda (o tras un error), la conversación sigue con otra empresa. */
+export const NEXT_COMPANY_PLACEHOLDER = 'Escribe otra empresa para buscar';
 
 export function composerPlaceholder(step: ContactEnrichmentChatStep, awaitCompanyPlaceholder?: string): string {
   switch (step) {
@@ -137,8 +140,6 @@ interface ContactEnrichmentChatWizardProps {
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
   /** Avisa de si hay una llamada en vuelo, para no ofrecer «Nueva conversación» a medias. */
   onBusyChange?: (busy: boolean) => void;
-  /** La búsqueda terminó con contactos para revisar. */
-  onFoundContacts?: () => void;
   /** F1 — texto de la caja mientras espera la empresa (por defecto, el de «Por empresa»). */
   placeholder?: string;
 }
@@ -149,7 +150,6 @@ export function ContactEnrichmentChatWizard({
   layout = 'page',
   ref,
   onBusyChange,
-  onFoundContacts,
   placeholder,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
@@ -204,10 +204,16 @@ export function ContactEnrichmentChatWizard({
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   async function handleSubmitCompany() {
-    if (state.step !== 'await_company') return;
+    if (!isComposerUnlocked(state)) return;
     const query = composerText.trim();
     if (!query) return;
     setComposerText('');
+    // Bryan 04-11: después de una búsqueda (o un error) se sigue en la misma conversación.
+    if (state.step !== 'await_company') {
+      awaitedRunRef.current = null;
+      setSearch(null);
+      dispatch({ type: 'NEXT_COMPANY' });
+    }
     dispatch({ type: 'SUBMIT_QUERY', query });
 
     // Un correo personal (gmail, hotmail…) no dice la empresa: se piden sus datos de una vez.
@@ -348,9 +354,9 @@ export function ContactEnrichmentChatWizard({
       });
       return;
     }
+    // Bryan 04-11: el panel ya no se cierra al encontrar. El resultado queda a la vista y se
+    // puede seguir con otra empresa; a «Por revisar» se va desde el aviso o el Centro de procesos.
     dispatch({ type: 'AUTOMATIC_ROUTING_SETTLED', result });
-    // Dueña 20-10: con contactos para revisar, termina en «Por revisar», como con empresas.
-    if (contactsFound(result) > 0) onFoundContacts?.();
   }
 
   function handleReset() {
@@ -363,7 +369,7 @@ export function ContactEnrichmentChatWizard({
 
   React.useImperativeHandle(ref, () => ({ reset: handleReset }));
 
-  const composerUnlocked = state.step === 'await_company';
+  const composerUnlocked = isComposerUnlocked(state);
 
   // La caja se enfoca sola en cuanto se puede escribir en ella.
   React.useEffect(() => {
@@ -502,7 +508,6 @@ export function ContactEnrichmentChatWizard({
                     </Button>
                   </>
                 )}
-                <SecondaryReset onReset={handleReset} label="Enriquecer otra empresa" />
               </div>
             )}
 
@@ -523,15 +528,19 @@ export function ContactEnrichmentChatWizard({
 
       </div>
 
-      {/* La caja de escribir de Thema. Solo se enciende cuando el agente espera
-          el nombre de la empresa; el resto del flujo se contesta eligiendo. */}
+      {/* La caja de escribir de Thema. Se enciende cuando el agente espera el nombre de la
+          empresa, también después de una búsqueda; el resto del flujo se contesta eligiendo. */}
       <div className={cn(isPanel ? 'shrink-0 px-4 pb-4 pt-2' : 'sticky bottom-0 mt-auto bg-background pb-2 pt-3')}>
         <ChatComposer
           compact
           value={composerUnlocked ? composerText : ''}
           onChange={setComposerText}
           onSend={handleSubmitCompany}
-          placeholder={composerPlaceholder(state.step, placeholder)}
+          placeholder={
+            composerUnlocked && state.step !== 'await_company'
+              ? NEXT_COMPANY_PLACEHOLDER
+              : composerPlaceholder(state.step, placeholder)
+          }
           disabled={!composerUnlocked}
           maxLength={120}
           inputRef={composerInputRef}

@@ -83,7 +83,7 @@ mock.module('@/modules/contact-enrichment/resolve-company-client', {
   namedExports: { resolveCompanyViaRoute: async () => ({ success: true, data: { candidates: [] } }) },
 });
 mock.module('@/modules/contact-enrichment/hubspot-id-batch-actions', {
-  namedExports: { runHubSpotIdBatchItemAction: async () => ({}) },
+  namedExports: { prepareHubSpotIdBatchItemAction: async () => ({}) },
 });
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {

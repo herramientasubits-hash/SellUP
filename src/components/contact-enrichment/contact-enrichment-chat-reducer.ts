@@ -15,6 +15,8 @@ import type {
   ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
 import {
+  contactCountLines,
+  contactCountsFromSummary,
   contactsCountLabel,
   summarizeContactSearch,
   type ContactSearchSummary,
@@ -55,6 +57,9 @@ const REQUEST_DONE =
 // ── Automatic routing copy (AGENT2-ROUTING-WIRE-1) ────────────────────────────
 
 const AUTOMATIC_SEARCHING = 'Voy a buscar contactos automáticamente…';
+
+/** Bryan 04-11: al terminar la conversación sigue; la caja queda lista para otra empresa. */
+export const NEXT_COMPANY_HINT = 'Escribe otra empresa abajo y la busco.';
 
 const AUTOMATIC_ROUTING_DISABLED =
   'La búsqueda automática de contactos no está activada en este entorno. No se ejecutó ninguna búsqueda ni se crearon candidatos.';
@@ -415,8 +420,8 @@ function hubspotSkippedParts(hs: NonNullable<AutomaticRoutingUiDiagnosis['hubspo
 }
 
 /**
- * AGENT2A-COMPANY-SEARCH-COUNTS — la línea de HubSpot, corta (Bryan 29-10):
- * «De HubSpot: 2 completos a Contactos, 3 en «Por revisar» y 3 de otro vendedor.»
+ * AGENT2A-COMPANY-SEARCH-COUNTS — la línea de HubSpot, corta (Bryan 29-10, «aprobados» 04-11):
+ * «De HubSpot: 2 aprobados (completos), 3 por aprobar y 3 de otro vendedor.»
  * null cuando no hay nada que decir de HubSpot.
  */
 function hubspotSummaryLine(result: AutomaticRoutingUiResult, s: ContactSearchSummary): string | null {
@@ -424,8 +429,8 @@ function hubspotSummaryLine(result: AutomaticRoutingUiResult, s: ContactSearchSu
   const hs = result.diagnosis?.hubspotFirst ?? null;
   const parts: string[] = [];
   if (s.hubspotToContacts > 0)
-    parts.push(`${s.hubspotToContacts} ${s.hubspotToContacts === 1 ? 'completo' : 'completos'} a Contactos`);
-  if (s.hubspotToReview > 0) parts.push(`${s.hubspotToReview} en «Por revisar»`);
+    parts.push(`${s.hubspotToContacts} ${s.hubspotToContacts === 1 ? 'aprobado' : 'aprobados'} (${s.hubspotToContacts === 1 ? 'completo' : 'completos'})`);
+  if (s.hubspotToReview > 0) parts.push(`${s.hubspotToReview} por aprobar`);
   if (!hs) {
     if (parts.length > 0) return `De HubSpot: ${joinParts(parts)}.`;
     if (stage === 'no_hubspot_company') return 'De HubSpot: la empresa no está vinculada a HubSpot.';
@@ -449,17 +454,13 @@ function otherSourcesLine(s: ContactSearchSummary): string {
   if (s.contactBank > 0) parts.push(`${s.contactBank} que SellUp ya conocía de otra ficha`);
   if (s.companySite > 0) parts.push(`${s.companySite} del sitio web, sin correo`);
   const detail = parts.length <= 1 ? parts.join('') : `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
-  return `De otras fuentes: ${contactsCountLabel(s.otherSources)} ${s.otherSources === 1 ? 'nuevo' : 'nuevos'} en «Por revisar» (${detail}).`;
+  return `De otras fuentes: ${contactsCountLabel(s.otherSources)} ${s.otherSources === 1 ? 'nuevo' : 'nuevos'} por aprobar (${detail}).`;
 }
 
-/** La línea de lo que ya esperaba de búsquedas anteriores. */
-function previousPendingLine(s: ContactSearchSummary): string {
-  const earlier =
-    s.earlierToContacts > 0
-      ? ` Además pasé ${s.earlierToContacts} de HubSpot a Contactos porque ya ${s.earlierToContacts === 1 ? 'estaba completo' : 'estaban completos'}.`
-      : '';
-  if (s.previousPending === 0) return `De búsquedas anteriores: no tenías ninguno en «Por revisar».${earlier}`;
-  return `De búsquedas anteriores: ya tenías ${contactsCountLabel(s.previousPending)} en «Por revisar».${earlier}`;
+/** Lo de antes que esta búsqueda aprobó: candidatos de HubSpot que ya estaban completos. */
+function earlierApprovedLine(s: ContactSearchSummary): string | null {
+  if (s.earlierToContacts === 0) return null;
+  return `De búsquedas anteriores: aprobé ${contactsCountLabel(s.earlierToContacts)} de HubSpot que ya ${s.earlierToContacts === 1 ? 'estaba completo' : 'estaban completos'}.`;
 }
 
 export function buildAutomaticRoutingMessage(
@@ -480,25 +481,41 @@ export function buildAutomaticRoutingMessage(
   const failed = failedSourcesNote(result.failedProviders);
   const s = summarizeContactSearch(result);
 
-  // Nada nuevo, nada a Contactos y nada pendiente de antes: un cero explicado, como siempre.
-  if (s.hubspotBrought === 0 && s.otherSources === 0 && s.previousPending === 0 && s.earlierToContacts === 0) {
+  // Bryan 04-11: primero las dos líneas de siempre (aprobados | nuevos · por aprobar | …), aunque
+  // sean cero, para que se vea lo que ya se hizo en la empresa; debajo, el detalle por fuente.
+  const counts = contactCountLines(contactCountsFromSummary(s))
+    .map((line) => `• ${line}`)
+    .join('\n');
+  const fresh = s.newForReview + s.hubspotToContacts;
+
+  // Nada nuevo ni aprobado ahora: un cero explicado, como siempre.
+  if (fresh === 0 && s.earlierToContacts === 0) {
     return {
-      content: `No se encontraron contactos.${failed}${explainHubSpotFirstZero(result.diagnosis)}${explainZeroResult(result.diagnosis)}`,
-      tone: 'warning',
+      content: `No se encontraron contactos nuevos.\n\n${counts}${failed ? `\n\n${failed.trim()}` : ''}${explainHubSpotFirstZero(result.diagnosis)}${explainZeroResult(result.diagnosis)}`,
+      tone: s.approvedTotal + s.previousPending > 0 ? undefined : 'warning',
     };
   }
 
-  // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): un solo total confundía. Se separa lo de
-  // HubSpot, lo de las otras fuentes y lo que ya estaba en «Por revisar» de antes.
-  const lines = [hubspotSummaryLine(result, s), otherSourcesLine(s), previousPendingLine(s)].filter(
+  // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): el detalle separa HubSpot y las otras fuentes.
+  const detail = [hubspotSummaryLine(result, s), otherSourcesLine(s), earlierApprovedLine(s)].filter(
     (line): line is string => !!line,
   );
-  const header = s.newForReview + s.hubspotToContacts > 0 ? 'Terminé la búsqueda:' : 'Esta búsqueda no trajo contactos nuevos:';
-  const note = s.totalForReview > 0 ? `\n\nLos de «Por revisar» requieren tu aprobación.` : '';
-  const why = s.newForReview + s.hubspotToContacts === 0 ? explainZeroResult(result.diagnosis) : '';
+  const header = fresh > 0 ? 'Terminé la búsqueda:' : 'Esta búsqueda no trajo contactos nuevos:';
+  const why = fresh === 0 ? explainZeroResult(result.diagnosis) : '';
   return {
-    content: `${header}\n\n${lines.map((line) => `• ${line}`).join('\n')}${note}${failed ? `\n\n${failed.trim()}` : ''}${why}`,
+    content: `${header}\n\n${counts}\n\nDetalle de esta búsqueda:\n${detail.map((line) => `• ${line}`).join('\n')}${failed ? `\n\n${failed.trim()}` : ''}${why}`,
   };
+}
+
+/**
+ * ¿Se puede escribir? Al empezar, y también cuando la búsqueda ya terminó (con o sin
+ * contactos) o algo falló: antes la caja se apagaba y había que reiniciar (Bryan 04-11).
+ * Antes de buscar sigue apagada: lo que toca es «Buscar contactos con IA».
+ */
+export function isComposerUnlocked(state: Pick<ContactEnrichmentChatState, 'step' | 'automaticResult'>): boolean {
+  if (state.step === 'await_company') return true;
+  if (state.step === 'error') return true;
+  return state.step === 'done' && state.automaticResult !== null;
 }
 
 // ── Reducer ─────────────────────────────────────────────────────────────────────
@@ -767,7 +784,17 @@ export function contactEnrichmentChatReducer(
         ...state,
         step: 'done',
         automaticResult: action.result,
-        ...appendMessages(state, [{ role: 'assistant', content, tone }]),
+        ...appendMessages(state, [{ role: 'assistant', content: `${content}\n\n${NEXT_COMPANY_HINT}`, tone }]),
+      };
+    }
+
+    case 'NEXT_COMPANY': {
+      // Bryan 04-11: otra empresa en la MISMA conversación. Se limpia lo de la empresa
+      // anterior y se conservan los mensajes (y su numeración).
+      return {
+        ...createInitialContactEnrichmentChatState(),
+        messages: state.messages,
+        seq: state.seq,
       };
     }
 

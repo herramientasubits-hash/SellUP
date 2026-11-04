@@ -10,7 +10,7 @@
  */
 
 import type { RunAutomaticContactEnrichmentForRequestResult } from './automatic-routing-action-core';
-import { summarizeContactSearch } from './contact-search-summary';
+import { contactCountLines, contactCountsFromSummary, summarizeContactSearch } from './contact-search-summary';
 
 export type ContactSearchRunStatus = 'running' | 'succeeded' | 'failed';
 
@@ -29,6 +29,8 @@ export interface ContactSearchRun {
   detached: boolean;
   /** La respuesta del servidor, para que el asistente muestre el resumen al terminar. */
   result?: RunAutomaticContactEnrichmentForRequestResult;
+  /** Parte de un lote por IDs: sale en el Centro de procesos, pero el aviso lo da el lote. */
+  quiet?: boolean;
 }
 
 export type ContactSearchRunResponse =
@@ -67,11 +69,52 @@ export function contactsFound(result: RunAutomaticContactEnrichmentForRequestRes
   return summarizeContactSearch(result).totalForReview;
 }
 
+/** Lo que dice el aviso (y la fila del Centro de procesos) de una búsqueda terminada. */
+export interface ContactSearchNotice {
+  kind: 'success' | 'info' | 'error';
+  /** La empresa: el aviso dice de quién es antes que nada. */
+  title: string;
+  /** Dos líneas separadas por salto de línea (o el motivo, si falló). */
+  description: string;
+  /** Hay contactos por aprobar: el aviso lleva «Ver en Por revisar». */
+  review: boolean;
+}
+
+/**
+ * Bryan 04-11 — el aviso sin rodeos:
+ *   {Empresa}
+ *   7 contactos aprobados | 2 contactos nuevos
+ *   9 contactos por aprobar | 3 encontrados, 6 de ejecuciones anteriores
+ */
+export function buildContactSearchNotice(run: ContactSearchRun): ContactSearchNotice {
+  const title = run.companyName;
+  if (run.status === 'failed') {
+    return { kind: 'error', title, description: `No pudimos buscar contactos: ${run.message ?? 'vuelve a intentarlo.'}`, review: false };
+  }
+  if (run.result?.success) {
+    const summary = summarizeContactSearch(run.result);
+    return {
+      kind: 'success',
+      title,
+      description: contactCountLines(contactCountsFromSummary(summary)).join('\n'),
+      review: summary.totalForReview > 0,
+    };
+  }
+  // Sin respuesta (recargó la página o se perdió la conexión): lo que haya está en «Por revisar».
+  return { kind: 'info', title, description: run.message ?? 'Terminó la búsqueda: lo encontrado está en «Por revisar».', review: true };
+}
+
 export interface ContactSearchRunsStore {
   getSnapshot(): readonly ContactSearchRun[];
   subscribe(listener: () => void): () => void;
   /** Una búsqueda por pedido: si ya hay una en curso para ese pedido, devuelve esa misma. */
-  startRun(input: { id: string; requestId: string; accountId: string | null; companyName: string }): Promise<ContactSearchRunResponse>;
+  startRun(input: {
+    id: string;
+    requestId: string;
+    accountId: string | null;
+    companyName: string;
+    quiet?: boolean;
+  }): Promise<ContactSearchRunResponse>;
   expireStaleDetached(): void;
   dismiss(id: string): void;
   dismissFinished(): void;
@@ -137,7 +180,7 @@ export function createContactSearchRunsStore(deps: ContactSearchRunsDeps): Conta
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    startRun({ id, requestId, accountId, companyName }) {
+    startRun({ id, requestId, accountId, companyName, quiet }) {
       const existing = runs.find((run) => run.requestId === requestId && run.status === 'running' && !run.detached);
       if (existing && inFlight.has(existing.id)) return inFlight.get(existing.id)!;
       const run: ContactSearchRun = {
@@ -151,6 +194,7 @@ export function createContactSearchRunsStore(deps: ContactSearchRunsDeps): Conta
         found: null,
         message: null,
         detached: false,
+        ...(quiet ? { quiet: true } : {}),
       };
       runs = [run, ...runs.filter((r) => r.id !== id)].slice(0, MAX_KEPT);
       emit();

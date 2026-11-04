@@ -70,6 +70,8 @@ export interface AutomaticRoutingUiResult {
   hubspotAutoApprovedEarlierContacts?: number;
   /** Pendientes en «Por revisar» de búsquedas anteriores de la misma empresa. */
   previousPendingReviewCandidates?: number;
+  /** Contactos aprobados de la empresa, de esta búsqueda y de las anteriores. */
+  approvedContactsTotal?: number;
 }
 
 export interface AutomaticRoutingUiDiagnosis {
@@ -203,6 +205,8 @@ export interface ExtraCompanyData {
 
 export type ContactEnrichmentChatAction =
   | { type: 'SUBMIT_QUERY'; query: string }
+  /** Otra empresa en la misma conversación (conserva los mensajes). */
+  | { type: 'NEXT_COMPANY' }
   | { type: 'RESOLVED_NONE_NEEDS_DATA'; prefill: ExtraDataPrefill }
   | { type: 'RESOLVED_MANUAL'; candidate: CompanyCandidate; skippedHubSpot: boolean }
   | { type: 'RESOLVED_SINGLE'; candidate: CompanyCandidate; skippedHubSpot: boolean }
