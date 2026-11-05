@@ -14,10 +14,12 @@ const AFTER = new Date('2026-11-11T13:00:01Z');
 const config = parseLaunchGateConfig({});
 
 describe('launch gate — configuración', () => {
-  it('queda puesta por defecto, con egarcia y brcastro y la apertura de líderes del miércoles 11', () => {
+  it('queda puesta por defecto, con egarcia, brcastro y fpico y la apertura de líderes del miércoles 11', () => {
     assert.equal(config.enabled, true);
     assert.ok(config.allowedEmails.has('egarcia@ubits.co'));
     assert.ok(config.allowedEmails.has('brcastro@ubits.co'));
+    assert.ok(config.allowedEmails.has('fpico@ubits.co'));
+    assert.equal(config.allowedEmails.size, 3);
     assert.equal(config.leadersOpenAt, DEFAULT_LEADERS_OPEN_AT);
   });
 
@@ -39,8 +41,10 @@ describe('launch gate — configuración', () => {
 });
 
 describe('launch gate — quién entra', () => {
-  it('egarcia y brcastro entran siempre, sin importar mayúsculas', () => {
+  it('egarcia, brcastro y fpico entran siempre, sin importar mayúsculas', () => {
     assert.deepEqual(evaluateLaunchGate({ config, email: 'EGarcia@ubits.co', roleKey: 'admin', now: BEFORE }), { allowed: true });
+    assert.deepEqual(evaluateLaunchGate({ config, email: 'FPico@ubits.co', roleKey: 'admin', now: BEFORE }), { allowed: true });
+    assert.equal(isBlockedRegardlessOfRole(config, 'fpico@ubits.co', BEFORE), false);
     assert.deepEqual(evaluateLaunchGate({ config, email: 'brcastro@ubits.co', now: BEFORE }), { allowed: true });
   });
 

@@ -1,7 +1,8 @@
 /**
  * LAUNCH-GATE-2026-11 — ingreso cerrado hasta el lanzamiento (decisión de la dueña, 05-11-2026).
  *
- * Mientras la puerta está puesta sólo entran las cuentas de la lista (egarcia, brcastro). El resto
+ * Mientras la puerta está puesta sólo entran las cuentas de la lista (egarcia, brcastro y fpico,
+ * este último agregado por la dueña el 05-11). El resto
  * ve un aviso en el login:
  *   · Líderes (y managers) comerciales: cuenta regresiva hasta su apertura (miércoles 11-11,
  *     8:00 a. m. Bogotá). Al llegar a cero, entran solos.
@@ -19,7 +20,7 @@ export const LAUNCH_GATE_ALLOW_ENV = 'SELLUP_LAUNCH_GATE_ALLOW';
 export const LAUNCH_LEADERS_AT_ENV = 'SELLUP_LAUNCH_LEADERS_AT';
 
 /** Siempre entran mientras la puerta está puesta. */
-export const LAUNCH_GATE_ALWAYS_ALLOWED = ['egarcia@ubits.co', 'brcastro@ubits.co'] as const;
+export const LAUNCH_GATE_ALWAYS_ALLOWED = ['egarcia@ubits.co', 'brcastro@ubits.co', 'fpico@ubits.co'] as const;
 
 /** Miércoles 11-11-2026, 8:00 a. m. en Bogotá (UTC-5). */
 export const DEFAULT_LEADERS_OPEN_AT = '2026-11-11T13:00:00.000Z';
