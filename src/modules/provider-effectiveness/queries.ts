@@ -6,6 +6,7 @@
 // calls.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import type { ProviderUsageStatus } from '@/modules/usage-tracking/types';
 import type { ContactEnrichmentRunStatus } from '@/modules/contact-enrichment/types';
 import type {
@@ -159,7 +160,9 @@ export async function fetchContactEnrichmentRunEvidence(
       .from('contact_enrichment_runs')
       .select('id, status, created_at, agent_run_id, providers_used, summary')
       .is('bulk_run_id', null);
-    if (filters.dateFrom) runQuery = runQuery.gte('created_at', filters.dateFrom);
+    // Corte de visibilidad: lo anterior a la entrega no se muestra.
+    const dateFrom = clampToVisibleSince(filters.dateFrom);
+    if (dateFrom) runQuery = runQuery.gte('created_at', dateFrom);
     if (filters.dateTo) runQuery = runQuery.lt('created_at', filters.dateTo);
     return runQuery;
   };

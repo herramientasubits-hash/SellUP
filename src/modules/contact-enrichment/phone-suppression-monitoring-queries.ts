@@ -15,6 +15,7 @@
 // `src/modules/ai-usage/queries.ts`— evita exponer un endpoint nuevo.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { PHONE_CACHE_PROVIDER } from './phone-cache-core';
 import {
@@ -66,7 +67,8 @@ export async function getPhoneSuppressionNotEvaluableSummary(): Promise<PhoneSup
         .select('created_at, metadata')
         .eq('provider_key', PHONE_CACHE_PROVIDER)
         .in('metadata->>suppression_state', states as unknown as string[])
-        .gte('created_at', sinceIso)
+        // Corte de visibilidad: lo anterior a la entrega no se muestra.
+        .gte('created_at', clampToVisibleSince(sinceIso) ?? sinceIso)
         .order('created_at', { ascending: false })
         .limit(rowLimit);
       if (error) {
