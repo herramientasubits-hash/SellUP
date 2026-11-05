@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { getVisibleSince } from '@/lib/visible-since';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { parseAgent2AInput } from './agent2a-input';
@@ -331,11 +332,22 @@ function candidateSelect(scoped: boolean): string {
 }
 
 /** Select + filtro de alcance para una lectura de candidatos. */
+/**
+ * Corte de visibilidad: los candidatos de antes de la entrega siguen guardados (el banco de
+ * contactos los reutiliza) pero no aparecen en las colas ni en sus contadores.
+ */
+function withVisibleSince<Q extends { gte: (column: string, value: string) => Q }>(query: Q): Q {
+  const visibleSince = getVisibleSince();
+  return visibleSince ? query.gte('created_at', visibleSince) : query;
+}
+
 function scopedCandidateRead(
   supabase: Awaited<ReturnType<typeof createClient>>,
   scopeIds: string[] | null,
 ) {
-  const query = supabase.from('contact_enrichment_candidates').select(candidateSelect(scopeIds !== null));
+  const query = withVisibleSince(
+    supabase.from('contact_enrichment_candidates').select(candidateSelect(scopeIds !== null)),
+  );
   return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
 }
 
@@ -344,12 +356,14 @@ function scopedCandidateCount(
   supabase: Awaited<ReturnType<typeof createClient>>,
   scopeIds: string[] | null,
 ) {
-  const query = supabase
-    .from('contact_enrichment_candidates')
-    .select(scopeIds === null ? 'id' : 'id, run:contact_enrichment_runs!inner ( triggered_by )', {
-      count: 'exact',
-      head: true,
-    });
+  const query = withVisibleSince(
+    supabase
+      .from('contact_enrichment_candidates')
+      .select(scopeIds === null ? 'id' : 'id, run:contact_enrichment_runs!inner ( triggered_by )', {
+        count: 'exact',
+        head: true,
+      }),
+  );
   return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
 }
 

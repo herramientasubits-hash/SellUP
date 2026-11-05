@@ -22,6 +22,7 @@ import {
   type PaginatedReadResult,
 } from '@/lib/supabase/paginated-read';
 import { resolvePeriodStart, resolveStatusFilter } from './usage-filter-semantics';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import {
   indexRunsById,
   selectLogsInScope,
@@ -89,7 +90,8 @@ export function buildUsageScope(
   dimensions: UsageDimensionFilters = {},
 ): UsageScope {
   return {
-    since: resolvePeriodStart(filters.period),
+    // Corte de visibilidad (src/lib/visible-since): lo anterior a la entrega no se muestra.
+    since: clampToVisibleSince(resolvePeriodStart(filters.period)),
     providerKey: filters.provider || undefined,
     // Vocabulario de la 147 (agent1, agent2a…); una URL vieja con la clave de
     // agent_runs (prospect_generation…) se traduce igual que el disparador.

@@ -48,6 +48,7 @@ import type { FilterOptions, UsageFilters } from '@/modules/ai-usage/queries';
 import { getAiUsageBreakdowns } from '@/modules/ai-usage/breakdown-queries';
 import { withAgent1CompanyOutcomes } from '@/modules/ai-usage/usage-breakdowns';
 import { resolvePeriodStart } from '@/modules/ai-usage/usage-filter-semantics';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import { resolveCostDisplay, toCostTruth } from '@/modules/usage-tracking/cost-display';
 import { AgentDrilldown } from './agent-drilldown';
 
@@ -101,7 +102,7 @@ async function buildAgent1Filters(filters: UsageFilters): Promise<Agent1Effectiv
     createdByIds = hasPeopleFilter ? [] : undefined;
   }
   return {
-    dateFrom: resolvePeriodStart(filters.period) ?? undefined,
+    dateFrom: clampToVisibleSince(resolvePeriodStart(filters.period)) ?? undefined,
     providerKey: filters.provider,
     countryCode: filters.country,
     createdByIds,

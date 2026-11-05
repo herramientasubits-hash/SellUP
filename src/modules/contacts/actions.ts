@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { getVisibleSince } from '@/lib/visible-since';
 import { redirect } from 'next/navigation';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
@@ -182,6 +183,10 @@ export async function getAllContacts(): Promise<ContactListItem[]> {
         : '*, account:account_id ( name )',
     )
     .is('archived_at', null);
+  // Corte de visibilidad: los contactos de antes de la entrega siguen guardados (banco de
+  // contactos de las empresas archivadas) pero no aparecen en la lista.
+  const visibleSince = getVisibleSince();
+  if (visibleSince) query = query.gte('created_at', visibleSince);
   if (scopeIds) {
     query = query.or(contactAccountScopeOrClause(scopeIds), { referencedTable: 'account' });
   }
