@@ -17,6 +17,7 @@ import {
 import { flattenOrgGroups } from '@/modules/access/group-tree';
 import { agentKeyFromRunKey } from '@/modules/usage-tracking/usage-dimensions';
 import { resolvePeriodStart } from './usage-filter-semantics';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import { batchMatchesDimensionFilters } from './usage-dimension-scope';
 import {
   candidateTool,
@@ -99,7 +100,7 @@ function orThrow<T>(table: string, read: { rows: T[]; truncated: boolean; error:
 
 /** Lotes del ámbito: periodo, personas (alcance comercial) y país / industria / forma. */
 async function readBatches(admin: AdminClient, filters: UsageFilters, userScope: UserScope) {
-  const since = resolvePeriodStart(filters.period);
+  const since = clampToVisibleSince(resolvePeriodStart(filters.period));
   const build = (people: string[] | null) => (from: number, to: number) => {
     let query = admin.from('prospect_batches').select(BATCH_COLUMNS);
     if (since) query = query.gte('created_at', since);

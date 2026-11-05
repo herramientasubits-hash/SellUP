@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { getVisibleSince } from '@/lib/visible-since';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import type { UsageSummary, RecentUsageActivity } from './types';
@@ -78,17 +79,25 @@ export function aggregateUsageSummaryCost(
 export async function getUsageSummary(): Promise<UsageSummary> {
   await requireAdmin();
   const admin = createSupabaseAdminClient();
+  // Corte de visibilidad: lo anterior a la entrega queda guardado pero no se muestra.
+  const since = getVisibleSince() ?? new Date(0).toISOString();
 
   // Paginado: sin `.range()` la API REST devuelve como mucho 1.000 filas y
   // «Llamadas API» y «Costo est.» se quedaban cortos sin avisar.
   const [runsResult, providerResult] = await Promise.all([
     fetchAllPages<{ status: string; estimated_cost_usd: number | null }>((from, to) =>
-      admin.from('agent_runs').select('status, estimated_cost_usd').order('id', { ascending: true }).range(from, to),
+      admin
+        .from('agent_runs')
+        .select('status, estimated_cost_usd')
+        .gte('created_at', since)
+        .order('id', { ascending: true })
+        .range(from, to),
     ),
     fetchAllPages<{ status: string; estimated_cost_usd: number | null }>((from, to) =>
       admin
         .from('provider_usage_logs')
         .select('status, estimated_cost_usd')
+        .gte('created_at', since)
         .order('id', { ascending: true })
         .range(from, to),
     ),
@@ -129,21 +138,25 @@ export async function getUsageSummary(): Promise<UsageSummary> {
 export async function getRecentUsageActivity(limit = 20): Promise<RecentUsageActivity> {
   await requireAdmin();
   const admin = createSupabaseAdminClient();
+  const since = getVisibleSince() ?? new Date(0).toISOString();
 
   const [runsResult, logsResult, qualityResult] = await Promise.all([
     admin
       .from('agent_runs')
       .select('*')
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(limit),
     admin
       .from('provider_usage_logs')
       .select('*')
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(limit),
     admin
       .from('result_quality_events')
       .select('*')
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(limit),
   ]);

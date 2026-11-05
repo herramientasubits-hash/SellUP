@@ -14,7 +14,7 @@ export async function updateSession(
   request: NextRequest,
   /** Sólo para pruebas: el cliente de Supabase a usar. */
   createClient: typeof createServerClient = createServerClient,
-): Promise<{ supabaseResponse: NextResponse; isAuthenticated: boolean }> {
+): Promise<{ supabaseResponse: NextResponse; isAuthenticated: boolean; email: string | null }> {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createClient(
@@ -41,6 +41,8 @@ export async function updateSession(
   // getClaims() decodifica y valida el JWT localmente sin llamar a la API
   // Patrón oficial SSR recomendado por Supabase
   const { data: claims } = await supabase.auth.getClaims();
+  const claimedEmail = claims?.claims?.email;
+  const email = typeof claimedEmail === 'string' ? claimedEmail : null;
 
   // En /login, «autenticado» manda a la persona a /pipeline. Ahí no basta un JWT
   // vigente: si la sesión fue revocada en Supabase, el layout de la app (que usa
@@ -48,8 +50,8 @@ export async function updateSession(
   // (ERR_TOO_MANY_REDIRECTS, 29-10). Sólo en /login se confirma con Supabase.
   if (claims && request.nextUrl.pathname.startsWith('/login')) {
     const { data, error } = await supabase.auth.getUser();
-    return { supabaseResponse, isAuthenticated: !error && !!data.user };
+    return { supabaseResponse, isAuthenticated: !error && !!data.user, email };
   }
 
-  return { supabaseResponse, isAuthenticated: !!claims };
+  return { supabaseResponse, isAuthenticated: !!claims, email };
 }

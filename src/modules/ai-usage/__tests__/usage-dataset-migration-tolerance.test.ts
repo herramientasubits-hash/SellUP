@@ -11,6 +11,9 @@ import assert from 'node:assert/strict';
 import { isMissingDimensionColumnError, loadUsageDataset } from '../usage-dataset';
 import type { AdminClient } from '../queries';
 
+// Las filas de ejemplo son de antes del corte de visibilidad (src/lib/visible-since); aquí no se prueba eso.
+process.env.SELLUP_VISIBLE_SINCE = 'off';
+
 type Row = Record<string, unknown>;
 
 /** Cliente mínimo: devuelve las filas de cada tabla por páginas y registra los select. */

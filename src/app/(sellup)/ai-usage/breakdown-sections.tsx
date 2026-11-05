@@ -120,7 +120,8 @@ export async function CompetitorQualitySection({ filters }: { filters: UsageFilt
     import('@/server/prospect-batches/competitor-search/competitor-quality.server'),
     import('@/modules/ai-usage/usage-filter-semantics'),
   ]);
-  const since = resolvePeriodStart(filters.period) ?? new Date(0).toISOString();
+  const { clampToVisibleSince } = await import('@/lib/visible-since');
+  const since = clampToVisibleSince(resolvePeriodStart(filters.period)) ?? new Date(0).toISOString();
   const supabase = await createClient();
   const quality = await loadCompetitorQuality(supabase as unknown as Parameters<typeof loadCompetitorQuality>[0], since);
   if (!quality || (quality.bySource.length === 0 && quality.byReference.length === 0)) return null;

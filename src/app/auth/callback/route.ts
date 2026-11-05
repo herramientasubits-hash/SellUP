@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { openSlackDMForUser } from '@/server/services/slack-connection';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { evaluateLaunchGate, readLaunchGateConfig } from '@/modules/auth/launch-gate';
 
 // The Slack DM sidecar below builds a service-role client via the shared
 // fail-closed factory (createSupabaseAdminClient), which reads the env-guard
@@ -84,6 +85,21 @@ export async function GET(request: Request) {
   });
 
   const accessStatus = accessData?.[0]?.access_status ?? 'pending_approval';
+
+  // LAUNCH-GATE-2026-11: con la puerta de lanzamiento puesta, una cuenta activa que no está en la
+  // lista no entra: se cierra la sesión y el login muestra el aviso que le toca.
+  if (accessStatus === 'active') {
+    const gate = evaluateLaunchGate({
+      config: readLaunchGateConfig(),
+      email,
+      roleKey: (accessData?.[0]?.role_key as string | null | undefined) ?? null,
+      now: new Date(),
+    });
+    if (!gate.allowed) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(`${origin}/login?hold=${gate.audience}`);
+    }
+  }
 
   const accessRedirects: Record<string, string> = {
     pending_approval: '/access-pending',

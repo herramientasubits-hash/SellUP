@@ -10,6 +10,7 @@
 // ============================================================
 
 import { getAdminBudgetSummary } from './budget-resolution';
+import { getVisibleSince } from '@/lib/visible-since';
 import { getAdminClient } from './queries';
 import { getBudgetRulesForProvider, getBudgetRuleFormOptions } from './rule-queries';
 import { getRecentProviderLogs, type UsageFilters } from '@/modules/ai-usage/queries';
@@ -178,6 +179,8 @@ async function getRecentUsageLogs(
         'id, operation_key, credits_used, estimated_cost_usd, status, triggered_by, agent_run_id, error_code, error_message, created_at',
       )
       .eq('provider_key', providerKey)
+      // Corte de visibilidad: lo anterior a la entrega no se muestra.
+      .gte('created_at', getVisibleSince() ?? new Date(0).toISOString())
       .order('created_at', { ascending: false })
       .limit(limit);
 

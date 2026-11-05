@@ -11,6 +11,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchAgent1EffectivenessEvidence } from '../queries';
 
+// Aquí se prueba la paginación, no el corte de visibilidad (src/lib/visible-since).
+process.env.SELLUP_VISIBLE_SINCE = 'off';
+
 type Row = Record<string, unknown>;
 
 /** Cliente mínimo que imita PostgREST: filtros + .range() con 1.000 filas por página como máximo. */

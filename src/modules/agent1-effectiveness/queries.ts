@@ -6,6 +6,7 @@
 // calls. Mirrors the admin-client read pattern used by provider-effectiveness.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import {
   fetchAllPages,
   fetchAllPagesInChunks,
@@ -179,7 +180,9 @@ async function fetchBatchRows(
     if (createdByChunk) query = query.in('created_by', createdByChunk);
     if (filters.countryCode) query = query.eq('country_code', filters.countryCode);
     if (filters.industry) query = query.eq('industry', filters.industry);
-    if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
+    // Corte de visibilidad: lo anterior a la entrega no se muestra.
+    const dateFrom = clampToVisibleSince(filters.dateFrom);
+    if (dateFrom) query = query.gte('created_at', dateFrom);
     if (filters.dateTo) query = query.lt('created_at', filters.dateTo);
 
     return query.order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, to);

@@ -8,6 +8,7 @@
 // leer seis claves haría la consulta lenta sin aportar nada.
 
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { clampToVisibleSince } from '@/lib/visible-since';
 import type {
   ProviderRunScorecardInput,
   ScorecardBatchInput,
@@ -323,8 +324,10 @@ async function fetchPrices(
 
 /** Todo lo que la ficha necesita para una ventana, en cuatro lecturas acotadas. */
 export async function loadProviderRunScorecardInput(
-  request: ProviderRunScorecardRequest,
+  requested: ProviderRunScorecardRequest,
 ): Promise<ProviderRunScorecardInput> {
+  // Corte de visibilidad: lo anterior a la entrega no se muestra.
+  const request = { ...requested, dateFrom: clampToVisibleSince(requested.dateFrom) ?? requested.dateFrom };
   const admin = getAdminClient();
   const [batches, usageLogs, prices] = await Promise.all([
     fetchBatches(admin, request),
