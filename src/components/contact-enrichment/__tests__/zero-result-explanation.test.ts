@@ -33,7 +33,10 @@ const zeroResult = (diagnosis?: AutomaticRoutingUiDiagnosis): AutomaticRoutingUi
 describe('explainZeroResult', () => {
   it('sin diagnóstico no agrega nada (mensaje de siempre)', () => {
     assert.equal(explainZeroResult(undefined), '');
-    assert.equal(buildAutomaticRoutingMessage(zeroResult()).content, 'No se encontraron contactos.');
+    assert.equal(
+      buildAutomaticRoutingMessage(zeroResult()).content,
+      'No se encontraron contactos nuevos.\n\n• 0 contactos aprobados | 0 contactos nuevos\n• 0 contactos por aprobar | 0 encontrados, 0 de ejecuciones anteriores',
+    );
   });
 
   it('Apollo no se llamó: pide el dominio', () => {
@@ -74,6 +77,7 @@ describe('explainZeroResult', () => {
   it('el mensaje final conserva el inicio y el tono de advertencia', () => {
     const message = buildAutomaticRoutingMessage(zeroResult(diag({ apolloOrganization: 'not_found' })));
     assert.equal(message.tone, 'warning');
-    assert.match(message.content, /^No se encontraron contactos\.\n\nApollo no reconoce/);
+    // Bryan 04-11: primero las cifras de siempre, luego la explicación del cero.
+    assert.match(message.content, /^No se encontraron contactos nuevos\.\n\n• 0 contactos aprobados[\s\S]*\n\nApollo no reconoce/);
   });
 });

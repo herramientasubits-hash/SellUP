@@ -19,6 +19,8 @@ export interface ContactSearchSummaryInput {
   hubspotAutoApprovedEarlierContacts?: number;
   /** Candidatos en «Por revisar» de búsquedas anteriores de la misma empresa (tras pasar los completos). */
   previousPendingReviewCandidates?: number;
+  /** Contactos aprobados de la empresa, de esta búsqueda y de las anteriores (Bryan 04-11). */
+  approvedContactsTotal?: number;
   diagnosis?: {
     freeStages?: { hubspotFirst?: string } | null;
     hubspotFirst?: { hubspotContacts: number } | null;
@@ -48,6 +50,10 @@ export interface ContactSearchSummary {
   newForReview: number;
   /** Todo lo que hay para revisar de la empresa: lo nuevo más lo anterior. */
   totalForReview: number;
+  /** Aprobados en esta búsqueda: los de HubSpot completos, de ahora y de antes. */
+  approvedNow: number;
+  /** Aprobados de la empresa en total (anteriores + los de ahora). */
+  approvedTotal: number;
 }
 
 function count(value: number | null | undefined): number {
@@ -70,6 +76,8 @@ export function summarizeContactSearch(result: ContactSearchSummaryInput): Conta
       ? count(result.previousPendingReviewCandidates)
       : count(result.reusedExistingCandidates);
   const newForReview = hubspotToReview + otherSources;
+  const earlierToContacts = count(result.hubspotAutoApprovedEarlierContacts);
+  const approvedNow = hubspotToContacts + earlierToContacts;
   const hubspotStage = result.diagnosis?.hubspotFirst;
   return {
     hubspotTotal: hubspotStage ? count(hubspotStage.hubspotContacts) : null,
@@ -82,9 +90,12 @@ export function summarizeContactSearch(result: ContactSearchSummaryInput): Conta
     contactBank,
     companySite,
     previousPending,
-    earlierToContacts: count(result.hubspotAutoApprovedEarlierContacts),
+    earlierToContacts,
     newForReview,
     totalForReview: newForReview + previousPending,
+    approvedNow,
+    // Sin el total (servidor anterior o conteo fallido) se muestra al menos lo aprobado ahora.
+    approvedTotal: Math.max(count(result.approvedContactsTotal), approvedNow),
   };
 }
 
@@ -93,25 +104,55 @@ export function contactsCountLabel(n: number): string {
   return n === 1 ? '1 contacto' : `${n} contactos`;
 }
 
+/** Las cifras que muestran el aviso, el Centro de procesos, el chat y el reporte del lote. */
+export interface ContactCounts {
+  /** Aprobados de la empresa (o del lote): anteriores + los de ahora. */
+  approvedTotal: number;
+  /** De esos, los aprobados en esta búsqueda. */
+  approvedNow: number;
+  /** Por aprobar que encontró esta búsqueda. */
+  foundForReview: number;
+  /** Por aprobar que ya estaban de búsquedas anteriores. */
+  previousPending: number;
+}
+
+export function contactCountsFromSummary(summary: ContactSearchSummary): ContactCounts {
+  return {
+    approvedTotal: summary.approvedTotal,
+    approvedNow: summary.approvedNow,
+    foundForReview: summary.newForReview,
+    previousPending: summary.previousPending,
+  };
+}
+
 /**
- * Una línea para el aviso del Centro de procesos:
- * «HubSpot: 5 (2 a Contactos) · Otras fuentes: 4 · Ya tenías 6 en «Por revisar»».
+ * Bryan 04-11 — las dos líneas de siempre, aunque sean cero:
+ *   «7 contactos aprobados | 2 contactos nuevos»
+ *   «9 contactos por aprobar | 3 encontrados, 6 de ejecuciones anteriores»
  */
-export function contactSearchCountsLine(summary: ContactSearchSummary): string {
-  const parts: string[] = [];
-  if (summary.hubspotBrought > 0) {
-    parts.push(
-      summary.hubspotToContacts > 0
-        ? `HubSpot: ${summary.hubspotBrought} (${summary.hubspotToContacts} a Contactos)`
-        : `HubSpot: ${summary.hubspotBrought}`,
-    );
-  } else if (summary.hubspotTotal !== null) {
-    parts.push('HubSpot: 0');
-  }
-  parts.push(`Otras fuentes: ${summary.otherSources}`);
-  if (summary.previousPending > 0) parts.push(`Ya tenías ${summary.previousPending} en «Por revisar»`);
-  if (summary.earlierToContacts > 0) parts.push(`${summary.earlierToContacts} de antes a Contactos`);
-  return parts.join(' · ');
+export function contactCountLines(counts: ContactCounts): [string, string] {
+  const forReview = counts.foundForReview + counts.previousPending;
+  const approved = `${counts.approvedTotal} ${counts.approvedTotal === 1 ? 'contacto aprobado' : 'contactos aprobados'}`;
+  const approvedNow = `${counts.approvedNow} ${counts.approvedNow === 1 ? 'contacto nuevo' : 'contactos nuevos'}`;
+  const pending = `${forReview} ${forReview === 1 ? 'contacto por aprobar' : 'contactos por aprobar'}`;
+  const found = `${counts.foundForReview} ${counts.foundForReview === 1 ? 'encontrado' : 'encontrados'}`;
+  return [
+    `${approved} | ${approvedNow}`,
+    `${pending} | ${found}, ${counts.previousPending} de ejecuciones anteriores`,
+  ];
+}
+
+/** Suma las cifras de varias empresas (el aviso y el mensaje final del lote). */
+export function sumContactCounts(list: readonly ContactCounts[]): ContactCounts {
+  return list.reduce<ContactCounts>(
+    (acc, c) => ({
+      approvedTotal: acc.approvedTotal + c.approvedTotal,
+      approvedNow: acc.approvedNow + c.approvedNow,
+      foundForReview: acc.foundForReview + c.foundForReview,
+      previousPending: acc.previousPending + c.previousPending,
+    }),
+    { approvedTotal: 0, approvedNow: 0, foundForReview: 0, previousPending: 0 },
+  );
 }
 
 // ── Contactos de HubSpot completos ───────────────────────────────────────────

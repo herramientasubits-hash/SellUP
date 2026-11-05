@@ -18,7 +18,10 @@ import {
   getContactSearchRunsStore,
   useContactSearchProgress,
 } from '@/modules/contact-enrichment/contact-search-runs-client';
-import type { ContactSearchRun } from '@/modules/contact-enrichment/contact-search-runs-store';
+import {
+  buildContactSearchNotice,
+  type ContactSearchRun,
+} from '@/modules/contact-enrichment/contact-search-runs-store';
 
 const TONE = {
   running: 'bg-primary/10 text-primary',
@@ -31,6 +34,8 @@ const ICON = { running: UserSearch, succeeded: CheckCircle2, failed: AlertCircle
 /** Qué dice la fila de una búsqueda terminada. */
 export function contactSearchRunSummary(run: ContactSearchRun): string {
   if (run.status === 'failed') return run.message ?? 'No se pudo hacer la búsqueda.';
+  // Bryan 04-11: las mismas dos líneas del aviso (aprobados | nuevos · por aprobar | …).
+  if (run.result?.success) return buildContactSearchNotice(run).description;
   if (run.message) return run.message;
   if (run.found === null) return 'Terminó: lo encontrado está en «Por revisar».';
   if (run.found === 0) return 'No encontró contactos nuevos.';
@@ -65,7 +70,7 @@ function ContactSearchRunRow({ run, onView }: { run: ContactSearchRun; onView: (
             <Progress value={progress.percent} aria-label={`Avance: ${title}`} className="h-1.5" />
           </>
         ) : (
-          <Text size="xs" tone={run.status === 'failed' ? 'negative' : 'secondary'} className="line-clamp-2" title={meta}>
+          <Text size="xs" tone={run.status === 'failed' ? 'negative' : 'secondary'} className="line-clamp-2 whitespace-pre-line" title={meta}>
             {meta}
           </Text>
         )}

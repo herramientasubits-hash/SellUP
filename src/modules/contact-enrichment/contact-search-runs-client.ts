@@ -3,7 +3,8 @@
 /**
  * El registro ÚNICO de búsquedas de contactos con Rumbo en este navegador: vive fuera del
  * panel (se puede minimizar o cerrar) y lo muestra el Centro de procesos. Al terminar
- * avisa con «Ver en Por revisar», esté o no el panel abierto.
+ * avisa con la empresa y sus cifras (y «Ver en Por revisar» si hay qué aprobar), esté o no
+ * el panel abierto.
  *
  * Todo va por rutas, no por acciones del servidor: las acciones van una a la vez y las
  * navegaciones esperan detrás de ellas (Prod 19-10, Agente 3), así que dos búsquedas a
@@ -22,12 +23,13 @@ import {
   type ContactSearchProgress,
 } from './contact-search-progress';
 import {
+  buildContactSearchNotice,
   createContactSearchRunsStore,
+  type ContactSearchNotice,
   type ContactSearchRun,
   type ContactSearchRunResponse,
   type ContactSearchRunsStore,
 } from './contact-search-runs-store';
-import { contactSearchCountsLine, summarizeContactSearch } from './contact-search-summary';
 
 async function executeContactSearch(requestId: string): Promise<ContactSearchRunResponse> {
   let response: Response;
@@ -50,41 +52,35 @@ export const CONTACT_SEARCH_SETTLED_EVENT = 'sellup:contact-search:settled';
 /** «Ver en Por revisar»: la cola de candidatos, con lo más nuevo arriba. */
 export const CONTACT_SEARCH_REVIEW_HREF = CONTACTS_CANDIDATES_ROUTE;
 
+/**
+ * Clases para un aviso que no se corta: los avisos van a dos líneas (`ui/sonner.tsx`), pero
+ * el de la búsqueda lleva dos líneas de cifras bajo el nombre de la empresa (Bryan 04-11).
+ */
+export const CONTACT_SEARCH_TOAST_CLASSNAMES = {
+  description: 'whitespace-pre-line !line-clamp-none',
+} as const;
+
+const reviewAction = () => ({
+  label: 'Ver en Por revisar',
+  onClick: () => window.location.assign(CONTACT_SEARCH_REVIEW_HREF),
+});
+
+/** Muestra el aviso de una búsqueda (o de un lote) terminada. */
+export function showContactSearchNotice(notice: ContactSearchNotice, duration = 10000) {
+  const options = {
+    description: notice.description,
+    classNames: CONTACT_SEARCH_TOAST_CLASSNAMES,
+    ...(notice.review ? { action: reviewAction() } : {}),
+    duration,
+  };
+  if (notice.kind === 'error') toast.error(notice.title, options);
+  else if (notice.kind === 'info') toast.info(notice.title, options);
+  else toast.success(notice.title, options);
+}
+
 function announce(run: ContactSearchRun) {
-  const view = { label: 'Ver en Por revisar', onClick: () => window.location.assign(CONTACT_SEARCH_REVIEW_HREF) };
-  // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): no un solo total, sino de dónde salió cada cosa.
-  const summary = run.result ? summarizeContactSearch(run.result) : null;
-  const somethingHappened =
-    summary !== null &&
-    summary.newForReview + summary.hubspotToContacts + summary.previousPending + summary.earlierToContacts > 0;
-  if (run.status === 'succeeded' && summary && somethingHappened) {
-    const fresh = summary.newForReview + summary.hubspotToContacts;
-    toast.success(
-      fresh === 0
-        ? 'Rumbo no trajo contactos nuevos'
-        : fresh === 1
-          ? 'Rumbo trajo 1 contacto'
-          : `Rumbo trajo ${fresh} contactos`,
-      {
-        description: `${run.companyName}: ${contactSearchCountsLine(summary)}.`,
-        ...(summary.totalForReview > 0 ? { action: view } : {}),
-        duration: 10000,
-      },
-    );
-  } else if (run.status === 'succeeded' && run.found !== null && run.found > 0) {
-    toast.success(run.found === 1 ? 'Rumbo encontró 1 contacto' : `Rumbo encontró ${run.found} contactos`, {
-      description: `${run.companyName}: quedaron en «Por revisar».`,
-      action: view,
-      duration: 8000,
-    });
-  } else if (run.status === 'succeeded') {
-    toast.info(run.found === 0 ? 'Rumbo no encontró contactos nuevos' : 'Terminó la búsqueda de contactos', {
-      description: `${run.companyName}: ${run.message ?? 'no hay contactos nuevos para revisar.'}`,
-      ...(run.found === null ? { action: view } : {}),
-    });
-  } else {
-    toast.error('No pudimos buscar contactos', { description: `${run.companyName}: ${run.message ?? 'Vuelve a intentarlo.'}` });
-  }
+  // Las de un lote salen en el Centro de procesos; el aviso es uno solo, al final del lote.
+  if (!run.quiet) showContactSearchNotice(buildContactSearchNotice(run));
   window.dispatchEvent(new window.CustomEvent(CONTACT_SEARCH_SETTLED_EVENT, { detail: { runId: run.id, accountId: run.accountId } }));
 }
 

@@ -90,7 +90,7 @@ describe('Primero HubSpot — el chat explica el cero', () => {
     // AGENT2A-COMPANY-SEARCH-COUNTS: el porqué va en la línea de HubSpot del resumen.
     assert.match(content, /^Terminé la búsqueda:/);
     assert.match(content, /De HubSpot: ninguno nuevo \(3 ya en SellUp y 97 de otro vendedor\)\./);
-    assert.match(content, /De otras fuentes: 5 contactos nuevos en «Por revisar» \(5 de Apollo\)\./);
+    assert.match(content, /De otras fuentes: 5 contactos nuevos por aprobar \(5 de Apollo\)\./);
   });
 });
 

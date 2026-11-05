@@ -18,7 +18,7 @@ import '../../chat/__tests__/jsdom-setup';
 import * as React from 'react';
 import { describe, it, before, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import type { HubSpotIdBatchItemResult } from '@/modules/contact-enrichment/hubspot-id-batch-core';
+import type { HubSpotIdBatchPrepared } from '@/modules/contact-enrichment/hubspot-id-batch-core';
 
 for (const proto of [window.HTMLElement.prototype, window.Element.prototype]) {
   const p = proto as unknown as Record<string, unknown>;
@@ -47,19 +47,32 @@ let linkedinFlag = false;
 /** Si está puesto, cada empresa del lote espera a que se abra. */
 let itemGate: Promise<void> | null = null;
 
-const mockRunItem = mock.fn<(id: unknown) => Promise<HubSpotIdBatchItemResult>>(async (id) => {
+/** Paso 1 del lote (servidor): preparar la empresa. */
+const mockRunItem = mock.fn<(id: unknown) => Promise<HubSpotIdBatchPrepared>>(async (id) => {
   if (itemGate) await itemGate;
   return {
+    status: 'ready',
     hubspotCompanyId: String(id),
-    status: 'processed',
     name: `Empresa ${String(id)}`,
     country: 'Colombia',
     accountId: `acc-${String(id)}`,
-    contactsFound: 2,
-    previousPendingContacts: 0,
-    routingDisabled: false,
-    errorMessage: null,
+    requestId: `req-${String(id)}`,
   };
+});
+
+/** Paso 2 del lote: la ruta de búsqueda de una empresa sola (sin red). */
+(globalThis as unknown as { fetch: unknown }).fetch = async () => ({
+  redirected: false,
+  url: 'http://localhost/api/contact-enrichment/requests/x/search',
+  ok: true,
+  json: async () => ({
+    ok: true,
+    result: {
+      success: true, status: 'no_fallback_needed', automaticRoutingEnabled: true, fallbackExecuted: false,
+      attempt1AttemptId: 'a1', attempt2AttemptId: null, blockedReason: null, reusedExistingCandidates: 0,
+      providerCandidatesCreated: { apollo: 2, lusha: null }, failedProviders: [],
+    },
+  }),
 });
 
 mock.module('@/modules/contact-enrichment/panel-flags-actions', {
@@ -68,7 +81,7 @@ mock.module('@/modules/contact-enrichment/panel-flags-actions', {
   },
 });
 mock.module('@/modules/contact-enrichment/hubspot-id-batch-actions', {
-  namedExports: { runHubSpotIdBatchItemAction: (id: unknown) => mockRunItem(id) },
+  namedExports: { prepareHubSpotIdBatchItemAction: (id: unknown) => mockRunItem(id) },
 });
 mock.module('@/modules/contact-enrichment/actions', {
   namedExports: {
@@ -84,6 +97,7 @@ mock.module('next/navigation', {
 });
 
 let ContactEnrichmentDrawer: (typeof import('../contact-enrichment-drawer'))['ContactEnrichmentDrawer'];
+let resetHubSpotIdBatchConversationForTests: () => void;
 let ShellAgentPanelSlotProvider: (typeof import('@/components/layout/shell-agent-panel-slot'))['ShellAgentPanelSlotProvider'];
 
 function Shell() {
@@ -102,6 +116,7 @@ function Shell() {
 before(async () => {
   rtl = await import('@testing-library/react');
   ({ ContactEnrichmentDrawer } = await import('../contact-enrichment-drawer'));
+  ({ resetHubSpotIdBatchConversationForTests } = await import('../contact-enrichment-hubspot-id-batch'));
   ({ ShellAgentPanelSlotProvider } = await import('@/components/layout/shell-agent-panel-slot'));
 });
 
@@ -109,6 +124,7 @@ beforeEach(() => {
   linkedinFlag = false;
   itemGate = null;
   mockRunItem.mock.resetCalls();
+  resetHubSpotIdBatchConversationForTests();
 });
 
 afterEach(() => {
