@@ -216,6 +216,93 @@ export function buildHubSpotFillEmptyProperties(
   return fill;
 }
 
+// ── Teléfonos REVELADOS → `phone` / `mobilephone` (AGENT2A-REVEAL-PHONE-SLOTS) ──
+//
+// Lo que un reveal encuentra viaja a HubSpot con UNA regla, la misma para el envío desde el
+// candidato y para la segunda fase del contacto oficial:
+//
+//   1. Primero se mira `phone`. Vacío ⇒ el número revelado va ahí.
+//   2. `phone` ya tiene un número DISTINTO ⇒ el revelado va a `mobilephone` (si está vacío).
+//   3. Un número que HubSpot ya tiene —en cualquiera de los dos campos— no viaja otra vez.
+//   4. Sin números en HubSpot y DOS revelados ⇒ uno a `phone` y el otro a `mobilephone`.
+//   5. NUNCA se sobrescribe ni se borra lo que el CRM ya tiene.
+//
+// Puro: sin red, sin DB, sin reloj.
+
+/** Un número revelado que puede viajar. `type` es el `phone_type` de la colección, si se conoce. */
+export interface RevealedPhoneForHubSpot {
+  phone: string;
+  type?: string | null;
+}
+
+export type RevealedPhoneHubSpotPlan = Partial<Record<'phone' | 'mobilephone', string>>;
+
+const REVEALED_MOBILE_PHONE_TYPES: ReadonlySet<string> = new Set(['mobile', 'personal_mobile']);
+
+function phoneDigitsForComparison(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.replace(/\D+/g, '') : '';
+}
+
+/**
+ * ¿Es el mismo número? Se comparan sólo los dígitos y se tolera que uno traiga el indicativo
+ * del país y el otro no (`+57 300 111 2222` ≡ `3001112222`). Siete dígitos como mínimo para
+ * que dos extensiones cortas no se confundan con un número completo.
+ */
+export function isSameHubSpotPhone(a: string | null | undefined, b: string | null | undefined): boolean {
+  const da = phoneDigitsForComparison(a);
+  const db = phoneDigitsForComparison(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  const [short, long] = da.length <= db.length ? [da, db] : [db, da];
+  return short.length >= 7 && long.endsWith(short);
+}
+
+/**
+ * Qué números revelados viajan y a qué campo. `revealed` va en orden de preferencia (el
+ * principal primero). Devuelve sólo los campos VACÍOS en HubSpot que se van a llenar.
+ */
+export function planRevealedPhonesForHubSpot(
+  revealed: readonly RevealedPhoneForHubSpot[],
+  existing: HubSpotExistingContactProperties,
+): RevealedPhoneHubSpotPlan {
+  const remotePhone = cleanString(existing.phone ?? null);
+  const remoteMobile = cleanString(existing.mobilephone ?? null);
+
+  const pending: RevealedPhoneForHubSpot[] = [];
+  for (const entry of revealed) {
+    const value = cleanString(entry?.phone ?? null);
+    if (!value) continue;
+    // Regla 3: lo que HubSpot ya tiene, en cualquiera de los dos campos, no viaja.
+    if (isSameHubSpotPhone(value, remotePhone) || isSameHubSpotPhone(value, remoteMobile)) continue;
+    if (pending.some((p) => isSameHubSpotPhone(p.phone, value))) continue;
+    pending.push({ phone: value, type: entry.type ?? null });
+  }
+
+  const plan: RevealedPhoneHubSpotPlan = {};
+  if (pending.length === 0) return plan;
+
+  // Regla 4: dos huecos y dos números. Si sólo uno de los dos es celular, ese va a `mobilephone`.
+  if (!remotePhone && !remoteMobile && pending.length >= 2) {
+    const [first, second] = pending;
+    const firstIsMobile = REVEALED_MOBILE_PHONE_TYPES.has(first.type ?? '');
+    const secondIsMobile = REVEALED_MOBILE_PHONE_TYPES.has(second.type ?? '');
+    if (firstIsMobile && !secondIsMobile) {
+      plan.phone = second.phone;
+      plan.mobilephone = first.phone;
+    } else {
+      plan.phone = first.phone;
+      plan.mobilephone = second.phone;
+    }
+    return plan;
+  }
+
+  // Reglas 1 y 2: `phone` primero; si ya tiene otro número, `mobilephone`.
+  const queue = [...pending];
+  if (!remotePhone) plan.phone = queue.shift()!.phone;
+  if (!remoteMobile && queue.length > 0) plan.mobilephone = queue.shift()!.phone;
+  return plan;
+}
+
 /**
  * Patch que se persiste localmente tras un intento de sincronización.
  *
@@ -273,6 +360,10 @@ export const SYNC_MESSAGES = {
   // persona que envió un número cuando lo que hizo fue quitarlo.
   cleared: 'Teléfono eliminado en HubSpot.',
   hubspotUpdateError: 'No fue posible actualizar el contacto en HubSpot.',
+  // AGENT2A-REVEAL-PHONE-SLOTS — un reveal nunca pisa: si HubSpot ya tenía los números, se dice.
+  revealPhonesFilled: 'Teléfono revelado enviado a HubSpot (sólo campos vacíos).',
+  revealPhonesAlreadyPresent:
+    'HubSpot ya tenía esos números o no hay campos vacíos; no se sobrescribió nada.',
   localStateFailed:
     'El teléfono se actualizó en HubSpot pero no se pudo guardar el estado en SellUp.',
 } as const;
@@ -571,6 +662,11 @@ export interface SyncContactDeps {
     hubspotContactId: string,
     email: string,
   ) => Promise<{ ok: true } | { error: string }>;
+  /**
+   * AGENT2A-REVEAL-PHONE-SLOTS — los números VIVOS del contacto (el principal primero) para un
+   * pendiente que dejó un REVEAL. Opcional: sin ella (o si falla) viajan los escalares.
+   */
+  loadRevealedPhones?: (contactId: string) => Promise<RevealedPhoneForHubSpot[]>;
   persistSync: (
     contactId: string,
     patch: ContactHubSpotSyncPatch,
@@ -685,6 +781,84 @@ export async function runSyncContactToHubSpot(
           ok: false,
           errorCode: 'HUBSPOT_SCOPE_MISSING',
           message: SYNC_MESSAGES.scopeMissing,
+        };
+      }
+
+      // ── B' — El pendiente lo dejó un REVEAL (AGENT2A-REVEAL-PHONE-SLOTS) ─────────
+      // Un número que encontró un proveedor no es una edición de una persona: no tiene autoridad
+      // para PISAR ni BORRAR lo que el CRM del cliente ya tiene. Se completan SÓLO campos vacíos
+      // con la regla de `planRevealedPhonesForHubSpot` (primero `phone`; si tiene otro número,
+      // `mobilephone`; dos números y ningún campo lleno ⇒ uno a cada uno) y el pendiente se
+      // cierra: de este reveal ya no queda nada sin enviar, y lo que HubSpot tenía se respeta.
+      if (priorState?.stale_source === 'reveal') {
+        const failReveal = async (): Promise<SyncContactToHubSpotResult> => {
+          await recordBlockedOrFailed('failed', HUBSPOT_SYNC_ERROR_CODES.hubspotUpdateFailed);
+          return { ok: false, errorCode: 'HUBSPOT_ERROR', message: SYNC_MESSAGES.hubspotUpdateError };
+        };
+        // Sin poder LEER el contacto no se sabe qué está vacío: no se escribe nada.
+        if (!deps.findHubSpotContactById || !deps.fillEmptyHubSpotContactProperties) return failReveal();
+        let remote: HubSpotExistingContactMatch | null = null;
+        try {
+          remote = await deps.findHubSpotContactById(hubspotContactId);
+        } catch {
+          remote = null;
+        }
+        if (!remote?.properties) return failReveal();
+
+        let revealed: RevealedPhoneForHubSpot[] = [];
+        if (deps.loadRevealedPhones) {
+          try {
+            revealed = await deps.loadRevealedPhones(contact.id);
+          } catch {
+            revealed = [];
+          }
+        }
+        // Los escalares al final: el principal ya viene en la colección; esto cubre la forma
+        // legacy (contacto sin filas en la colección). El planificador descarta duplicados.
+        for (const scalar of [contact.phone, contact.mobile_phone]) {
+          const value = cleanString(scalar);
+          if (value) revealed.push({ phone: value });
+        }
+        const plan = planRevealedPhonesForHubSpot(revealed, remote.properties);
+        const wrote = Object.keys(plan).length > 0;
+        if (wrote) {
+          let filled: { ok: true; written: HubSpotFillEmptyPropertyName[] } | { error: string };
+          try {
+            filled = await deps.fillEmptyHubSpotContactProperties(hubspotContactId, plan);
+          } catch {
+            filled = { error: 'HUBSPOT_FILL_ERROR' };
+          }
+          if ('error' in filled) return failReveal();
+        }
+
+        const persistReveal = await deps.persistSync(contact.id, {
+          hubspot_contact_id: null,
+          metadata: buildUpdatedSyncMetadata({
+            existing: contact.metadata,
+            hubspotContactId,
+            actorId: deps.actorId,
+            nowIso: deps.nowIso,
+            method: deps.method,
+          }),
+        });
+        if (persistReveal.error) {
+          await recordBlockedOrFailed('failed', HUBSPOT_SYNC_ERROR_CODES.localStateFailed);
+          return { ok: false, errorCode: 'UNKNOWN_ERROR', message: SYNC_MESSAGES.localStateFailed };
+        }
+        await deps.logAudit?.({
+          contactId: contact.id,
+          accountId: contact.account_id,
+          actorUserId: deps.actorId,
+          hubspotContactId,
+          hubspotCompanyId: null,
+          mode: 'updated',
+          companyAssociation: null,
+        });
+        return {
+          ok: true,
+          status: 'updated',
+          hubspotContactId,
+          message: wrote ? SYNC_MESSAGES.revealPhonesFilled : SYNC_MESSAGES.revealPhonesAlreadyPresent,
         };
       }
 

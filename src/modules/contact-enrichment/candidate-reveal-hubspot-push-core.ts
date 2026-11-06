@@ -10,8 +10,14 @@
 //
 // Reglas (las mismas del completado de vacíos al aprobar, #612 / #828):
 //   * SÓLO se completan propiedades VACÍAS en HubSpot. Nunca se sobrescribe lo que el CRM tiene.
-//   * Sólo viajan los canales que el reveal produce: `phone`, `hs_linkedin_url` y el correo.
-//     Nombre y cargo no: el candidato los trajo de HubSpot.
+//   * Sólo viajan los canales que el reveal produce: `phone` / `mobilephone`, `hs_linkedin_url` y
+//     el correo. Nombre y cargo no: el candidato los trajo de HubSpot.
+//   * Teléfonos (AGENT2A-REVEAL-PHONE-SLOTS, `planRevealedPhonesForHubSpot`): primero `phone`; si
+//     ya tiene un número DISTINTO, el revelado va a `mobilephone`; sin números y con dos
+//     revelados, uno a cada campo. Un número que HubSpot ya tiene no viaja otra vez.
+//   * El contacto de HubSpot se resuelve por el emparejamiento del candidato y, si no lo hay, por
+//     el contacto OFICIAL que creó su aprobación (`matched_contacts_id` → `hubspot_contact_id`):
+//     un candidato de Apollo/Lusha aprobado vive en HubSpot por esa vía.
 //   * El correo va en un PATCH aparte: HubSpot rechaza (409) un correo que ya usa otro contacto,
 //     y ese rechazo no puede impedir que el teléfono y el LinkedIn lleguen.
 //   * Sin conexión, sin permiso de escritura o sin poder LEER el contacto, no se escribe nada:
@@ -22,9 +28,11 @@
 
 import {
   buildHubSpotFillEmptyProperties,
+  planRevealedPhonesForHubSpot,
   type ContactForSync,
   type HubSpotContactFillProperties,
   type HubSpotExistingContactMatch,
+  type RevealedPhoneForHubSpot,
 } from '@/modules/contacts/contact-hubspot-sync-core';
 import type { HubSpotFillEmptyPropertyName } from '@/modules/contacts/contact-hubspot-sync-core';
 
@@ -34,7 +42,7 @@ export const CANDIDATE_REVEAL_HUBSPOT_PUSH_HITO = 'AGENT2A-HUBSPOT-REVEAL-PUSH';
 export const CANDIDATE_REVEAL_HUBSPOT_PUSH_METADATA_KEY = 'hubspot_reveal_push';
 
 /** Qué canales produce un reveal y pueden viajar a HubSpot. */
-const REVEAL_PROPERTY_NAMES: readonly HubSpotFillEmptyPropertyName[] = ['phone', 'hs_linkedin_url'];
+const REVEAL_PROPERTY_NAMES: readonly HubSpotFillEmptyPropertyName[] = ['hs_linkedin_url'];
 
 /** De dónde vino el dato revelado (para el rastro; nunca el valor). */
 export type CandidateRevealPushTrigger =
@@ -69,6 +77,8 @@ export interface CandidateRevealPushCandidate {
   source: string | null;
   sourceContactId: string | null;
   matchedHubSpotContactId: string | null;
+  /** Contacto OFICIAL de SellUp que creó la aprobación (`matched_contacts_id`). */
+  matchedContactsId?: string | null;
   phone: string | null;
   linkedinUrl: string | null;
   email: string | null;
@@ -100,6 +110,16 @@ export interface CandidateRevealPushDeps {
   ) => Promise<{ ok: true } | { error: string }>;
   /** Best-effort: guarda el rastro en el candidato. Su fallo no cambia el informe. */
   persistTrace: (candidateId: string, enrichmentMetadata: Record<string, unknown>) => Promise<void>;
+  /**
+   * `hubspot_contact_id` del contacto oficial (no archivado). Sólo se consulta si el candidato no
+   * trae su propio contacto de HubSpot. Opcional: sin ella, la resolución es la de siempre.
+   */
+  loadOfficialContactHubSpotId?: (contactId: string) => Promise<string | null>;
+  /**
+   * Los números VIVOS de la colección del candidato, el principal primero. Opcional: sin ella
+   * (o si falla) viaja sólo el escalar `phone` del candidato.
+   */
+  loadRevealedPhones?: (candidateId: string) => Promise<RevealedPhoneForHubSpot[]>;
 }
 
 function clean(value: string | null | undefined): string | null {
@@ -131,9 +151,11 @@ export function resolveCandidateHubSpotContactId(
 export function buildCandidateRevealFill(
   candidate: Pick<CandidateRevealPushCandidate, 'id' | 'phone' | 'linkedinUrl'>,
   existing: HubSpotExistingContactMatch,
+  revealedPhones?: readonly RevealedPhoneForHubSpot[],
 ): HubSpotContactFillProperties | null {
   // Se reutiliza EL constructor del completado de vacíos (misma normalización del LinkedIn, misma
-  // definición de «vacío»), sin nombre ni cargo: no los produce un reveal.
+  // definición de «vacío»), sin nombre ni cargo: no los produce un reveal. Los teléfonos NO pasan
+  // por él: tienen su propia regla de campos (`planRevealedPhonesForHubSpot`).
   const asContact: ContactForSync = {
     id: candidate.id,
     account_id: null,
@@ -141,7 +163,7 @@ export function buildCandidateRevealFill(
     first_name: null,
     last_name: null,
     email: null,
-    phone: clean(candidate.phone),
+    phone: null,
     mobile_phone: null,
     job_title: null,
     linkedin_url: clean(candidate.linkedinUrl),
@@ -149,8 +171,13 @@ export function buildCandidateRevealFill(
     metadata: {},
   };
   const fill = buildHubSpotFillEmptyProperties(asContact, existing.properties);
-  if (fill === null) return null;
-  const onlyRevealed: HubSpotContactFillProperties = {};
+  if (fill === null || !existing.properties) return null;
+  const phones: RevealedPhoneForHubSpot[] = [...(revealedPhones ?? [])];
+  const scalar = clean(candidate.phone);
+  if (scalar) phones.push({ phone: scalar });
+  const onlyRevealed: HubSpotContactFillProperties = {
+    ...planRevealedPhonesForHubSpot(phones, existing.properties),
+  };
   for (const name of REVEAL_PROPERTY_NAMES) {
     const value = fill[name];
     if (value) onlyRevealed[name] = value;
@@ -216,14 +243,36 @@ export async function runCandidateRevealHubSpotPush(
   }
   if (!candidate) return report('candidate_unavailable');
 
-  const hubspotContactId = resolveCandidateHubSpotContactId(candidate);
+  let hubspotContactId = resolveCandidateHubSpotContactId(candidate);
+  // Candidato aprobado de Apollo/Lusha: su contacto de HubSpot lo creó (o vinculó) el autosync
+  // de la aprobación y vive en el contacto OFICIAL, no en el candidato.
+  const officialContactId = clean(candidate.matchedContactsId);
+  if (!hubspotContactId && officialContactId && deps.loadOfficialContactHubSpotId) {
+    try {
+      hubspotContactId = clean(await deps.loadOfficialContactHubSpotId(officialContactId));
+    } catch {
+      hubspotContactId = null;
+    }
+  }
   if (!hubspotContactId) return report('not_in_hubspot');
   // El estado del candidato (en revisión, aprobado, rechazado) NO decide: ver la cabecera.
+
+  let revealedPhones: RevealedPhoneForHubSpot[] = [];
+  if (deps.loadRevealedPhones) {
+    try {
+      revealedPhones = (await deps.loadRevealedPhones(candidate.id)).filter((p) => clean(p?.phone));
+    } catch {
+      // Sin la colección viaja el escalar: es el número principal del candidato.
+      revealedPhones = [];
+    }
+  }
 
   const phone = clean(candidate.phone);
   const linkedin = clean(candidate.linkedinUrl);
   const email = clean(candidate.email)?.toLowerCase() ?? null;
-  if (!phone && !linkedin && !email) return report('nothing_revealed', { hubspotContactId });
+  if (!phone && revealedPhones.length === 0 && !linkedin && !email) {
+    return report('nothing_revealed', { hubspotContactId });
+  }
 
   // A partir de aquí hay un contacto de HubSpot y algo que enviar: el desenlace se anota.
   const finish = async (final: CandidateRevealPushReport): Promise<CandidateRevealPushReport> => {
@@ -252,7 +301,7 @@ export async function runCandidateRevealHubSpotPush(
   }
   if (!existing) return finish(report('hubspot_contact_unreadable', { hubspotContactId }));
 
-  const fill = buildCandidateRevealFill(candidate, existing);
+  const fill = buildCandidateRevealFill(candidate, existing, revealedPhones);
   if (fill === null) return finish(report('hubspot_contact_unreadable', { hubspotContactId }));
 
   let properties: HubSpotFillEmptyPropertyName[] = [];

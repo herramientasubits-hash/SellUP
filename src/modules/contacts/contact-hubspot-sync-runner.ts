@@ -18,6 +18,7 @@
 // Lo ÚNICO que cambia entre los dos llamadores es `method`. Todo lo demás es idéntico byte a
 // byte, que es exactamente la propiedad que se quiere.
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import {
   runContactHubSpotAutoPhoneUpdate,
@@ -31,6 +32,7 @@ import {
   type SyncContactDeps,
   type SyncContactToHubSpotResult,
 } from './contact-hubspot-sync-core';
+import { loadContactRevealedPhonesForHubSpot } from './contact-phones-for-hubspot-read';
 import type { HubSpotSyncMethod } from './contact-hubspot-sync-state';
 import {
   getHubSpotContactSyncConnection,
@@ -54,6 +56,15 @@ export interface ContactHubSpotSyncWiring {
   /** ISO del intento. Se inyecta para que el llamador use el MISMO reloj en toda su fase. */
   nowIso: string;
   logAudit?: (entry: SyncAuditEntry) => Promise<void>;
+  /**
+   * AGENT2A-APPROVED-REVEAL-CONTACT-SYNC — cliente explícito. SÓLO lo pasa el disparador de
+   * servidor que lleva un teléfono revelado al contacto oficial de un candidato aprobado (aviso
+   * de Apollo, pata Lusha, recuperación, caché): ahí no hay sesión de usuario que usar. Ese
+   * disparador alcanza el contacto ÚNICAMENTE por el `matched_contacts_id` que escribió la
+   * aprobación (la 128 lo revalida bajo lock) y firma con quien pidió el reveal. Sin él, todo
+   * sigue sobre el cliente del usuario, como siempre.
+   */
+  client?: SupabaseClient;
 }
 
 /**
@@ -67,7 +78,7 @@ export interface ContactHubSpotSyncWiring {
 export async function buildContactHubSpotSyncDeps(
   wiring: ContactHubSpotSyncWiring,
 ): Promise<SyncContactDeps> {
-  const supabase = await createClient();
+  const supabase = wiring.client ?? (await createClient());
 
   return {
     actorId: wiring.actorId,
@@ -112,6 +123,8 @@ export async function buildContactHubSpotSyncDeps(
     findHubSpotContactById,
     // Y el correo, aparte: un 409 (correo de otro contacto) no frena lo demás.
     fillEmptyHubSpotContactEmail,
+    // AGENT2A-REVEAL-PHONE-SLOTS — los números del contacto para la segunda fase de un reveal.
+    loadRevealedPhones: loadContactRevealedPhonesForHubSpot,
 
     persistSync: async (id, patch) => {
       // `hubspot_contact_id` sólo viaja cuando el intento produjo vínculo. En los intentos
@@ -142,8 +155,9 @@ export async function persistContactMetadata(
   contactId: string,
   metadata: Record<string, unknown>,
   actorId: string,
+  client?: SupabaseClient,
 ): Promise<{ error?: string }> {
-  const supabase = await createClient();
+  const supabase = client ?? (await createClient());
   const { error } = await supabase
     .from('contacts')
     .update({ metadata, updated_by: actorId })
@@ -177,6 +191,8 @@ export interface ContactHubSpotAutoPhoneUpdateWiring {
   /** ISO del intento. Se inyecta para que el llamador use el MISMO reloj en toda su fase. */
   nowIso: string;
   logAudit?: (entry: SyncAuditEntry) => Promise<void>;
+  /** Ver `ContactHubSpotSyncWiring.client`: sólo el disparador de servidor de un reveal. */
+  client?: SupabaseClient;
 }
 
 /**
@@ -207,7 +223,7 @@ export async function runContactHubSpotAutoPhoneUpdateWired(
     // entrypoint no necesita uno propio, y `loadSubject` sigue siendo el único punto donde el
     // cableado real toca la red para releer al contacto.
     loadSubject: async (id) => {
-      const supabase = await createClient();
+      const supabase = wiring.client ?? (await createClient());
       const { data, error } = await supabase
         .from('contacts')
         .select('id, hubspot_contact_id, metadata')
@@ -231,10 +247,11 @@ export async function runContactHubSpotAutoPhoneUpdateWired(
           nowIso: wiring.nowIso,
           method: 'auto',
           logAudit: wiring.logAudit,
+          client: wiring.client,
         }),
       ),
 
     // `persistContactMetadata` construye su propio cliente, así que tampoco arrastra uno.
-    persistAnnex: async (id, metadata) => persistContactMetadata(id, metadata, wiring.actorId),
+    persistAnnex: async (id, metadata) => persistContactMetadata(id, metadata, wiring.actorId, wiring.client),
   });
 }
