@@ -91,8 +91,13 @@ interface IntegrationStatusCardProps {
   facts?: readonly IntegrationFact[];
   /** Los botones: probar, conectar, reconectar. */
   children?: ReactNode;
+  /** Dónde vive la credencial. Por defecto, cifrada en el servidor (la que se pega en SellUp). */
+  credentialNote?: ReactNode;
   className?: string;
 }
+
+const DEFAULT_CREDENTIAL_NOTE =
+  "La credencial se guarda cifrada en el servidor: nunca se muestra en el navegador ni queda en registros.";
 
 /**
  * IntegrationStatusCard — lo primero que se ve en la pantalla de una
@@ -108,6 +113,7 @@ export function IntegrationStatusCard({
   lastError,
   facts = [],
   children,
+  credentialNote = DEFAULT_CREDENTIAL_NOTE,
   className,
 }: IntegrationStatusCardProps) {
   const health = resolveIntegrationHealth(hasCredential, connectionStatus);
@@ -160,7 +166,7 @@ export function IntegrationStatusCard({
 
       <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
         <ShieldCheck aria-hidden className="mt-0.5 size-3.5 shrink-0 text-primary" />
-        La credencial se guarda cifrada en el servidor: nunca se muestra en el navegador ni queda en registros.
+        {credentialNote}
       </p>
     </SurfaceCard>
   );
