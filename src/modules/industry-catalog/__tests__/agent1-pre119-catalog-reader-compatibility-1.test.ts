@@ -1296,6 +1296,8 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '160_wizard_reservation_without_pilot_limits.sql',
       // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '161_growth_role_description.sql',
+      // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '162_storage_usage_report.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);
