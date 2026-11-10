@@ -370,7 +370,8 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
       // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
-      '162_storage_usage_report.sql',
+      // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
+      '163_budget_approvals_top_ups_rollover.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

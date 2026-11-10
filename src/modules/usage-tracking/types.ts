@@ -142,6 +142,8 @@ export interface BudgetRule {
   limit_credits: number | null;
   limit_usd: number | null;
   on_exceed: BudgetOnExceed;
+  /** Migración 163 — quienes aprueban cuando `on_exceed = require_approval`. */
+  approver_user_ids?: string[] | null;
   is_active: boolean;
   notes: string | null;
   created_by: string | null;

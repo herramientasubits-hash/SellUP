@@ -28,7 +28,13 @@ export interface ConfiguredRuleReading {
 
 export type ConfiguredLimitDecision =
   | { status: 'available'; availableCredits: number | null }
-  | { status: 'blocked'; reason: 'provider_quota' | 'rule'; availableCredits: number };
+  | {
+      status: 'blocked';
+      reason: 'provider_quota' | 'rule';
+      availableCredits: number;
+      /** Regla «Requiere aprobación»: la solicitud que se abrió al frenar. */
+      approval?: { status: 'requested' | 'already_pending' | 'failed'; approverNames: string[] };
+    };
 
 /** Lo mínimo que cuesta una operación: una estimación ilegible nunca vale 0. */
 function requiredOf(credits: number): number {
@@ -64,7 +70,14 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
 export function configuredLimitMessage(providerKey: string, decision: Extract<ConfiguredLimitDecision, { status: 'blocked' }>): string {
   const provider = PROVIDER_LABELS[providerKey] ?? providerKey;
   const left = decision.availableCredits === 1 ? 'queda 1 crédito' : `quedan ${decision.availableCredits} créditos`;
-  return decision.reason === 'provider_quota'
-    ? `${provider} no tiene créditos suficientes para esta búsqueda (${left}).`
-    : `Llegaste al límite de créditos de ${provider} que fijó un administrador en Configuración (${left}).`;
+  if (decision.reason === 'provider_quota') {
+    return `${provider} no tiene créditos suficientes para esta búsqueda (${left}).`;
+  }
+  const base = `Llegaste al límite de créditos de ${provider} que fijó un administrador en Configuración (${left}).`;
+  const approval = decision.approval;
+  if (!approval || approval.status === 'failed') return base;
+  const who = approval.approverNames.length > 0 ? approval.approverNames.join(', ') : 'los aprobadores';
+  return approval.status === 'requested'
+    ? `${base} Le pedimos más créditos a ${who}: te avisamos cuando decidan.`
+    : `${base} Ya hay una solicitud de más créditos esperando a ${who}.`;
 }

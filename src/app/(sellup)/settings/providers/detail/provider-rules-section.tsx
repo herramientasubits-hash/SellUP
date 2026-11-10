@@ -6,7 +6,7 @@
  * editar, activar o desactivar, eliminar con confirmación).
  */
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { Plus, ScrollText } from '@/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ import { deleteBudgetRule, toggleBudgetRuleStatus } from '@/modules/budgets/rule
 import type { BudgetScopeType } from '@/modules/usage-tracking/types';
 import { CreateDrawer, EditDrawer } from '@/app/(sellup)/settings/budget-credits/rules/budget-rules-client';
 import { DeleteBudgetRuleDialog } from '@/app/(sellup)/settings/budget-credits/rules/delete-budget-rule-dialog';
+import { TopUpRuleDrawer } from '@/app/(sellup)/settings/budget-credits/rules/top-up-rule-drawer';
+import { getRulePeriodBalances, type RulePeriodBalance } from '@/modules/budgets/approval-actions';
 import { RuleList } from './rule-list';
 
 const RULE_SCOPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
@@ -51,7 +53,25 @@ export function ProviderRulesSection({
   const [toggling, setToggling] = useState<string | null>(null);
   const [archiving, setArchiving] = useState<string | null>(null);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [topUpRule, setTopUpRule] = useState<BudgetRuleRow | null>(null);
+  const [balances, setBalances] = useState<ReadonlyMap<string, RulePeriodBalance>>(new Map());
   const [, startTransition] = useTransition();
+
+  // El saldo del período (recargas, reserva, aprobaciones) se lee aparte: si
+  // falla, la lista de reglas se ve igual, sólo sin esa línea.
+  useEffect(() => {
+    let cancelled = false;
+    getRulePeriodBalances(providerKey)
+      .then((rows) => {
+        if (!cancelled) setBalances(new Map(rows.map((row) => [row.ruleId, row])));
+      })
+      .catch(() => {
+        if (!cancelled) setBalances(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providerKey, rules]);
 
   async function handleToggle(rule: BudgetRuleRow) {
     setToggling(rule.id);
@@ -115,6 +135,8 @@ export function ProviderRulesSection({
                 onEdit={setEditRule}
                 onToggle={handleToggle}
                 onRequestDelete={setConfirmArchive}
+                onTopUp={setTopUpRule}
+                balances={balances}
                 onCreate={openCreate}
               />
             </TabsContent>
@@ -129,6 +151,12 @@ export function ProviderRulesSection({
           </Alert>
         )}
       </DrawerSection>
+
+      <TopUpRuleDrawer
+        rule={topUpRule}
+        onClose={() => setTopUpRule(null)}
+        onSuccess={() => { setTopUpRule(null); startTransition(onRefresh); }}
+      />
 
       <DeleteBudgetRuleDialog
         rule={confirmArchive}
@@ -149,6 +177,7 @@ export function ProviderRulesSection({
           />
           <EditDrawer
             rule={editRule}
+            users={formOptions.users}
             open={!!editRule}
             onOpenChange={(v) => { if (!v) setEditRule(null); }}
             onSuccess={() => { setEditRule(null); startTransition(onRefresh); }}

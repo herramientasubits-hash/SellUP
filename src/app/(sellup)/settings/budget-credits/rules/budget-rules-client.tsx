@@ -67,7 +67,7 @@ function RulesWorkspace({ rules, options, showCreate, onShowCreateChange, showCr
       />
 
       <CreateDrawer options={options} open={showCreate} onOpenChange={onShowCreateChange} />
-      <EditDrawer rule={editRule} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
+      <EditDrawer rule={editRule} users={options.users} open={!!editRule} onOpenChange={(v) => { if (!v) setEditRule(null); }} />
 
       <DeleteBudgetRuleDialog
         rule={confirmArchive}

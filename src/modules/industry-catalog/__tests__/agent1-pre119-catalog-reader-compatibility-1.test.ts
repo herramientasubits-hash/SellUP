@@ -1087,7 +1087,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
     // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres;
     // no es del catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL). AUTORADA y APLICADA 09-11.
-    assert.match(last, /^162_/);
+    assert.match(last, /^163_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1300,6 +1300,8 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '161_growth_role_description.sql',
       // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '162_storage_usage_report.sql',
+      // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
+      '163_budget_approvals_top_ups_rollover.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

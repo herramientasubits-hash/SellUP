@@ -23,10 +23,32 @@ export interface MatchedRule {
   providerKey: string;
   scopeType: Exclude<BudgetScopeApplied, 'none'>;
   scopeId: string | null;
+  /**
+   * El tope en créditos que vale HOY para esta persona: el de la regla más las
+   * recargas del período, lo que le aprobaron a ella y la reserva acumulada
+   * (ver `credit-balance-core`). Es lo que comparan el preflight y las reservas.
+   */
   limitCredits: number | null;
+  /** El límite escrito en la regla, sin recargas ni reserva. */
+  baseLimitCredits?: number | null;
+  /** Cómo se llega a `limitCredits`. `null` = la regla no tiene límite en créditos. */
+  creditBalance?: RuleCreditBalance | null;
   limitUsd: number | null;
   periodType: BudgetPeriodType;
   onExceed: BudgetOnExceed;
+}
+
+export interface RuleCreditBalance {
+  /** Límite escrito en la regla. */
+  base: number;
+  /** Recargas de un administrador en este período (para todo el pozo). */
+  topUps: number;
+  /** Créditos que un aprobador le dio a esta persona en este período. */
+  grantsForUser: number;
+  /** Lo que sobró en períodos anteriores (desde noviembre de 2026). */
+  carriedIn: number;
+  /** base + topUps + grantsForUser + carriedIn. */
+  effective: number;
 }
 
 export interface BudgetCheckResult {

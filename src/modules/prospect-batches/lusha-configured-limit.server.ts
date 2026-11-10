@@ -19,7 +19,7 @@ export async function lushaConfiguredLimitBlock(
 } | null> {
   let decision;
   try {
-    decision = await checkConfiguredProviderLimit('lusha', userId, requiredCredits);
+    decision = await checkConfiguredProviderLimit('lusha', userId, requiredCredits, { requestApproval: true });
   } catch {
     return {
       status: 'blocked',
