@@ -51,6 +51,7 @@ export function SupabaseOverviewView({ overview }: { overview: SupabaseOverview 
             { label: 'Proyecto', value: overview.projectRef ?? overview.host ?? 'Sin configurar' },
             ...(connection.latencyMs != null ? [{ label: 'Tiempo de respuesta', value: `${connection.latencyMs} ms` }] : []),
           ]}
+          credentialNote="Las llaves de Supabase viven en las variables de entorno de Vercel: nunca se muestran en el navegador ni se pegan aquí."
         >
           <SupabaseTestConnectionButton />
         </IntegrationStatusCard>
@@ -102,15 +103,26 @@ export function SupabaseOverviewView({ overview }: { overview: SupabaseOverview 
 
 // ─── Espacio usado ───────────────────────────────────────────────────────────
 
-const CAPACITY_COPY: Record<StorageCapacity['level'], { variant: 'warning' | 'destructive'; title: string } | null> = {
+/**
+ * En el plan Pro los GB incluidos no son un tope: Supabase amplía el disco solo
+ * (al 90 % lo agranda un 50 %) y cobra lo que pase de lo incluido. Por eso los
+ * avisos hablan de costo, no de bloqueo; el bloqueo («sólo lectura») sólo llega
+ * si el disco se llena más rápido de lo que Supabase alcanza a ampliarlo.
+ */
+const CAPACITY_COPY: Record<
+  StorageCapacity['level'],
+  { variant: 'info' | 'warning'; title: string; body: string } | null
+> = {
   ok: null,
   warning: {
-    variant: 'warning',
+    variant: 'info',
     title: 'La base se acerca al espacio incluido en el plan.',
+    body: 'No pasa nada al llegar: Supabase amplía el disco solo y SellUp sigue guardando búsquedas. Lo que pase de lo incluido se cobra aparte (unos US$0,125 por GB al mes).',
   },
   over: {
-    variant: 'destructive',
-    title: 'La base ya pasó el espacio incluido en el plan.',
+    variant: 'warning',
+    title: 'La base usa más de lo incluido en el plan: se cobra el extra.',
+    body: 'SellUp sigue funcionando y guardando búsquedas: Supabase amplía el disco solo y cobra lo que pase de lo incluido (unos US$0,125 por GB al mes). Si la organización tiene el tope de gasto activado, Supabase avisa por correo a facturación en vez de cobrar.',
   },
 };
 
@@ -144,7 +156,7 @@ function CapacitySection({
           {
             label: 'Incluido en el plan',
             value: `${overview.includedGb} GB`,
-            hint: 'Disco que trae el plan Pro de Supabase. Por encima, Supabase amplía el disco y cobra el extra. Se cambia con SUPABASE_DISK_INCLUDED_GB.',
+            hint: 'Lo que trae el precio del plan Pro, no un tope: por encima, Supabase amplía el disco solo y cobra el extra. Se cambia con SUPABASE_DISK_INCLUDED_GB.',
             description: 'Plan Pro de Supabase',
           },
           {
@@ -158,11 +170,11 @@ function CapacitySection({
         <Alert variant={copy.variant}>
           <p className="text-sm font-semibold">{copy.title}</p>
           <p className="text-xs leading-relaxed">
-            Supabase no avisa a SellUp de cuánto disco queda libre. Revisa el disco y el cobro en el{' '}
+            {copy.body} El tamaño del disco y el cobro se ven en el{' '}
             <a href={dashboardHref} target="_blank" rel="noreferrer" className="font-medium text-primary underline-offset-2 hover:underline">
               panel de Supabase
             </a>
-            . Si el disco se llena, la base pasa a sólo lectura y las búsquedas no se pueden guardar.
+            .
           </p>
         </Alert>
       )}
