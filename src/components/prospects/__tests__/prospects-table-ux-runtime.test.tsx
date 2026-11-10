@@ -259,16 +259,11 @@ describe('Por revisar — los indicadores son filtros de un toque', () => {
 });
 
 describe('Por revisar — cada vacío dice por qué y qué hacer', () => {
-  it('sin prospectos ofrece las acciones que le pasa el panel', () => {
-    render(
-      <ProspectsDataTableClient
-        candidates={[]}
-        emptyActions={<button type="button">Generar con IA</button>}
-      />,
-    );
+  it('sin prospectos no repite las acciones de la pantalla (Rumbo e «Importar archivo» ya están)', () => {
+    render(<ProspectsDataTableClient candidates={[]} />);
 
-    assert.ok(screen.getByText('No hay prospectos por revisar'));
-    assert.ok(screen.getByRole('button', { name: 'Generar con IA' }));
+    const empty = screen.getByText('No hay prospectos por revisar').closest('[data-slot="empty"]') as HTMLElement;
+    assert.equal(within(empty).queryAllByRole('button').length, 0);
     assert.equal(screen.queryByRole('group', { name: 'Indicadores de prospectos' }), null);
   });
 

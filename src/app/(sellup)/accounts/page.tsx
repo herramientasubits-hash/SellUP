@@ -1,11 +1,7 @@
 import { Suspense } from 'react';
-import Link from 'next/link';
-import { ClipboardCheck } from "@/icons";
 import { ListActionRailProvider } from "@/components/action-rail";
 import { DataTablePage } from '@/components/shared/data-table-page';
 import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
-import { buttonVariants } from '@/components/ui/button';
-import { CreateAccountDrawer } from '@/components/accounts/create-account-drawer';
 import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
 import { loadAccountNextSteps } from '@/modules/accounts/next-step.server';
@@ -21,7 +17,6 @@ import {
   empresasViewCrumbs,
   type ModuleTabId,
 } from '@/components/prospects/empresas-module-copy';
-import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { getAccountsList, getActiveUsers } from '@/modules/accounts/actions';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { getCurrentUser } from '@/modules/access/actions';
@@ -119,18 +114,6 @@ async function AccountsPanel() {
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
           canEnrichBulk={canEnrichBulk}
-          emptyActions={
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <Link
-                href={PROSPECTOS_TAB_ROUTE}
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              >
-                <ClipboardCheck aria-hidden="true" />
-                Revisar prospectos
-              </Link>
-              <CreateAccountDrawer users={users} currentUserId={currentUserId} />
-            </div>
-          }
         />
       </DataTablePage>
     </ListActionRailProvider>

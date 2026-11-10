@@ -32,8 +32,6 @@ export interface RuleListProps {
   onTopUp?: (rule: BudgetRuleRow) => void;
   /** Saldo del período actual por regla (id → saldo). */
   balances?: ReadonlyMap<string, RulePeriodBalance>;
-  /** Sin él no se ofrece crear (todavía no hay opciones de formulario). */
-  onCreate?: () => void;
 }
 
 const formatCredits = (value: number) => Math.round(value).toLocaleString('es-CO');
@@ -112,23 +110,14 @@ function RuleActions({
   );
 }
 
-/** Las reglas de un alcance, o el vacío que invita a crear la primera. */
-export function RuleList({ rules, onCreate, balances, ...actions }: RuleListProps) {
+/**
+ * Las reglas de un alcance, o el vacío. El vacío no trae botón: «Crear regla»
+ * ya está en la cabecera de la sección (dueña 10-11: un vacío no repite las
+ * acciones que la pantalla ya ofrece).
+ */
+export function RuleList({ rules, balances, ...actions }: RuleListProps) {
   if (rules.length === 0) {
-    return (
-      <EmptyState
-        variant="plain"
-        title="Sin reglas configuradas para este alcance."
-        className="py-6"
-        action={
-          onCreate ? (
-            <Button size="xs" variant="outline" type="button" className="mt-2" onClick={onCreate}>
-              Crear primera regla
-            </Button>
-          ) : undefined
-        }
-      />
-    );
+    return <EmptyState variant="plain" title="Sin reglas configuradas para este alcance." className="py-6" />;
   }
 
   return (

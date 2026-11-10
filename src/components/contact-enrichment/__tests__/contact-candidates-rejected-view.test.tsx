@@ -178,7 +178,6 @@ describe('AGENT2A-CONTACTOS-RECHAZADOS — vista de contactos rechazados', () =>
     assert.ok(textPresent(REJECTED.title));
     assert.ok(textPresent(REJECTED.emptyTitle));
     assert.equal(textPresent('No hay candidatos por revisar.'), false);
-    assert.equal(REJECTED.showEnrichmentCta, false);
   });
 
   it('C. misma tabla que «Por revisar»: mismas columnas, estado «Rechazado»', () => {

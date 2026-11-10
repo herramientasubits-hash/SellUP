@@ -140,8 +140,8 @@ function indicators(): HTMLElement {
   return screen.getByRole('group', { name: 'Indicadores de empresas' });
 }
 
-function renderTable(accounts: AccountListItem[] = ACCOUNTS, emptyActions?: React.ReactNode) {
-  return render(<AccountsDataTableClient accounts={accounts} users={[]} emptyActions={emptyActions} />);
+function renderTable(accounts: AccountListItem[] = ACCOUNTS) {
+  return render(<AccountsDataTableClient accounts={accounts} users={[]} />);
 }
 
 describe('Empresas — los indicadores son filtros de un toque', () => {
@@ -177,11 +177,13 @@ describe('Empresas — los indicadores son filtros de un toque', () => {
 });
 
 describe('Empresas — vacíos', () => {
-  it('sin empresas ofrece las acciones que le pasa la página y no pinta indicadores', () => {
-    renderTable([], <button type="button">Crear empresa</button>);
+  it('sin empresas no repite las acciones de la pantalla (Rumbo y «Agregar empresa» ya están) ni pinta indicadores', () => {
+    renderTable([]);
 
     assert.ok(screen.getByText('Todavía no hay empresas'));
-    assert.ok(screen.getByRole('button', { name: 'Crear empresa' }));
+    const empty = screen.getByText('Todavía no hay empresas').closest('[data-slot="empty"]') as HTMLElement;
+    assert.equal(within(empty).queryAllByRole('button').length, 0);
+    assert.equal(within(empty).queryAllByRole('link').length, 0);
     assert.equal(screen.queryByRole('group', { name: 'Indicadores de empresas' }), null);
   });
 

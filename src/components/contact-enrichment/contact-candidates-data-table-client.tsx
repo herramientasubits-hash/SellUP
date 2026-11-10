@@ -31,7 +31,6 @@ import {
   ExternalLinkCell,
   RowTitleButton,
 } from '@/components/shared/table-cells';
-import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidateDetailSheet } from '@/components/contact-enrichment/contact-candidate-detail-sheet';
 import type {
   PendingContactCandidate,
@@ -946,7 +945,6 @@ export function ContactCandidatesDataTableClient({
         icon={UserSearch}
         title={queueCopy.emptyTitle}
         description={queueCopy.emptyBody}
-        action={queueCopy.showEnrichmentCta ? <ContactsEnrichmentCTA /> : undefined}
         variant="plain"
       />
     );

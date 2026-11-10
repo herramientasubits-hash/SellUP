@@ -120,7 +120,6 @@ function renderRules(rules: BudgetRuleRow[], overrides: Partial<React.ComponentP
       onEdit={(rule) => calls.push(`edit:${rule.id}`)}
       onToggle={(rule) => calls.push(`toggle:${rule.id}`)}
       onRequestDelete={(rule) => calls.push(`delete:${rule.id}`)}
-      onCreate={() => calls.push('create')}
       {...overrides}
     />,
   );
@@ -165,15 +164,9 @@ describe('reglas de presupuesto de un alcance', () => {
     assert.equal((screen.getByRole('button', { name: 'Editar regla' }) as HTMLButtonElement).disabled, false);
   });
 
-  it('sin reglas invita a crear la primera', () => {
-    const calls = renderRules([]);
+  it('sin reglas lo dice sin repetir «Crear regla», que ya está en la cabecera de la sección', () => {
+    renderRules([]);
     assert.ok(screen.getByText('Sin reglas configuradas para este alcance.'));
-    fireEvent.click(screen.getByRole('button', { name: 'Crear primera regla' }));
-    assert.deepEqual(calls, ['create']);
-  });
-
-  it('sin opciones de formulario no ofrece crear', () => {
-    renderRules([], { onCreate: undefined });
     assert.equal(screen.queryByRole('button'), null);
   });
 });

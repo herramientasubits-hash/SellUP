@@ -197,11 +197,6 @@ interface ProspectsDataTableClientProps {
   currentUserId?: string;
   currentGroupId?: string;
   /**
-   * Lo que se ofrece cuando no hay nada por revisar (generar con IA, importar,
-   * crear a mano). Lo arma el panel de servidor, que es el que tiene los drawers.
-   */
-  emptyActions?: React.ReactNode;
-  /**
    * Cierto si la lista llega ya filtrada por la URL (búsqueda, país, sector,
    * origen, estado o alcance): un vacío así no es «no hay prospectos», es «no
    * hay prospectos con estos filtros».
@@ -217,7 +212,6 @@ export function ProspectsDataTableClient({
   assignableUsers = [],
   currentUserId = '',
   currentGroupId = '',
-  emptyActions,
   hasUrlFilters = false,
 }: ProspectsDataTableClientProps) {
   const router = useRouter();
@@ -1009,8 +1003,7 @@ export function ProspectsDataTableClient({
         variant="plain"
         icon={Building2}
         title="No hay prospectos por revisar"
-        description="Genera prospectos con IA, importa un archivo o crea uno a mano. Aparecerán aquí para que decidas."
-        action={emptyActions}
+        description="Pídele empresas a Rumbo o importa un archivo desde las acciones de la pantalla. Aparecerán aquí para que decidas."
       />
     );
   } else if (quick.rows.length === 0 && quick.activeLabel) {

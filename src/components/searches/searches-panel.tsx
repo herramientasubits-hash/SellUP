@@ -61,7 +61,6 @@ export async function SearchesPanel({ focusSearchId = null }: { focusSearchId?: 
           assignableUsers={assignableUsers}
           canEnrichBulk={enrichBulk}
           focusSearchId={focusSearchId}
-          emptyActions={agent.generateDrawer}
         />
       </DataTablePage>
     </ListActionRailProvider>

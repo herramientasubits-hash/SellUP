@@ -170,13 +170,6 @@ describe('AGENT2A-P0-R2 — la tabla se anuncia como la cola que muestra', () =>
     );
   });
 
-  it('C. la cola `duplicates` no ofrece el CTA de enriquecer', () => {
-    // Un duplicado no se resuelve buscando más contactos: ofrecer el CTA ahí
-    // invita a gastar créditos para algo que el gasto no arregla.
-    assert.equal(DUPLICATES.showEnrichmentCta, false);
-    assert.equal(PENDING.showEnrichmentCta, true);
-  });
-
   it('D. la cola `pending` conserva su copy histórico exacto', () => {
     // Sin regresión: el hito arregla duplicados, no reescribe la cola histórica.
     assert.equal(PENDING.title, 'Candidatos por revisar');

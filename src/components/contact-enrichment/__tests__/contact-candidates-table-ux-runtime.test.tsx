@@ -161,11 +161,11 @@ describe('Candidatos de contacto — los indicadores son filtros de un toque', (
     assert.equal(rowNames().length, 3);
   });
 
-  it('sin candidatos no hay indicadores y el vacío ofrece buscar', () => {
+  it('sin candidatos no hay indicadores y el vacío no repite «Buscar contactos» (ya está en la pantalla)', () => {
     render(<ContactCandidatesDataTableClient candidates={[]} />);
 
     assert.equal(screen.queryByRole('group', { name: 'Indicadores de candidatos' }), null);
-    assert.ok(screen.getByRole('button', { name: 'Buscar contactos con IA' }));
+    assert.equal(screen.queryByRole('button', { name: 'Buscar contactos con IA' }), null);
   });
 });
 

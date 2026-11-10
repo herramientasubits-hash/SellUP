@@ -138,7 +138,6 @@ export function ProviderRulesSection({
                 onRequestDelete={setConfirmArchive}
                 onTopUp={setTopUpRule}
                 balances={balances}
-                onCreate={openCreate}
               />
             </TabsContent>
           ))}

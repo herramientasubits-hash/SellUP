@@ -1,10 +1,7 @@
-import { Upload } from "@/icons";
 import { ListActionRailProvider } from "@/components/action-rail";
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { DataTablePage } from '@/components/shared/data-table-page';
-import { Button } from '@/components/ui/button';
-import { ImportCandidatesDrawer } from '@/components/prospect-batches/import-candidates-drawer';
 import { GenerateAIBatchDrawer } from '@/components/prospect-batches/generate-ai-batch-drawer';
 import {
   resolveGenerateProspectsExperience,
@@ -222,19 +219,6 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
         currentUserId={params.userId ?? ''}
         currentGroupId={params.groupId ?? ''}
         hasUrlFilters={hasUrlFilters}
-        emptyActions={
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {generateDrawer}
-            {canProspectBulk && (
-              <ImportCandidatesDrawer>
-                <Button type="button" variant="outline" size="sm">
-                  <Upload aria-hidden="true" />
-                  Importar un archivo
-                </Button>
-              </ImportCandidatesDrawer>
-            )}
-          </div>
-        }
       />
     </DataTablePage>
     </ListActionRailProvider>

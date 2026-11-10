@@ -120,11 +120,6 @@ interface ContactsDataTableClientProps {
   /** owner_id keyed by account_id — used for scope pre-filtering (contact → account → owner). */
   accountOwners?: Map<string, string>;
   scopeFilterOptions?: ScopeFilterOptions;
-  /**
-   * Lo que se ofrece cuando todavía no hay ningún contacto (buscarlos con IA,
-   * crear uno). Lo arma la página, que es la que tiene los drawers.
-   */
-  emptyActions?: React.ReactNode;
   /** Agente 3 encendido: la fila ofrece «Preparar primer contacto» a ese decisor. */
   firstCallEnabled?: boolean;
 }
@@ -133,7 +128,6 @@ export function ContactsDataTableClient({
   contacts,
   accountOwners,
   scopeFilterOptions,
-  emptyActions,
   firstCallEnabled = false,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
@@ -606,8 +600,7 @@ export function ContactsDataTableClient({
         variant="plain"
         icon={Users}
         title="Todavía no hay contactos"
-        description="Busca contactos con IA para tus empresas o crea uno a mano. Los que apruebes en «Por revisar» también llegan aquí."
-        action={emptyActions}
+        description="Busca contactos con IA para tus empresas o crea uno a mano desde las acciones de la pantalla. Los que apruebes en «Por revisar» también llegan aquí."
       />
     );
   } else if (filteredContacts.length === 0) {
