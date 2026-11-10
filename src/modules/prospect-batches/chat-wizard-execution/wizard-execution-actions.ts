@@ -865,7 +865,9 @@ export async function executeProspectWizardGenerationAction(
     // AGENT1-TAVILY-PROVIDER-CONFIG-1 — la MISMA cuota de Proveedores que Apollo.
     // Dueña 28-10: además, el límite que un administrador haya puesto en Configuración.
     checkTavilyProviderQuota: async ({ estimatedCredits }) => {
-      const decision = await checkConfiguredProviderLimit('tavily', await viewerId(), estimatedCredits);
+      const decision = await checkConfiguredProviderLimit('tavily', await viewerId(), estimatedCredits, {
+        requestApproval: true,
+      });
       return decision.status === 'blocked'
         ? { status: 'blocked', providerCreditsAvailable: decision.availableCredits }
         : { status: 'available', providerCreditsAvailable: decision.availableCredits };
@@ -1049,7 +1051,9 @@ export async function executeProspectWizardGenerationAction(
     checkApolloProviderQuota: async ({ estimatedCredits }) => {
       const quota = decideApolloProviderQuotaGate(await checkProviderQuotaAvailable('apollo'), estimatedCredits);
       if (quota.status === 'blocked') return quota;
-      const decision = await checkConfiguredProviderLimit('apollo', await viewerId(), estimatedCredits);
+      const decision = await checkConfiguredProviderLimit('apollo', await viewerId(), estimatedCredits, {
+        requestApproval: true,
+      });
       return decision.status === 'blocked'
         ? { status: 'blocked', providerCreditsAvailable: decision.availableCredits }
         : quota;

@@ -347,6 +347,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '161_growth_role_description.sql',
       // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '162_storage_usage_report.sql',
+      // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
+      '163_budget_approvals_top_ups_rollover.sql',
     ]);
   });
 

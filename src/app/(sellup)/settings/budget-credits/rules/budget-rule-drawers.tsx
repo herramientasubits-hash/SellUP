@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Field } from '@/components/forms/field';
+import { MultiSelect } from '@/components/forms/multi-select';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { createBudgetRule, updateBudgetRule } from '@/modules/budgets/rule-actions';
@@ -34,10 +35,17 @@ interface OnExceedFieldProps {
   required?: boolean;
 }
 
+const ON_EXCEED_HINTS: Record<BudgetOnExceed, string> = {
+  alert: 'Deja seguir buscando y sólo lo anota en el consumo.',
+  block: 'Frena la búsqueda hasta el próximo período o hasta que recargues la regla.',
+  require_approval: 'Frena la búsqueda y le pide más créditos a los aprobadores; ellos eligen cuántos dar.',
+};
+
 function OnExceedField({ value, onChange, required }: OnExceedFieldProps) {
   return (
-    <Field label="Al superar el límite" required={required}>
-      <Select value={value} onValueChange={(next) => onChange(next as BudgetOnExceed)}>
+    <Field label="Al superar el límite" required={required} description={ON_EXCEED_HINTS[value]}>
+      {/* Sin `items`, Base UI muestra la clave interna («alert») en vez del nombre. */}
+      <Select value={value} onValueChange={(next) => onChange(next as BudgetOnExceed)} items={ON_EXCEED_LABELS}>
         <SelectTrigger className="w-full">
           <SelectValue />
         </SelectTrigger>
@@ -47,6 +55,32 @@ function OnExceedField({ value, onChange, required }: OnExceedFieldProps) {
           ))}
         </SelectContent>
       </Select>
+    </Field>
+  );
+}
+
+interface ApproversFieldProps {
+  users: BudgetRuleFormOptions['users'];
+  value: string[];
+  onChange: (value: string[]) => void;
+}
+
+/** Quienes reciben la solicitud y pueden darle créditos a quien la pidió. */
+function ApproversField({ users, value, onChange }: ApproversFieldProps) {
+  return (
+    <Field
+      label="Quién aprueba"
+      required
+      description="Les llega un aviso cuando alguien choca con el límite; cualquiera de ellos decide cuántos créditos dar para este mes."
+    >
+      <MultiSelect
+        options={users.map((user) => ({ value: user.id, label: user.label }))}
+        value={value}
+        onValueChange={onChange}
+        placeholder="Elegir una o varias personas"
+        searchPlaceholder="Buscar persona…"
+        emptyMessage="No hay personas activas con ese nombre."
+      />
     </Field>
   );
 }
@@ -82,6 +116,7 @@ interface FormState {
   limitCredits: string;
   limitUsd: string;
   onExceed: BudgetOnExceed;
+  approverUserIds: string[];
   notes: string;
 }
 
@@ -93,6 +128,7 @@ const DEFAULT_FORM: FormState = {
   limitCredits: '',
   limitUsd: '',
   onExceed: 'alert',
+  approverUserIds: [],
   notes: '',
 };
 
@@ -148,6 +184,7 @@ export function CreateDrawer({
       limitCredits: credits,
       limitUsd: usd,
       onExceed: form.onExceed,
+      approverUserIds: form.onExceed === 'require_approval' ? form.approverUserIds : [],
       notes: form.notes.trim() || null,
     });
     setLoading(false);
@@ -165,6 +202,7 @@ export function CreateDrawer({
     !!form.providerKey &&
     (!scopeNeedsSelector || !!form.scopeId) &&
     (!!form.limitCredits || !!form.limitUsd) &&
+    (form.onExceed !== 'require_approval' || form.approverUserIds.length > 0) &&
     !loading;
 
   return (
@@ -210,7 +248,11 @@ export function CreateDrawer({
             </Field>
           ) : (
             <Field label="Proveedor" required>
-              <Select value={form.providerKey || undefined} onValueChange={(v) => set('providerKey', v ?? '')}>
+              <Select
+                value={form.providerKey || undefined}
+                onValueChange={(v) => set('providerKey', v ?? '')}
+                items={Object.fromEntries(options.providers.map((p) => [p.providerKey, p.displayName]))}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar proveedor" />
                 </SelectTrigger>
@@ -229,6 +271,7 @@ export function CreateDrawer({
             <Select
               value={form.scopeType}
               onValueChange={(v) => set('scopeType', v as BudgetScopeType)}
+              items={SCOPE_LABELS}
             >
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -243,7 +286,11 @@ export function CreateDrawer({
 
           {form.scopeType === 'role' && (
             <Field label="Rol" required>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <Select
+                value={form.scopeId || undefined}
+                onValueChange={(v) => set('scopeId', v ?? '')}
+                items={Object.fromEntries(options.roles.map((r) => [r.key, r.name]))}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar rol" />
                 </SelectTrigger>
@@ -258,7 +305,11 @@ export function CreateDrawer({
 
           {form.scopeType === 'group' && (
             <Field label="Grupo" required>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <Select
+                value={form.scopeId || undefined}
+                onValueChange={(v) => set('scopeId', v ?? '')}
+                items={Object.fromEntries(options.groups.map((g) => [g.id, g.displayPath]))}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar grupo" />
                 </SelectTrigger>
@@ -273,7 +324,11 @@ export function CreateDrawer({
 
           {form.scopeType === 'user' && (
             <Field label="Usuario" required>
-              <Select value={form.scopeId || undefined} onValueChange={(v) => set('scopeId', v ?? '')}>
+              <Select
+                value={form.scopeId || undefined}
+                onValueChange={(v) => set('scopeId', v ?? '')}
+                items={Object.fromEntries(options.users.map((u) => [u.id, u.label]))}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar usuario" />
                 </SelectTrigger>
@@ -291,7 +346,11 @@ export function CreateDrawer({
           )}
 
           <Field label="Período" required>
-            <Select value={form.periodType} onValueChange={(v) => set('periodType', v as BudgetPeriodType)}>
+            <Select
+              value={form.periodType}
+              onValueChange={(v) => set('periodType', v as BudgetPeriodType)}
+              items={PERIOD_LABELS}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -319,6 +378,13 @@ export function CreateDrawer({
             onLimitUsdChange={(value) => set('limitUsd', value)}
           />
           <OnExceedField value={form.onExceed} onChange={(value) => set('onExceed', value)} required />
+          {form.onExceed === 'require_approval' && (
+            <ApproversField
+              users={options.users}
+              value={form.approverUserIds}
+              onChange={(value) => set('approverUserIds', value)}
+            />
+          )}
           <NotesField id="cr-notes" value={form.notes} onChange={(value) => set('notes', value)} />
         </DrawerSection>
 
@@ -336,15 +402,18 @@ export function CreateDrawer({
 
 export interface EditDrawerProps {
   rule: BudgetRuleRow | null;
+  /** Personas para elegir aprobadores; sin ellas no se ofrece cambiarlos. */
+  users?: BudgetRuleFormOptions['users'];
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSuccess?: () => void;
 }
 
-export function EditDrawer({ rule, open, onOpenChange, onSuccess }: EditDrawerProps) {
+export function EditDrawer({ rule, users = [], open, onOpenChange, onSuccess }: EditDrawerProps) {
   const [limitCredits, setLimitCredits] = useState('');
   const [limitUsd, setLimitUsd] = useState('');
   const [onExceed, setOnExceed] = useState<BudgetOnExceed>('alert');
+  const [approverUserIds, setApproverUserIds] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -357,6 +426,7 @@ export function EditDrawer({ rule, open, onOpenChange, onSuccess }: EditDrawerPr
       setLimitCredits(rule.limit_credits != null ? String(rule.limit_credits) : '');
       setLimitUsd(rule.limit_usd != null ? String(rule.limit_usd) : '');
       setOnExceed(rule.on_exceed);
+      setApproverUserIds(rule.approver_user_ids ?? []);
       setNotes(rule.notes ?? '');
       setError(null);
     }
@@ -373,6 +443,7 @@ export function EditDrawer({ rule, open, onOpenChange, onSuccess }: EditDrawerPr
       limitCredits: credits,
       limitUsd: usd,
       onExceed,
+      approverUserIds: onExceed === 'require_approval' ? approverUserIds : [],
       notes: notes.trim() || null,
     });
     setLoading(false);
@@ -384,7 +455,10 @@ export function EditDrawer({ rule, open, onOpenChange, onSuccess }: EditDrawerPr
     if (onSuccess) onSuccess(); else window.location.reload();
   }
 
-  const canSubmit = (!!limitCredits || !!limitUsd) && !loading;
+  const canSubmit =
+    (!!limitCredits || !!limitUsd) &&
+    (onExceed !== 'require_approval' || approverUserIds.length > 0) &&
+    !loading;
 
   if (!rule) return null;
 
@@ -440,6 +514,9 @@ export function EditDrawer({ rule, open, onOpenChange, onSuccess }: EditDrawerPr
             onLimitUsdChange={setLimitUsd}
           />
           <OnExceedField value={onExceed} onChange={setOnExceed} />
+          {onExceed === 'require_approval' && (
+            <ApproversField users={users} value={approverUserIds} onChange={setApproverUserIds} />
+          )}
           <NotesField id="ed-notes" value={notes} onChange={setNotes} />
         </DrawerSection>
 

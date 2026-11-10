@@ -13,7 +13,8 @@
 // ============================================================
 // budgets — core budget resolution logic (Hito B)
 // ============================================================
-// Read-only. Does not write to the DB. Does not block executions.
+// Read-only, with ONE exception: `checkConfiguredProviderLimit` opens an approval
+// request when a «Requiere aprobación» rule blocks (dueña 10-11). Does not block executions.
 // Designed to be called by enforcement (Hito C) and UI (Hito B-UI).
 
 import type { BudgetRule } from '@/modules/usage-tracking/types';
@@ -21,6 +22,7 @@ import type {
   BudgetCheckResult,
   BudgetScopeApplied,
   MatchedRule,
+  RuleCreditBalance,
   AdminBudgetSummary,
   AdminProviderBudgetRow,
   UsdCostTruth,
@@ -54,6 +56,14 @@ import {
   type UsageConsumptionRow,
 } from './effective-consumption-core';
 import { deriveMeasurementStatus } from './provider-measurement';
+import {
+  buildRuleCreditBalance,
+  carryForward,
+  closedPeriodsForRollover,
+  sumAdjustments,
+} from './credit-balance-core';
+import { getRuleCreditAdjustments } from './credit-adjustment-queries';
+import { requestBudgetApproval } from './approval-requests.server';
 import { getBudgetCheckActivity } from './budget-check-activity';
 
 // ─── Rule matching ────────────────────────────────────────────────────────────
@@ -104,13 +114,17 @@ function matchRule(
 function toMatchedRule(
   rule: BudgetRule,
   scope: Exclude<BudgetScopeApplied, 'none'>,
+  creditBalance: RuleCreditBalance | null,
 ): MatchedRule {
+  const baseLimitCredits = rule.limit_credits !== null ? Number(rule.limit_credits) : null;
   return {
     id: rule.id,
     providerKey: rule.provider_key,
     scopeType: scope,
     scopeId: rule.scope_id,
-    limitCredits: rule.limit_credits !== null ? Number(rule.limit_credits) : null,
+    limitCredits: creditBalance ? creditBalance.effective : baseLimitCredits,
+    baseLimitCredits,
+    creditBalance,
     limitUsd: rule.limit_usd !== null ? Number(rule.limit_usd) : null,
     periodType: rule.period_type,
     onExceed: rule.on_exceed,
@@ -271,6 +285,100 @@ async function resolveEffectiveConsumption(
   });
 }
 
+// ─── Pozo de una regla y su saldo del período (dueña 10-11) ──────────────────
+
+/**
+ * Las filas de consumo del POZO de una regla en un período: todo el proveedor
+ * (global), el grupo con sus subgrupos, el rol, o la persona. Sólo depende de
+ * la regla, no de quién pregunta: así el saldo de la regla es el mismo para
+ * todos los que comparten el pozo.
+ */
+async function readRulePoolUsageLogs(
+  admin: ReturnType<typeof getAdminClient>,
+  rule: BudgetRule,
+  allGroups: Awaited<ReturnType<typeof getAllOrgGroups>>,
+  periodStart: string,
+  periodEnd: string,
+): Promise<UsageConsumptionRow[]> {
+  const providerKey = rule.provider_key;
+  switch (rule.scope_type) {
+    case 'global':
+      return getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
+    case 'group':
+      return getConsumptionForGroups(
+        admin,
+        providerKey,
+        collectGroupSubtreeIds([rule.scope_id!], allGroups),
+        periodStart,
+        periodEnd,
+      );
+    case 'role':
+      return getConsumptionForRole(admin, providerKey, rule.scope_id!, periodStart, periodEnd);
+    default:
+      return getConsumptionForUser(admin, providerKey, rule.scope_id!, periodStart, periodEnd);
+  }
+}
+
+/** Lo gastado (y reservado) por el pozo de una regla en un período. */
+export async function readRulePoolConsumption(
+  admin: ReturnType<typeof getAdminClient>,
+  rule: BudgetRule,
+  allGroups: Awaited<ReturnType<typeof getAllOrgGroups>>,
+  periodStart: string,
+  periodEnd: string,
+): Promise<EffectiveConsumption> {
+  return resolveEffectiveConsumption(admin, {
+    usageLogs: await readRulePoolUsageLogs(admin, rule, allGroups, periodStart, periodEnd),
+    providerKeys: [rule.provider_key],
+    scope: { scopeType: rule.scope_type, scopeId: rule.scope_id ?? null },
+    periodStart,
+    periodEnd,
+  });
+}
+
+/**
+ * El tope en créditos que vale este período: límite + recargas + lo aprobado a
+ * `userId` + la reserva de los períodos anteriores. `null` = la regla no tiene
+ * límite en créditos. `userId = null` (vista del administrador) no suma
+ * aprobaciones personales.
+ */
+export async function resolveRuleCreditBalance(
+  admin: ReturnType<typeof getAdminClient>,
+  rule: BudgetRule,
+  allGroups: Awaited<ReturnType<typeof getAllOrgGroups>>,
+  userId: string | null,
+  now: Date = new Date(),
+): Promise<RuleCreditBalance | null> {
+  if (rule.limit_credits === null) return null;
+  const base = Number(rule.limit_credits);
+  if (!Number.isFinite(base)) return null;
+
+  const current = getPeriodBounds(rule.period_type, now);
+  const closed = closedPeriodsForRollover(rule.period_type, now, rule.created_at ?? null);
+  const since = (closed[0] ?? current).start.toISOString();
+  const adjustments = await getRuleCreditAdjustments(admin, rule.id, since);
+
+  const closedFigures = await Promise.all(
+    closed.map(async (bounds) => {
+      const startIso = bounds.start.toISOString();
+      const consumed = await readRulePoolConsumption(admin, rule, allGroups, startIso, bounds.end.toISOString());
+      const added = sumAdjustments(adjustments, startIso, null);
+      return {
+        added: added.topUps + added.grantsTotal,
+        consumed: consumed.credits + consumed.reservedCredits,
+      };
+    }),
+  );
+
+  const currentAdded = sumAdjustments(adjustments, current.start.toISOString(), userId);
+  return buildRuleCreditBalance({
+    base,
+    topUps: currentAdded.topUps,
+    grantsForUser: currentAdded.grantsForUser,
+    carriedIn: carryForward(base, closedFigures),
+  });
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -296,46 +404,29 @@ export async function checkBudget(
 
   const groupAncestorIds = ctx.groupId ? buildGroupAncestorChain(ctx.groupId, allGroups) : [];
   const match = matchRule(rules, userId, ctx.roleKey, groupAncestorIds);
-  const matchedRule = match ? toMatchedRule(match.rule, match.scope) : null;
 
-  const periodType = matchedRule?.periodType ?? 'monthly';
+  const periodType = match?.rule.period_type ?? 'monthly';
   const bounds = getPeriodBounds(periodType);
   const periodStart = bounds.start.toISOString();
   const periodEnd = bounds.end.toISOString();
 
   let consumed: EffectiveConsumption;
+  let creditBalance: RuleCreditBalance | null = null;
   if (!match) {
     // No rule ⇒ nothing to aggregate against. A reservation cannot exist for a pool
     // that has no rule either: `limit_credits` is NOT NULL in the reservations table.
     consumed = EMPTY_EFFECTIVE_CONSUMPTION;
   } else {
-    let usageLogs: UsageConsumptionRow[];
-    if (match.scope === 'global') {
-      usageLogs = await getConsumptionGlobal(admin, providerKey, periodStart, periodEnd);
-    } else if (match.scope === 'group') {
-      // Shared pool: matched group + all its descendants
-      const groupIds = collectGroupSubtreeIds([match.rule.scope_id!], allGroups);
-      usageLogs = await getConsumptionForGroups(admin, providerKey, groupIds, periodStart, periodEnd);
-    } else if (match.scope === 'role') {
-      // Shared pool: all users with this role
-      usageLogs = await getConsumptionForRole(admin, providerKey, ctx.roleKey!, periodStart, periodEnd);
-    } else {
-      // user — individual consumption
-      usageLogs = await getConsumptionForUser(admin, providerKey, userId, periodStart, periodEnd);
-    }
-
     // The reservation snapshot is matched on the pool identity THIS resolution produced,
     // which is also the identity each reservation stored when it was authorized. A
     // reservation taken under a different scope or period simply does not appear here —
     // it stays charged to the pool it was granted against, never re-homed retroactively.
-    consumed = await resolveEffectiveConsumption(admin, {
-      usageLogs,
-      providerKeys: [providerKey],
-      scope: { scopeType: match.scope, scopeId: match.rule.scope_id ?? null },
-      periodStart,
-      periodEnd,
-    });
+    [consumed, creditBalance] = await Promise.all([
+      readRulePoolConsumption(admin, match.rule, allGroups, periodStart, periodEnd),
+      resolveRuleCreditBalance(admin, match.rule, allGroups, userId),
+    ]);
   }
+  const matchedRule = match ? toMatchedRule(match.rule, match.scope, creditBalance) : null;
 
   const projected = { credits: operation.credits ?? 0, usd: operation.usd ?? 0 };
 
@@ -456,17 +547,21 @@ export async function checkProviderQuotaAvailable(
  * ¿Puede `userId` gastar `requiredCredits` de `providerKey`? Lo deciden SÓLO los
  * créditos del proveedor y los límites de Configuración (ver `configured-limit-gate`).
  * Lanza si no se pudo leer: quien gasta lo trata como bloqueo (falla cerrado).
+ *
+ * Con `requestApproval`, si frena una regla «Requiere aprobación», además abre
+ * la solicitud y avisa a sus aprobadores (`decision.approval`). Abrirla nunca lanza ni cambia el bloqueo.
  */
 export async function checkConfiguredProviderLimit(
   providerKey: string,
   userId: string,
   requiredCredits: number,
+  options: { requestApproval?: boolean } = {},
 ): Promise<ConfiguredLimitDecision> {
   const [quota, rule] = await Promise.all([
     checkProviderQuotaAvailable(providerKey),
     checkBudget(providerKey, userId, { credits: requiredCredits }),
   ]);
-  return decideConfiguredLimit({
+  const decision = decideConfiguredLimit({
     quota,
     rule: {
       allowed: rule.allowed,
@@ -475,6 +570,38 @@ export async function checkConfiguredProviderLimit(
     },
     requiredCredits,
   });
+
+  // Dueña 10-11 — «Requiere aprobación»: frenar y, además, pedir los créditos.
+  // Sólo cuando de verdad se iba a gastar: un diagnóstico o una vista previa no
+  // abre solicitudes.
+  if (
+    options.requestApproval === true &&
+    decision.status === 'blocked' &&
+    decision.reason === 'rule' &&
+    rule.matchedRule?.onExceed === 'require_approval'
+  ) {
+    const approval = await requestApprovalForRule(rule.matchedRule.id, {
+      requesterUserId: userId,
+      requestedCredits: requiredCredits - decision.availableCredits,
+      periodStart: rule.periodStart,
+    });
+    return { ...decision, approval };
+  }
+  return decision;
+}
+
+async function requestApprovalForRule(
+  ruleId: string,
+  input: { requesterUserId: string; requestedCredits: number; periodStart: string },
+): Promise<NonNullable<Extract<ConfiguredLimitDecision, { status: 'blocked' }>['approval']>> {
+  const admin = getAdminClient();
+  const { data: rule } = await admin
+    .from('budget_rules')
+    .select('id, provider_key, approver_user_ids')
+    .eq('id', ruleId)
+    .maybeSingle();
+  if (!rule) return { status: 'failed', approverNames: [] };
+  return requestBudgetApproval({ rule: rule as Pick<BudgetRule, 'id' | 'provider_key' | 'approver_user_ids'>, ...input });
 }
 
 /**

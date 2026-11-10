@@ -389,6 +389,8 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       '161_growth_role_description.sql',
       // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       '162_storage_usage_report.sql',
+      // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
+      '163_budget_approvals_top_ups_rollover.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol, la forma de búsqueda del uso de IA desde la metadata del lote, quién le vende a cada entidad pública, el endurecimiento de claim_enrichment_jobs y el cruce NIT/dominio/LinkedIn de los reclamos de identidad',
   );

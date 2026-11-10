@@ -19,6 +19,8 @@ export interface CreateBudgetRuleInput {
   limitCredits: number | null;
   limitUsd: number | null;
   onExceed: BudgetOnExceed;
+  /** Quienes aprueban cuando `onExceed = require_approval` (migración 163). */
+  approverUserIds?: string[];
   notes?: string | null;
 }
 
@@ -27,6 +29,7 @@ export interface UpdateBudgetRuleInput {
   limitCredits: number | null;
   limitUsd: number | null;
   onExceed: BudgetOnExceed;
+  approverUserIds?: string[];
   notes?: string | null;
 }
 
@@ -40,6 +43,25 @@ export interface ActionResult {
 const VALID_SCOPE_TYPES: BudgetScopeType[] = ['global', 'role', 'group', 'user'];
 const VALID_PERIOD_TYPES: BudgetPeriodType[] = ['monthly', 'quarterly', 'annual', 'custom'];
 const VALID_ON_EXCEED: BudgetOnExceed[] = ['alert', 'block', 'require_approval'];
+
+/**
+ * Aprobadores válidos: sin repetidos, personas activas. Con «Requiere
+ * aprobación» tiene que haber al menos uno; con otra reacción se guardan
+ * vacíos (no hay nada que aprobar).
+ */
+async function resolveApprovers(
+  admin: ReturnType<typeof getAdminClient>,
+  onExceed: BudgetOnExceed,
+  approverUserIds: string[] | undefined,
+): Promise<{ ids: string[] } | { error: string }> {
+  if (onExceed !== 'require_approval') return { ids: [] };
+  const ids = [...new Set((approverUserIds ?? []).filter((id) => typeof id === 'string' && id.length > 0))];
+  if (ids.length === 0) return { error: 'Elige al menos una persona que apruebe.' };
+  const { data } = await admin.from('internal_users').select('id').in('id', ids).eq('access_status', 'active');
+  const found = new Set((data ?? []).map((row) => row.id as string));
+  if (ids.some((id) => !found.has(id))) return { error: 'Algún aprobador ya no está activo. Revisa la lista.' };
+  return { ids };
+}
 
 // ─── createBudgetRule ─────────────────────────────────────────────────────────
 
@@ -70,6 +92,9 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
   }
 
   const admin = getAdminClient();
+
+  const approvers = await resolveApprovers(admin, input.onExceed, input.approverUserIds);
+  if ('error' in approvers) return { success: false, error: approvers.error };
 
   const { data: tool } = await admin
     .from('tool_catalog')
@@ -133,6 +158,7 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
         limit_credits: input.limitCredits ?? null,
         limit_usd: input.limitUsd ?? null,
         on_exceed: input.onExceed,
+        approver_user_ids: approvers.ids,
         notes: input.notes ?? null,
         is_active: true,
         updated_at: new Date().toISOString(),
@@ -156,6 +182,7 @@ export async function createBudgetRule(input: CreateBudgetRuleInput): Promise<Ac
     limit_credits: input.limitCredits ?? null,
     limit_usd: input.limitUsd ?? null,
     on_exceed: input.onExceed,
+    approver_user_ids: approvers.ids,
     is_active: true,
     notes: input.notes ?? null,
     created_by: currentUser?.id ?? null,
@@ -192,12 +219,16 @@ export async function updateBudgetRule(input: UpdateBudgetRuleInput): Promise<Ac
   }
 
   const admin = getAdminClient();
+  const approvers = await resolveApprovers(admin, input.onExceed, input.approverUserIds);
+  if ('error' in approvers) return { success: false, error: approvers.error };
+
   const { error } = await admin
     .from('budget_rules')
     .update({
       limit_credits: input.limitCredits ?? null,
       limit_usd: input.limitUsd ?? null,
       on_exceed: input.onExceed,
+      approver_user_ids: approvers.ids,
       notes: input.notes ?? null,
       updated_at: new Date().toISOString(),
     })
