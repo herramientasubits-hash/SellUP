@@ -29,14 +29,6 @@ export interface ContactCandidatesQueueCopy {
   emptyTitle: string;
   /** Cuerpo del estado vacío. */
   emptyBody: string;
-  /**
-   * Si el estado vacío ofrece el CTA de «Enriquecer contactos».
-   *
-   * En «Por revisar» sí: lanzar el agente es justo la acción que llena esa cola.
-   * En «Duplicados» NO: un duplicado no se produce buscando más contactos, y
-   * ofrecerlo ahí invita a gastar para resolver algo que no se resuelve así.
-   */
-  showEnrichmentCta: boolean;
 }
 
 export const CONTACT_CANDIDATES_QUEUE_COPY: Record<
@@ -50,7 +42,6 @@ export const CONTACT_CANDIDATES_QUEUE_COPY: Record<
     emptyTitle: 'No hay candidatos por revisar.',
     emptyBody:
       'Cuando el Agente de contactos encuentre perfiles relevantes, aparecerán aquí.',
-    showEnrichmentCta: true,
   },
   duplicates: {
     title: 'Duplicados',
@@ -59,7 +50,6 @@ export const CONTACT_CANDIDATES_QUEUE_COPY: Record<
     emptyTitle: 'No hay candidatos duplicados.',
     emptyBody:
       'Cuando la detección marque un candidato como duplicado de un contacto existente, aparecerá aquí.',
-    showEnrichmentCta: false,
   },
   rejected: {
     title: 'Contactos rechazados',
@@ -67,6 +57,5 @@ export const CONTACT_CANDIDATES_QUEUE_COPY: Record<
       'Candidatos que alguien del equipo rechazó durante la revisión, con el motivo y la fecha del rechazo. No se crearon como contactos ni viajaron a HubSpot.',
     emptyTitle: 'No hay contactos rechazados.',
     emptyBody: 'Cuando se rechace un candidato desde «Por revisar», aparecerá aquí con su motivo.',
-    showEnrichmentCta: false,
   },
 };

@@ -10,7 +10,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { Plus, ScrollText } from '@/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsBadge, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import type { BudgetRuleFormOptions, BudgetRuleRow } from '@/modules/budgets/rule-queries';
 import { deleteBudgetRule, toggleBudgetRuleStatus } from '@/modules/budgets/rule-actions';
@@ -123,6 +123,7 @@ export function ProviderRulesSection({
             {RULE_SCOPES.map((s) => (
               <TabsTrigger key={s} value={s} className="py-1.5 text-xs">
                 {SCOPE_SECTION_LABEL[s]}
+                <TabsBadge count={rules.filter((r) => r.scope_type === s).length} />
               </TabsTrigger>
             ))}
           </TabsList>
@@ -137,7 +138,6 @@ export function ProviderRulesSection({
                 onRequestDelete={setConfirmArchive}
                 onTopUp={setTopUpRule}
                 balances={balances}
-                onCreate={openCreate}
               />
             </TabsContent>
           ))}

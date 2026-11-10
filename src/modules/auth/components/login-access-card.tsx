@@ -19,7 +19,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
   return (
     <div className="relative grid w-full max-w-[420px] gap-8 animate-su-fade-in">
       <header className="grid justify-items-center gap-4 text-center">
-        <BrandTile className="size-14 rounded-2xl text-2xl shadow-card" />
+        <BrandTile className="size-14 rounded-2xl shadow-card" />
         <div className="grid gap-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
             Sell<span className="text-primary">Up</span>

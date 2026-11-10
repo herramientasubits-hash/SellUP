@@ -36,15 +36,40 @@ interface AppSidebarProps {
   onNavigate?: () => void;
 }
 
+/**
+ * El logo de SellUp (dueña 10-11): la U de «Up» es un imán que atrae puntos
+ * —empresas, contactos— hacia adentro. Las puntas del imán van más tenues y los
+ * puntos bajan creciendo, como si llegaran. Toma el color del texto (currentColor).
+ */
+export function SellUpMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 48 48"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      aria-hidden="true"
+      data-mark="sellup"
+      className={cn("size-[72%]", className)}
+    >
+      <path d="M14 22 V30 A10 10 0 0 0 34 30 V22" strokeWidth="7" />
+      <path d="M14 15 V19.5 M34 15 V19.5" strokeWidth="7" opacity="0.55" />
+      <circle cx="24" cy="5.4" r="1.9" fill="currentColor" stroke="none" opacity="0.6" />
+      <circle cx="24" cy="12" r="2.6" fill="currentColor" stroke="none" />
+      <circle cx="24" cy="21" r="3.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** La marca del producto: el chip con el degradado del tema y, desplegado, el nombre. */
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <span className="flex min-w-0 items-center gap-2.5">
       <span
         aria-hidden
-        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-gradient text-sm font-bold text-primary-foreground shadow-card"
+        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-gradient text-primary-foreground shadow-card"
       >
-        S
+        <SellUpMark />
       </span>
       {!compact && (
         <span className="flex min-w-0 flex-col text-left leading-tight">
@@ -64,11 +89,11 @@ export function BrandTile({ className }: { className?: string }) {
     <span
       aria-hidden
       className={cn(
-        "flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-gradient text-xs font-bold text-primary-foreground",
+        "flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-gradient text-primary-foreground",
         className,
       )}
     >
-      S
+      <SellUpMark />
     </span>
   );
 }

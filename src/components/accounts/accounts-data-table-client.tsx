@@ -170,11 +170,6 @@ interface AccountsDataTableClientProps {
   accounts: AccountListItem[];
   users: InternalUserOption[];
   scopeFilterOptions?: ScopeFilterOptions;
-  /**
-   * Lo que se ofrece cuando todavía no hay ninguna empresa (crear una, ir a
-   * revisar prospectos). Lo arma la página, que es la que tiene los drawers.
-   */
-  emptyActions?: React.ReactNode;
   /** Agente 3 encendido: la fila ofrece «Preparar primer contacto». */
   firstCallEnabled?: boolean;
   /**
@@ -189,7 +184,6 @@ export function AccountsDataTableClient({
   accounts,
   users,
   scopeFilterOptions,
-  emptyActions,
   firstCallEnabled = false,
   canEnrichBulk = true,
 }: AccountsDataTableClientProps) {
@@ -658,8 +652,7 @@ export function AccountsDataTableClient({
         variant="plain"
         icon={Building2}
         title="Todavía no hay empresas"
-        description="Las empresas llegan aquí cuando apruebas un prospecto. También puedes crear una a mano."
-        action={emptyActions}
+        description="Pídele empresas a Rumbo o agrega una a mano desde las acciones de la pantalla. Las que apruebes en «Por revisar» también llegan aquí."
       />
     );
   } else if (quick.rows.length === 0 && quick.activeLabel) {

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Logo SellUp (U imán) sobre el degradado de marca (tema Azul): archivo de marca, colores fijos. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="oklch(0.64 0.19 261.971)"/>
+      <stop offset="0.52" stop-color="oklch(0.52 0.233 261.971)"/>
+      <stop offset="1" stop-color="oklch(0.44 0.2 261.971)"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="url(#g)"/>
+  <g transform="translate(6.72 6.72) scale(0.72)" fill="none" stroke="#fff" stroke-linecap="round">
+    <path d="M14 22 V30 A10 10 0 0 0 34 30 V22" stroke-width="7"/>
+    <path d="M14 15 V19.5 M34 15 V19.5" stroke-width="7" opacity="0.55"/>
+    <circle cx="24" cy="5.4" r="1.9" fill="#fff" stroke="none" opacity="0.6"/>
+    <circle cx="24" cy="12" r="2.6" fill="#fff" stroke="none"/>
+    <circle cx="24" cy="21" r="3.2" fill="#fff" stroke="none"/>
+  </g>
+</svg>

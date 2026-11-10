@@ -37,8 +37,6 @@ export interface SearchesTableClientProps {
   canEnrichBulk?: boolean;
   /** La búsqueda que se pidió ver (`?focus=`), resaltada arriba. */
   focusSearchId?: string | null;
-  /** Lo que se ofrece cuando no hay ninguna búsqueda (Rumbo, importar). */
-  emptyActions?: React.ReactNode;
   /** Adónde lleva una búsqueda. Inyectable para pruebas. */
   searchHref?: (id: string) => string;
 }
@@ -57,7 +55,6 @@ export function SearchesTableClient({
   assignableUsers = [],
   canEnrichBulk = false,
   focusSearchId = null,
-  emptyActions,
   searchHref = (id) => `/prospect-batches/${id}`,
 }: SearchesTableClientProps) {
   const router = useRouter();
@@ -243,8 +240,7 @@ export function SearchesTableClient({
       <EmptyState
         icon={Search}
         title="Todavía no hay búsquedas"
-        description="Pídele empresas a Rumbo o importa un archivo. Cada búsqueda aparece aquí con lo que encontró y lo que falta por revisar."
-        action={emptyActions}
+        description="Pídele empresas a Rumbo o importa un archivo desde las acciones de la pantalla. Cada búsqueda aparece aquí con lo que encontró y lo que falta por revisar."
       />
     );
   }

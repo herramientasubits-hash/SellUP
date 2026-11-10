@@ -165,8 +165,8 @@ function indicators(): HTMLElement {
   return screen.getByRole('group', { name: 'Indicadores de contactos' });
 }
 
-function renderTable(contacts: ContactListItem[] = CONTACTS, emptyActions?: React.ReactNode) {
-  return render(<ContactsDataTableClient contacts={contacts} emptyActions={emptyActions} />);
+function renderTable(contacts: ContactListItem[] = CONTACTS) {
+  return render(<ContactsDataTableClient contacts={contacts} />);
 }
 
 describe('Contactos — los indicadores son filtros de un toque', () => {
@@ -193,11 +193,11 @@ describe('Contactos — los indicadores son filtros de un toque', () => {
 });
 
 describe('Contactos — vacíos y celdas', () => {
-  it('sin contactos ofrece las acciones que le pasa la página', () => {
-    renderTable([], <button type="button">Buscar contactos con IA</button>);
+  it('sin contactos no repite las acciones de la pantalla («Buscar contactos» y «Crear contacto» ya están)', () => {
+    renderTable([]);
 
-    assert.ok(screen.getByText('Todavía no hay contactos'));
-    assert.ok(screen.getByRole('button', { name: 'Buscar contactos con IA' }));
+    const empty = screen.getByText('Todavía no hay contactos').closest('[data-slot="empty"]') as HTMLElement;
+    assert.equal(within(empty).queryAllByRole('button').length, 0);
   });
 
   it('lo que falta es siempre una raya con nombre', () => {

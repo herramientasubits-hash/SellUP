@@ -6,7 +6,6 @@ import { getAllContacts } from '@/modules/contacts/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
-import { CreateContactDrawer } from '@/components/contacts/create-contact-drawer';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
 import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
 import {
@@ -16,7 +15,6 @@ import {
   type ContactsTabId,
 } from '@/components/contacts/contacts-module-copy';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
-import { ContactsEnrichmentCTA } from '@/components/contact-enrichment/contacts-enrichment-cta';
 import { ContactCandidatesPanel } from '@/components/contact-enrichment/contact-candidates-panel';
 
 interface ContactsPageProps {
@@ -114,12 +112,6 @@ async function ApprovedContactsPanel() {
           accountOwners={accountOwners}
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
-          emptyActions={
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <ContactsEnrichmentCTA />
-              <CreateContactDrawer accounts={accounts} triggerVariant="outline" />
-            </div>
-          }
         />
       </DataTablePage>
     </ListActionRailProvider>

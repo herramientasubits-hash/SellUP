@@ -278,13 +278,7 @@ export function RulesDataTable({
           variant="plain"
           icon={ShieldAlert}
           title="Todavía no hay reglas de presupuesto"
-          description="Crea una regla para recibir un aviso cuando un proveedor, un grupo o una persona se acerque a su tope de gasto."
-          action={
-            <Button size="sm" variant="outline" onClick={onCreate}>
-              <Plus />
-              Crear regla
-            </Button>
-          }
+          description="Crea una regla con «Crear regla» para recibir un aviso cuando un proveedor, un grupo o una persona se acerque a su tope de gasto."
         />
       }
     />
