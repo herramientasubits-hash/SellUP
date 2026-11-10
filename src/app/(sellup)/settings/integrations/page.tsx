@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plug, MessageSquare, HardDrive, Bot, Search, ArrowRight } from "@/icons";
+import { Plug, MessageSquare, HardDrive, Bot, Search, ArrowRight, Database } from "@/icons";
 import { Badge } from '@/components/ui/badge';
 import { SettingsPage } from '@/components/settings/settings-page';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -189,6 +189,42 @@ function IntegrationCard({ integration }: { integration: IntegrationWithConnecti
   return <SurfaceCard className="group">{cardContent}</SurfaceCard>;
 }
 
+/**
+ * Supabase no sale de la tabla de integraciones: es la base de SellUp y sus
+ * credenciales viven en Vercel. La tarjeta lleva a ver si responde y cuánto
+ * espacio usa; el estado se mide al entrar (no aquí, para no frenar la lista).
+ */
+function SupabaseCard() {
+  return (
+    <Link
+      href="/settings/integrations/supabase"
+      className="block rounded-2xl focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+    >
+      <SurfaceCard className="group h-full cursor-pointer hover:border-primary/30 hover:shadow-drawer">
+        <SurfaceCardHeader
+          title="Supabase"
+          description="La base de datos de SellUp: si responde, cuánto espacio usa y qué pesa cada cosa."
+          actions={
+            <Badge variant="brand">
+              <span className="size-1.5 rounded-full bg-primary" />
+              Base de SellUp
+            </Badge>
+          }
+        />
+        <div className="flex items-center justify-between">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+            <Database className="size-4" />
+          </div>
+          <span className="flex items-center gap-1 text-xs font-medium text-primary">
+            Ver conexión y espacio
+            <ArrowRight aria-hidden className="size-3" />
+          </span>
+        </div>
+      </SurfaceCard>
+    </Link>
+  );
+}
+
 export default async function IntegrationsPage() {
   const isAdmin = await isCurrentUserAdmin();
   if (!isAdmin) redirect('/settings');
@@ -214,6 +250,7 @@ export default async function IntegrationsPage() {
           {integrations.map((integration) => (
             <IntegrationCard key={integration.id} integration={integration} />
           ))}
+          <SupabaseCard />
         </div>
       )}
     </SettingsPage>

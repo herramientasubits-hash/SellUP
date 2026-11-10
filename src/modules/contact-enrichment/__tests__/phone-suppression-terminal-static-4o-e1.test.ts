@@ -369,7 +369,8 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
       // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
       // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
-      '161_growth_role_description.sql',
+      // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres; sin datos, teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
+      '162_storage_usage_report.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.
