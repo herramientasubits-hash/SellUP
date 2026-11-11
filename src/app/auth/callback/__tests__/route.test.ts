@@ -198,8 +198,6 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = SUPABASE_URL;
   process.env.SUPABASE_SERVICE_ROLE_KEY = FAKE_SERVICE_KEY;
   delete process.env.VERCEL_ENV;
-  // Los casos de siempre corren sin la puerta de lanzamiento; la puerta tiene su bloque abajo.
-  process.env.SELLUP_LAUNCH_GATE = 'off';
 
   installFetch();
 });
@@ -404,47 +402,25 @@ describe('auth/callback (offline handler)', () => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// LAUNCH-GATE-2026-11 — ingreso cerrado hasta el lanzamiento
+// Acceso por estado (dueña 11-11): ya no hay puerta de lanzamiento. Quien está
+// activo entra; quien está inactivo (suspended) lo ve dicho y espera a que un
+// administrador lo active desde Usuarios.
 // ════════════════════════════════════════════════════════════════════════════
-describe('auth/callback — puerta de lanzamiento', () => {
+describe('auth/callback — activo entra, inactivo espera', () => {
   beforeEach(() => {
-    delete process.env.SELLUP_LAUNCH_GATE;
-    // Apertura de líderes en el futuro lejano: en estos casos todavía no abre.
-    process.env.SELLUP_LAUNCH_LEADERS_AT = '2999-01-01T00:00:00Z';
     state.existingSlackDmChannelId = 'D-existing';
   });
-  after(() => {
-    delete process.env.SELLUP_LAUNCH_LEADERS_AT;
-  });
 
-  it('un vendedor activo no entra: se cierra la sesión y el login muestra el aviso del equipo', async () => {
+  it('un vendedor activo entra directo, sin cerrar la sesión', async () => {
     mockGetInternalUserResult = { data: [{ access_status: 'active', role_key: 'seller_bd' }], error: null };
-    const res = await GET(callbackRequest({ code: 'c' }));
-    assert.ok(locationOf(res).endsWith('/login?hold=team'), locationOf(res));
-    assert.equal(signOutCalls, 1);
-  });
-
-  it('un líder activo no entra todavía: el aviso es el de la cuenta regresiva', async () => {
-    mockGetInternalUserResult = { data: [{ access_status: 'active', role_key: 'commercial_lead' }], error: null };
-    const res = await GET(callbackRequest({ code: 'c' }));
-    assert.ok(locationOf(res).endsWith('/login?hold=leaders'), locationOf(res));
-    assert.equal(signOutCalls, 1);
-  });
-
-  it('egarcia entra igual que siempre', async () => {
-    mockExchangeResult = {
-      data: { user: { id: 'auth-user-1', email: 'egarcia@ubits.co', user_metadata: {} } },
-      error: null,
-    };
-    mockGetInternalUserResult = { data: [{ access_status: 'active', role_key: 'admin' }], error: null };
     const res = await GET(callbackRequest({ code: 'c' }));
     assert.ok(locationOf(res).endsWith('/pipeline'), locationOf(res));
     assert.equal(signOutCalls, 0);
   });
 
-  it('una cuenta pendiente sigue yendo a su pantalla de acceso, no al aviso', async () => {
-    mockGetInternalUserResult = { data: [{ access_status: 'pending_approval' }], error: null };
+  it('un vendedor inactivo va a su pantalla de acceso inactivo', async () => {
+    mockGetInternalUserResult = { data: [{ access_status: 'suspended', role_key: 'seller_bd' }], error: null };
     const res = await GET(callbackRequest({ code: 'c' }));
-    assert.ok(locationOf(res).endsWith('/access-pending'), locationOf(res));
+    assert.ok(locationOf(res).endsWith('/access-suspended'), locationOf(res));
   });
 });

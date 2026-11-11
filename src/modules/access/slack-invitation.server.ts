@@ -5,7 +5,6 @@
 // hecha y el resultado sólo se le cuenta a quien invita.
 // ============================================================
 
-import { evaluateLaunchGate, readLaunchGateConfig } from '@/modules/auth/launch-gate';
 import { sendSlackDirectMessageByEmail } from '@/server/services/slack-connection';
 import { buildSlackInvitationMessage, type SlackInviteOutcome } from './slack-invitation-message';
 
@@ -25,21 +24,13 @@ export function sellupLoginUrl(): string {
 
 export async function sendSlackInvitation(
   target: SlackInvitationTarget,
-  now: Date = new Date(),
 ): Promise<SlackInviteOutcome> {
   try {
-    const gate = evaluateLaunchGate({
-      config: readLaunchGateConfig(),
-      email: target.email,
-      roleKey: target.roleKey,
-      now,
-    });
     const message = buildSlackInvitationMessage({
       inviteeName: target.fullName,
       inviterName: target.inviterName,
       roleName: target.roleName,
       loginUrl: sellupLoginUrl(),
-      waitsForLaunch: !gate.allowed,
     });
     return await sendSlackDirectMessageByEmail(target.email, message);
   } catch (error) {

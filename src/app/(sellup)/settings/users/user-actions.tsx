@@ -158,7 +158,7 @@ function buildRowActions(
   };
   const suspend: RowAction = {
     id: 'suspend',
-    label: 'Suspender acceso',
+    label: 'Desactivar acceso',
     icon: <Pause />,
     tone: 'danger',
     onSelect: () => openDialog('suspend'),
@@ -179,7 +179,7 @@ function buildRowActions(
       ];
     case 'suspended':
       return [
-        { id: 'reactivate', label: 'Reactivar acceso', icon: <RotateCcw />, onSelect: () => openDialog('reactivate') },
+        { id: 'reactivate', label: 'Activar acceso', icon: <RotateCcw />, onSelect: () => openDialog('reactivate') },
         archive,
       ];
     case 'rejected':
@@ -383,11 +383,11 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
         onOpenChange={onOpenChangeFor('suspend')}
         variant="destructive"
         icon={Pause}
-        title="Suspender acceso"
+        title="Desactivar acceso"
         description={confirmDescription(
-          `¿Estás seguro de que deseas suspender el acceso de ${userName}? El usuario no podrá acceder a SellUp hasta que su acceso sea reactivado.`,
+          `¿Desactivar el acceso de ${userName}? No podrá entrar a SellUp hasta que lo vuelvas a activar desde Usuarios.`,
         )}
-        confirmLabel="Suspender"
+        confirmLabel="Desactivar"
         loading={loading}
         onConfirm={handleSuspend}
       />
@@ -397,9 +397,9 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
         open={dialog === 'reactivate'}
         onOpenChange={onOpenChangeFor('reactivate')}
         icon={RotateCcw}
-        title="Reactivar acceso"
-        description={confirmDescription(`¿Estás seguro de que deseas reactivar el acceso de ${userName}?`)}
-        confirmLabel="Reactivar"
+        title="Activar acceso"
+        description={confirmDescription(`¿Activar el acceso de ${userName}? Desde ya podrá entrar a SellUp con Google.`)}
+        confirmLabel="Activar"
         loading={loading}
         onConfirm={handleReactivate}
       />

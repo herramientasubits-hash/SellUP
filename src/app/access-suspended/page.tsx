@@ -17,8 +17,8 @@ export default async function AccessSuspendedPage() {
     <AccessStatusScreen
       icon={Ban}
       tone="warning"
-      title="Acceso suspendido"
-      description="Tu acceso a SellUp ha sido temporalmente suspendido. Por favor, contacta al administrador del sistema para obtener más información sobre el estado de tu cuenta."
+      title="Tu acceso a SellUp está inactivo"
+      description="Un administrador de SellUp activa tu acceso desde Usuarios. Cuando lo haga, vuelve a entrar con Google usando tu correo."
       email={user.email}
     />
   );

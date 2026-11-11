@@ -16,8 +16,6 @@ export interface SlackInvitationMessageInput {
   roleName: string | null;
   /** Página de inicio de sesión de SellUp. */
   loginUrl: string;
-  /** La puerta de lanzamiento todavía no la deja entrar. */
-  waitsForLaunch: boolean;
 }
 
 export interface SlackInvitationMessage {
@@ -38,9 +36,7 @@ export function buildSlackInvitationMessage(input: SlackInvitationMessageInput):
   const who = input.inviterName?.trim() || 'El equipo de UBITS';
   const role = input.roleName?.trim() ? ` como *${input.roleName.trim()}*` : '';
   const intro = `${greeting} ${who} te invitó a *SellUp*${role}, la plataforma de prospección comercial de UBITS.`;
-  const howTo = input.waitsForLaunch
-    ? 'Tu acceso ya está listo y se abre el día del lanzamiento: ese día entra con Google usando tu correo @ubits.co.'
-    : 'Entra con Google usando tu correo @ubits.co: tu acceso ya está listo.';
+  const howTo = 'Entra con Google usando tu correo @ubits.co: tu acceso ya está listo.';
 
   return {
     text: `${intro} ${howTo} ${input.loginUrl}`.replace(/\*/g, ''),

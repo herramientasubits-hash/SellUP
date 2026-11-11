@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server';
 import { AppShell } from '@/components/layout/app-shell';
 import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
 import type { NavAccessContext } from '@/config/navigation';
-import { evaluateLaunchGate, readLaunchGateConfig } from '@/modules/auth/launch-gate';
 
 export default async function SellUpLayout({
   children,
@@ -45,15 +44,6 @@ export default async function SellUpLayout({
     isCurrentUserAdmin(),
     getCurrentUser(),
   ]);
-
-  // LAUNCH-GATE-2026-11: el proxy sólo conoce el correo; aquí ya se sabe el rol.
-  const launchGate = evaluateLaunchGate({
-    config: readLaunchGateConfig(),
-    email: user.email ?? internalUserRecord?.email ?? null,
-    roleKey: internalUserRecord?.role_key ?? null,
-    now: new Date(),
-  });
-  if (!launchGate.allowed) redirect('/auth/launch-hold');
 
   const unreadCount = count ?? 0;
 

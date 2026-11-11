@@ -1,9 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
-import { isBlockedRegardlessOfRole, readLaunchGateConfig } from '@/modules/auth/launch-gate';
 
 export async function proxy(request: NextRequest) {
-  const { supabaseResponse, isAuthenticated, email } = await updateSession(request);
+  const { supabaseResponse, isAuthenticated } = await updateSession(request);
 
   const { pathname } = request.nextUrl;
 
@@ -18,15 +17,6 @@ export async function proxy(request: NextRequest) {
   // Proteger todas las rutas que no son públicas
   if (!isPublicPath && !isAuthenticated) {
     return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  // LAUNCH-GATE-2026-11: ingreso cerrado hasta el lanzamiento (src/modules/auth/launch-gate.ts).
-  // Aquí sólo se conoce el correo; lo que depende del rol lo decide el layout de la app.
-  if (!isPublicPath && isBlockedRegardlessOfRole(readLaunchGateConfig(), email, new Date())) {
-    if (pathname.startsWith('/api')) {
-      return NextResponse.json({ error: 'launch_gate_closed' }, { status: 403 });
-    }
-    return NextResponse.redirect(new URL('/auth/launch-hold', request.url));
   }
 
   return supabaseResponse;
