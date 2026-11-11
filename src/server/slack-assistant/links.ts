@@ -16,7 +16,13 @@ function base(appUrl: string): string {
 
 /** Empresas › Por revisar, con país/industria/texto ya filtrados. */
 export function pendingProspectsLink(appUrl: string, filters: ProspectLinkFilters = {}): string {
+  return prospectsLink(appUrl, 'por_revisar', filters);
+}
+
+/** Por revisar o Descartadas (las demás vistas no tienen pantalla propia: van a Por revisar). */
+export function prospectsLink(appUrl: string, state: string, filters: ProspectLinkFilters = {}): string {
   const params = new URLSearchParams({ tab: 'prospectos' });
+  if (state === 'descartados') params.set('view', 'descartadas');
   if (filters.pais) params.set('country', filters.pais.trim().length === 2 ? filters.pais.trim().toUpperCase() : filters.pais.trim());
   if (filters.industria) params.set('industry', filters.industria.trim());
   if (filters.texto) params.set('search', filters.texto.trim());
@@ -36,4 +42,20 @@ export function searchesLink(appUrl: string, searchId?: string | null): string {
   const params = new URLSearchParams({ tab: 'busquedas' });
   if (searchId) params.set('focus', searchId);
   return `${base(appUrl)}/accounts?${params.toString()}`;
+}
+
+export function usersLink(appUrl: string): string {
+  return `${base(appUrl)}/settings/users`;
+}
+
+export function aiUsageLink(appUrl: string): string {
+  return `${base(appUrl)}/ai-usage`;
+}
+
+export function sourceCatalogLink(appUrl: string): string {
+  return `${base(appUrl)}/source-catalog`;
+}
+
+export function budgetLink(appUrl: string): string {
+  return `${base(appUrl)}/settings/budget-credits`;
 }

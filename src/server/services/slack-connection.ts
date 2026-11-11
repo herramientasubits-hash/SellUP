@@ -509,6 +509,8 @@ export async function postSlackMessage(params: {
   channel: string;
   text: string;
   threadTs?: string | null;
+  /** Bloques de Slack (botones de confirmación, etc.). */
+  blocks?: ReadonlyArray<Record<string, unknown>>;
 }): Promise<boolean> {
   const token = await getSlackToken();
   if (!token) return false;
@@ -519,6 +521,7 @@ export async function postSlackMessage(params: {
       body: JSON.stringify({
         channel: params.channel,
         text: params.text,
+        ...(params.blocks ? { blocks: params.blocks } : {}),
         ...(params.threadTs ? { thread_ts: params.threadTs } : {}),
         unfurl_links: false,
         unfurl_media: false,
@@ -529,6 +532,38 @@ export async function postSlackMessage(params: {
     return body.ok;
   } catch (error) {
     console.error('[slack] chat.postMessage', error instanceof Error ? error.message : 'error');
+    return false;
+  }
+}
+
+const SLACK_RESPONSE_URL_PATTERN = /^https:\/\/hooks\.slack\.com\/actions\//;
+
+/**
+ * Reemplaza el mensaje con botones por el resultado (la `response_url` que
+ * Slack manda con cada clic; sólo se aceptan direcciones de hooks.slack.com).
+ * Con `replaceOriginal: false` responde sólo a quien pulsó (efímero).
+ * Nunca lanza.
+ */
+export async function respondToSlackInteraction(
+  responseUrl: string,
+  text: string,
+  options: { replaceOriginal?: boolean } = {},
+): Promise<boolean> {
+  if (!SLACK_RESPONSE_URL_PATTERN.test(responseUrl)) return false;
+  const replace = options.replaceOriginal ?? true;
+  try {
+    const res = await fetch(responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(
+        replace
+          ? { replace_original: true, text, blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }] }
+          : { replace_original: false, response_type: 'ephemeral', text },
+      ),
+    });
+    return res.ok;
+  } catch (error) {
+    console.error('[slack] response_url', error instanceof Error ? error.message : 'error');
     return false;
   }
 }

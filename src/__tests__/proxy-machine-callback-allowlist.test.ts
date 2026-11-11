@@ -67,6 +67,8 @@ describe('proxy — callbacks de máquina excluidos de la sesión', () => {
   it('los eventos de Slack NO pasan por el proxy (Slack no trae sesión; los protege la firma)', () => {
     assert.equal(proxyRunsFor('/api/integrations/slack/events'), false);
     assert.equal(proxyRunsFor('/api/integrations/slack/events-otro'), true);
+    assert.equal(proxyRunsFor('/api/integrations/slack/interactions'), false);
+    assert.equal(proxyRunsFor('/api/integrations/slack/interactions-otro'), true);
     assert.equal(proxyRunsFor('/api/integrations/slack/oauth/start'), true);
   });
 
