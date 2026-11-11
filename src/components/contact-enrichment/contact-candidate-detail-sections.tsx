@@ -114,14 +114,39 @@ function countryLabel(candidate: PendingContactCandidate): string | null {
   return fromCompany ? `${country} (país de la empresa)` : country;
 }
 
-/** 1. Información principal. */
+/**
+ * 1. Información principal — incluye la empresa del candidato.
+ *
+ * AGENT2A-CANDIDATE-COMPANY-IN-MAIN-INFO: antes la empresa tenía su propia sección
+ * («Empresa») más abajo, sólo para el botón «Reasignar empresa», el aviso de que no tiene
+ * empresa y la reasignación. Se unificó aquí: el botón va en el encabezado, el aviso arriba
+ * (es lo que impide aprobar) y la reasignación como nota bajo el campo Empresa.
+ */
 export function CandidateMainInfoSection({
   candidate,
+  companyAction,
 }: {
   candidate: PendingContactCandidate;
+  /**
+   * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el botón «Reasignar empresa». Lo construye la ficha
+   * (que es quien llama al servidor); esta sección sólo lo coloca.
+   */
+  companyAction?: React.ReactNode;
 }) {
+  const reassignment = readCandidateCompanyReassignment(candidate.enrichment_metadata);
+  const withoutCompany = !candidate.account_id && !candidate.hubspot_company_id;
+
   return (
-    <DrawerSection icon={User} title="Información principal">
+    <DrawerSection icon={User} title="Información principal" action={companyAction}>
+      {withoutCompany && (
+        <Alert variant="warning" role="note" className="mb-3">
+          <AlertTitle className="text-sm">Sin empresa asociada</AlertTitle>
+          <AlertDescription className="text-xs leading-relaxed">
+            Este candidato no está asociado a una cuenta de SellUp ni a una empresa de HubSpot, por
+            eso no se puede aprobar. Usa «Reasignar empresa» para asociarlo.
+          </AlertDescription>
+        </Alert>
+      )}
       <DetailList>
         <CandidateDetailItem icon={User} label="Nombre completo">
           {candidate.full_name || null}
@@ -130,7 +155,20 @@ export function CandidateMainInfoSection({
           {candidate.title || null}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Building2} label="Empresa">
-          {candidate.company_name || null}
+          {candidate.company_name || reassignment ? (
+            <span className="flex flex-col gap-0.5">
+              {candidate.company_name && <span>{candidate.company_name}</span>}
+              {reassignment && (
+                <span className="text-xs text-muted-foreground">
+                  Reasignada{' '}
+                  {reassignment.selected_source === 'hubspot' ? 'desde HubSpot' : 'desde SellUp'}
+                  {reassignment.reassigned_at ? ` · ${formatDate(reassignment.reassigned_at)}` : ''}
+                  {' · antes: '}
+                  {reassignment.original.company_name ?? 'sin empresa'}
+                </span>
+              )}
+            </span>
+          ) : null}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Globe} label="Dominio de la empresa">
           {candidate.company_domain || null}
@@ -276,60 +314,5 @@ export function CandidateCompanyConsistencyNotice({
           </AlertDescription>
         )}
     </Alert>
-  );
-}
-
-/**
- * 4. Empresa del candidato. Antes era «Trazabilidad» (IDs del candidato, de la
- * ejecución y de la empresa, fuente, intento de Apollo): confundía al manager y
- * se quitó de la vista. Queda sólo lo que sirve para decidir: el aviso de que no
- * tiene empresa, «Reasignar empresa» y, si hubo, la reasignación.
- */
-export function CandidateCompanySection({
-  candidate,
-  companyAction,
-}: {
-  candidate: PendingContactCandidate;
-  /**
-   * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el botón «Reasignar empresa». Lo construye la ficha
-   * (que es quien llama al servidor); esta sección sólo lo coloca.
-   */
-  companyAction?: React.ReactNode;
-}) {
-  const reassignment = readCandidateCompanyReassignment(candidate.enrichment_metadata);
-  const withoutCompany = !candidate.account_id && !candidate.hubspot_company_id;
-  if (!withoutCompany && !reassignment && !companyAction) return null;
-
-  return (
-    <DrawerSection icon={Building2} tone="neutral" title="Empresa" action={companyAction}>
-      {withoutCompany && (
-        <Alert variant="warning" role="note" className="mb-3">
-          <AlertTitle className="text-sm">Sin empresa asociada</AlertTitle>
-          <AlertDescription className="text-xs leading-relaxed">
-            Este candidato no está asociado a una cuenta de SellUp ni a una empresa de HubSpot, por
-            eso no se puede aprobar. Usa «Reasignar empresa» para asociarlo.
-          </AlertDescription>
-        </Alert>
-      )}
-      {reassignment && (
-        <DetailList>
-          <CandidateDetailItem
-            icon={Building2}
-            label="Empresa reasignada"
-            className="sm:col-span-2"
-          >
-            <span className="text-xs">
-              {reassignment.company_name}
-              {reassignment.company_domain ? ` · ${reassignment.company_domain}` : ''}
-              {' · '}
-              {reassignment.selected_source === 'hubspot' ? 'desde HubSpot' : 'desde SellUp'}
-              {reassignment.reassigned_at ? ` · ${formatDate(reassignment.reassigned_at)}` : ''}
-              {' · antes: '}
-              {reassignment.original.company_name ?? 'sin empresa'}
-            </span>
-          </CandidateDetailItem>
-        </DetailList>
-      )}
-    </DrawerSection>
   );
 }
