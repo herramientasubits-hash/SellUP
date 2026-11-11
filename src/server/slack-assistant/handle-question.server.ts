@@ -17,6 +17,8 @@ import { runAnthropicConversation } from '@/server/agents/prospecting-toolkit/cl
 import { resolveActiveAnthropicModel } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server';
 import { estimateClassifierCost } from '@/server/agents/prospecting-toolkit/claude-classifier/cost';
 import { createAssistantDataSource } from './data-source.server';
+import { createAssistantAdminDataSource } from './admin-data-source.server';
+import { canSeeMoney } from '@/modules/ai-usage/money-visibility';
 import { answerQuestion } from './run';
 import { buildConversationTurns, HISTORY_MAX_MESSAGES } from './conversation';
 import { scopeLabelFor, SLACK_ASSISTANT_COPY } from './copy';
@@ -115,7 +117,13 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
       },
       {
         runConversation: (body, apiKey) => runAnthropicConversation({ apiKey, body, deadlineAtMs, timeoutMs: 40_000 }),
-        data: createAssistantDataSource(admin, scope, { appUrl, now }),
+        data: createAssistantDataSource(admin, scope, {
+          appUrl,
+          now,
+          moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
+        }),
+        // Usuarios, catálogos y presupuesto: sólo un administrador (como en la plataforma).
+        adminData: scope.canViewAll ? createAssistantAdminDataSource(admin, { appUrl, now }) : null,
       },
     );
 

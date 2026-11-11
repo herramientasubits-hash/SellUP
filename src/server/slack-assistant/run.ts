@@ -14,7 +14,7 @@ import {
   type AnthropicUsageTotals,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
-import { ASSISTANT_TOOLS, runAssistantTool, type AssistantDataSource } from './tools';
+import { runAssistantTool, toolsForRole, type AssistantAdminDataSource, type AssistantDataSource } from './tools';
 import type { ConversationTurn } from './conversation';
 
 /** Vueltas de herramientas como máximo antes de pedir la respuesta final. */
@@ -48,6 +48,8 @@ export interface AnswerQuestionInput {
 export interface AnswerQuestionDeps {
   runConversation: (body: AnthropicRequestBody, apiKey: string) => Promise<AnthropicConversationResult>;
   data: AssistantDataSource;
+  /** Sólo para administradores; `null` = no se le ofrecen ni se ejecutan esas herramientas. */
+  adminData?: AssistantAdminDataSource | null;
 }
 
 export interface AnswerQuestionResult {
@@ -69,6 +71,10 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- «Por revisar» / prospectos / candidatas: empresas que encontró una búsqueda y esperan que alguien las apruebe o descarte → herramienta prospectos_por_revisar.',
     '- «Empresas»: las ya aprobadas, con responsable y contactos → herramienta empresas.',
     '- «Búsquedas»: los lotes de prospección que las encontraron → herramienta busquedas.',
+    '- Una empresa en concreto (por nombre, NIT, dominio o ID) → ficha_empresa. Personas → contactos.',
+    '- Descartadas, aprobadas o duplicadas → prospectos con ese estado.',
+    '- «Uso de IA», consumo, costos → uso_de_ia (admin ve todo; líder su equipo en cascada; vendedor lo suyo; sólo admin y líderes ven dólares).',
+    '- Usuarios, catálogo de fuentes, catálogo de industrias y presupuesto son sólo para administradores: si no tienes esas herramientas, explica que esa información la ve un administrador en SellUp.',
     '',
     'Cómo responder:',
     '- Ve directo a la respuesta. Nada de saludos, emojis ni frases de relleno.',
@@ -126,7 +132,7 @@ export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQue
           model: input.model,
           max_tokens: ASSISTANT_MAX_TOKENS,
           system,
-          tools: [...ASSISTANT_TOOLS],
+          tools: [...toolsForRole(Boolean(deps.adminData))],
           messages,
         },
         input.apiKey,
@@ -151,7 +157,7 @@ export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQue
       for (const block of toolUses) {
         const name = String(block.name ?? '');
         toolCalls.push(name);
-        const output = await runAssistantTool(deps.data, name, block.input);
+        const output = await runAssistantTool(deps.data, deps.adminData ?? null, name, block.input);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output.content, is_error: output.isError });
       }
       messages = [...messages, { role: 'assistant', content: result.content }, { role: 'user', content: toolResults }];
