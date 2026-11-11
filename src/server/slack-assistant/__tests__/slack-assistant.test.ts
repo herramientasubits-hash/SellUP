@@ -218,7 +218,10 @@ describe('herramientas de sólo lectura', () => {
 
   it('🔴 a un no-admin ni siquiera se le ofrecen las de administración', () => {
     const commercial = toolsForRole(false).map((t) => t.name);
-    assert.deepEqual(commercial, ['mi_resumen', 'prospectos', 'empresas', 'ficha_empresa', 'contactos', 'busquedas', 'uso_de_ia']);
+    assert.deepEqual(commercial, [
+      'mi_resumen', 'prospectos', 'empresas', 'ficha_empresa', 'contactos', 'busquedas', 'uso_de_ia',
+      'proponer_aprobar', 'proponer_descartar', 'proponer_asignar',
+    ]);
     assert.deepEqual(
       toolsForRole(true).map((t) => t.name),
       [...commercial, 'usuarios', 'catalogo_de_fuentes', 'catalogo_de_industrias', 'presupuesto'],
@@ -390,11 +393,12 @@ describe('conversación con Claude', () => {
     assert.equal(script.bodies.length, MAX_TOOL_ROUNDS + 1);
   });
 
-  it('el sistema dice quién pregunta, qué ve, que sólo consulta y la fecha', () => {
+  it('el sistema dice quién pregunta, qué ve, que propone sin ejecutar y la fecha', () => {
     const prompt = buildAssistantSystemPrompt(INPUT);
     assert.match(prompt, /Carla \(Vendedor\)/);
     assert.match(prompt, /sólo sus propias empresas/);
-    assert.match(prompt, /Sólo puedes CONSULTAR/);
+    assert.match(prompt, /SÍ puedes PROPONER/);
+    assert.match(prompt, /jamás digas que ya se hizo/);
     assert.match(prompt, /Nada de saludos, emojis/);
     assert.match(prompt, /LISTA los nombres/);
     assert.match(prompt, /conversación anterior/);

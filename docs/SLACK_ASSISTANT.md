@@ -1,4 +1,4 @@
-# Asistente de SellUp en Slack (sólo consulta)
+# Asistente de SellUp en Slack
 
 Cualquier persona **activa** en SellUp puede escribirle por mensaje directo al bot de SellUp en Slack, o mencionarlo en un canal (`@SellUp …`). El bot le responde con datos de SellUp.
 
@@ -47,7 +47,25 @@ A quien no es administrador **ni siquiera se le ofrecen** estas herramientas. Si
 - **Corte de visibilidad:** se aplica igual que en la plataforma (`SELLUP_VISIBLE_SINCE`). Lo anterior a la entrega no aparece en Contactos ni en Uso de IA.
 - **Pruebas:** `__tests__/slack-assistant-scope.test.ts` ejecuta las consultas reales contra una base falsa y comprueba el filtro exacto para vendedor, líder y administrador.
 
-**No escribe nada.** Si alguien le pide una acción, el bot remite a la pantalla de SellUp correspondiente.
+## Acciones con confirmación (fase 2)
+
+El bot **propone** y la persona **confirma con un botón**. Claude nunca ejecuta nada por su cuenta.
+
+| Acción | Qué hace al confirmar | La misma acción que… |
+|---|---|---|
+| `proponer_aprobar` | Aprueba prospectos de «Por revisar»: pasan a Empresas y se crean o enlazan en HubSpot | el botón «Aprobar» de Prospectos (`approveAndConvertPendingReviewCandidateAction`) |
+| `proponer_descartar` | Descarta con **motivo obligatorio** (catálogo de motivos; «otro» exige detalle) | «Descartar» de Prospectos (`discardPendingReviewCandidateAction`) |
+| `proponer_asignar` | Asigna prospectos o empresas a una persona activa | «Asignar a…» (`assignCandidatesToUser` / `assignAccountsToUser`) |
+
+**Cómo funciona:**
+1. **Propuesta:** el bot encuentra los elementos por nombre, NIT, dominio, búsqueda o país, **sólo dentro del alcance** de quien pregunta, y publica un mensaje con **Confirmar** y **Cancelar**.
+   - Máximo 25 elementos por propuesta.
+   - Marca los posibles duplicados y lo que ya está en HubSpot: al confirmar, la persona confirma también esas advertencias, como en el panel.
+2. **Quién puede confirmar:** **sólo quien pidió** y dentro de **30 minutos**. Si otra persona pulsa, sólo ella recibe el aviso y el mensaje no cambia.
+3. **Ejecución:** con **la sesión de esa persona**, una sesión prestada de un solo uso (`src/lib/supabase/borrowed-session.server.ts`, el mismo mecanismo que la búsqueda masiva en el servidor). Así las acciones de la plataforma aplican **sus** permisos (por ejemplo, un vendedor no aprueba posibles duplicados), registran la auditoría a **su** nombre, sincronizan HubSpot y avisan a quien recibe una asignación.
+4. **Resultado:** se **lee de la base**, no sólo de la respuesta de la acción, y reemplaza el mensaje con los botones. Un segundo clic no repite nada.
+
+Cualquier otra acción (cambiar estados, buscar empresas, pedir teléfonos, Rumbo…) todavía no se hace por Slack: el bot remite a la pantalla de SellUp.
 
 **Memoria:** antes de responder, lee los mensajes anteriores del hilo o de la conversación directa: hasta 12 y no más de 6 horas atrás. Ignora los avisos con botones.
 
@@ -62,6 +80,10 @@ Cada pregunta queda en **Uso de IA** como «Asistente de Slack · Responder una 
 3. **Slack › Event Subscriptions:**
    - Request URL: `https://sell-up-sage.vercel.app/api/integrations/slack/events`
    - Eventos del bot: `message.im` y `app_mention`.
+4. **Slack › Interactivity & Shortcuts** (para los botones de confirmar):
+   - Interactivity: **On**.
+   - Request URL: `https://sell-up-sage.vercel.app/api/integrations/slack/interactions`
+   - Save Changes.
 
 ## Código
 
@@ -75,3 +97,5 @@ Cada pregunta queda en **Uso de IA** como «Asistente de Slack · Responder una 
   - `links.ts`: enlaces directos.
   - `run.ts`: conversación con Claude.
   - `handle-question.server.ts`: el proceso de punta a punta.
+  - `action-proposal.ts`, `action-resolver.server.ts`, `action-verify.ts` y `execute-action.server.ts`: acciones con confirmación.
+- **Ruta de los botones:** `src/app/api/integrations/slack/interactions/route.ts`. Verifica la firma, responde 200 y ejecuta en `after()`.

@@ -27,7 +27,33 @@ import type {
   CreatedPeriod,
 } from './tool-types';
 
+import type { AssistantActionResolver, Resolution } from './action-resolver.server';
+import {
+  discardReasonLabel,
+  DISCARD_REASON_KEYS,
+  MAX_ACTION_ITEMS,
+  proposalSummary,
+  type ActionItem,
+  type ActionKind,
+} from './action-proposal';
+import { composeDiscardReason, validateDiscardReason } from '@/modules/prospect-review/discard-reason';
+
 export type * from './tool-types';
+
+/** Lo que una herramienta de acción deja listo para que la persona confirme. */
+export interface ProposedAction {
+  kind: ActionKind;
+  items: ActionItem[];
+  targetUserId?: string;
+  targetName?: string;
+  reason?: string;
+}
+
+/** Acciones con confirmación: se resuelve qué y se PROPONE; nunca se ejecuta aquí. */
+export interface AssistantActionContext {
+  resolver: AssistantActionResolver;
+  propose(proposal: ProposedAction): void;
+}
 
 /** Filtros comunes. Todos opcionales; el alcance por rol se aplica siempre aparte. */
 export interface AssistantFilters {
@@ -179,6 +205,54 @@ export const COMMERCIAL_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'proponer_aprobar',
+    description:
+      'PROPONE aprobar prospectos de «Por revisar» (pasan a Empresas y se crean o enlazan en HubSpot). No ejecuta: deja un botón «Confirmar» para la persona. Indica los nombres (o NIT/dominio) o una búsqueda/país para «todos los de…». Máximo 25.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nombres: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+        busqueda: { type: 'string', description: 'Todos los pendientes de esta búsqueda.' },
+        pais: COUNTRY_PROPERTY,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_descartar',
+    description:
+      'PROPONE descartar prospectos de «Por revisar» con un motivo (obligatorio). No ejecuta: deja un botón «Confirmar». Motivos: out_of_segment, too_small, too_large, wrong_country, wrong_industry, already_customer, not_priority_now, bad_data, duplicate_confirmed, inactive_or_dissolved, not_for_profit, other (con detalle).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nombres: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+        busqueda: { type: 'string' },
+        pais: COUNTRY_PROPERTY,
+        motivo: { type: 'string', enum: [...DISCARD_REASON_KEYS] },
+        detalle: { type: 'string', description: 'Texto del motivo (obligatorio si el motivo es other).' },
+      },
+      required: ['motivo'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_asignar',
+    description:
+      'PROPONE asignar prospectos («Por revisar») o empresas a una persona activa. No ejecuta: deja un botón «Confirmar». Indica tipo, los nombres (o búsqueda/país para prospectos) y a quién.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tipo: { type: 'string', enum: ['prospectos', 'empresas'] },
+        nombres: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+        busqueda: { type: 'string' },
+        pais: COUNTRY_PROPERTY,
+        persona: { type: 'string', description: 'Nombre o correo de quien recibe.' },
+      },
+      required: ['tipo', 'persona'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 /** Herramientas de administración: sólo para administradores (como en la plataforma). */
@@ -276,6 +350,7 @@ export async function runAssistantTool(
   admin: AssistantAdminDataSource | null,
   name: string,
   input: unknown,
+  actions: AssistantActionContext | null = null,
 ): Promise<{ content: string; isError: boolean }> {
   const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   if (ADMIN_TOOL_NAMES.has(name) && !admin) {
@@ -325,6 +400,11 @@ export async function runAssistantTool(
         return ok(await admin!.industryCatalog({ texto: text(args.texto) }));
       case 'presupuesto':
         return ok(await admin!.budget());
+      case 'proponer_aprobar':
+      case 'proponer_descartar':
+      case 'proponer_asignar':
+        if (!actions) return fail('Las acciones no están disponibles en esta conversación.');
+        return await proposeAction(actions, name, args);
       default:
         return fail(`Herramienta desconocida: ${name}`);
     }
@@ -333,3 +413,81 @@ export async function runAssistantTool(
     return fail(`No se pudo leer: ${message.slice(0, 200)}`);
   }
 }
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === 'string').map((v) => v.trim().slice(0, 200)).filter(Boolean).slice(0, MAX_ACTION_ITEMS)
+    : [];
+}
+
+const PROPOSAL_NOTE =
+  'Quedó un botón «Confirmar» debajo de tu respuesta: resume qué se hará y di que se confirma con ese botón. NO digas que ya se hizo.';
+
+function proposalResult(proposal: ProposedAction, resolution: Resolution) {
+  return {
+    propuesta: 'lista para confirmar',
+    resumen: proposalSummary(proposal),
+    elementos: proposal.items.map((i) => i.nombre),
+    noEncontrados: resolution.noEncontrados,
+    ambiguos: resolution.ambiguos,
+    recortados: resolution.recortados,
+    nota: PROPOSAL_NOTE,
+  };
+}
+
+function nothingToPropose(resolution: Resolution) {
+  return {
+    propuesta: 'ninguna',
+    noEncontrados: resolution.noEncontrados,
+    ambiguos: resolution.ambiguos,
+    nota: 'No se encontró nada que se pueda incluir (dentro de lo que esta persona ve y en «Por revisar»). Pide precisar.',
+  };
+}
+
+async function proposeAction(actions: AssistantActionContext, name: string, args: Record<string, unknown>) {
+  const selection = { nombres: stringList(args.nombres), busqueda: text(args.busqueda), pais: text(args.pais) };
+
+  if (name === 'proponer_aprobar' || name === 'proponer_descartar') {
+    if (selection.nombres.length === 0 && !selection.busqueda && !selection.pais) {
+      return fail('Di qué prospectos: nombres, o una búsqueda o país para «todos los de…».');
+    }
+    let reason: string | undefined;
+    if (name === 'proponer_descartar') {
+      const key = typeof args.motivo === 'string' && (DISCARD_REASON_KEYS as string[]).includes(args.motivo) ? args.motivo : '';
+      const validation = validateDiscardReason(composeDiscardReason(key as never, text(args.detalle) ?? ''));
+      if (!key || !validation.ok) return fail('Falta un motivo de descarte válido (y el detalle si el motivo es «otro»).');
+      reason = validation.reason;
+    }
+    const resolution = await actions.resolver.resolveProspects(selection);
+    if (resolution.items.length === 0) return ok(nothingToPropose(resolution));
+    const proposal: ProposedAction = { kind: name === 'proponer_aprobar' ? 'approve' : 'discard', items: resolution.items, ...(reason ? { reason } : {}) };
+    actions.propose(proposal);
+    return ok(proposalResult(proposal, resolution));
+  }
+
+  // proponer_asignar
+  const tipo = args.tipo === 'empresas' ? 'empresas' : 'prospectos';
+  const persona = text(args.persona);
+  if (!persona) return fail('Falta a quién asignar.');
+  const target = await actions.resolver.resolveActiveUser(persona);
+  if (!target.user) {
+    return ok({ propuesta: 'ninguna', nota: `No hay una única persona activa que coincida con «${persona}».`, opciones: target.opciones });
+  }
+  if (tipo === 'empresas' && selection.nombres.length === 0) return fail('Di qué empresas asignar (por nombre, dominio o NIT).');
+  if (tipo === 'prospectos' && selection.nombres.length === 0 && !selection.busqueda && !selection.pais) {
+    return fail('Di qué prospectos: nombres, o una búsqueda o país para «todos los de…».');
+  }
+  const resolution = tipo === 'empresas' ? await actions.resolver.resolveAccounts(selection) : await actions.resolver.resolveProspects(selection);
+  if (resolution.items.length === 0) return ok(nothingToPropose(resolution));
+  const proposal: ProposedAction = {
+    kind: tipo === 'empresas' ? 'assign_accounts' : 'assign_prospects',
+    items: resolution.items,
+    targetUserId: target.user.id,
+    targetName: target.user.nombre,
+  };
+  actions.propose(proposal);
+  return ok(proposalResult(proposal, resolution));
+}
+
+/** Para el mensaje: el motivo legible de una clave. */
+export { discardReasonLabel };
