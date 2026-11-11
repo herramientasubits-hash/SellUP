@@ -284,6 +284,11 @@ export interface ContactCandidateEnrichmentMetadata {
    */
   phone?: ContactCandidatePhoneMetadata | null;
   /**
+   * 164: el número que trajo Apollo / Lusha cuando el candidato ya tenía uno de HubSpot
+   * (que se conserva en `phone`). La UI lo muestra como «Teléfono Apollo / Lusha».
+   */
+  provider_phone?: ContactCandidatePhoneMetadata | null;
+  /**
    * Evidencia de consistencia de identidad de persona para candidatos Lusha
    * company-first (17B.4W.6). Ausente en candidatos legacy previos al hito.
    */

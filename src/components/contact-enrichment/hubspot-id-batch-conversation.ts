@@ -19,7 +19,7 @@ import {
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
 export const HUBSPOT_ID_BATCH_GREETING =
-  'Hola, en este apartado puedes ingresar el HubSpot ID de tus empresas a enriquecer, separados por coma (,), de la siguiente manera, y se buscarán automáticamente: como mínimo 1 empresa y como máximo 10 empresas.\n\nEjemplo:\n65498491,65498497,984654';
+  'Hola, en este apartado puedes ingresar el HubSpot ID de tus empresas a enriquecer, separados por coma (,) o uno por fila, y se buscarán automáticamente: como mínimo 1 empresa y como máximo 10 empresas.\n\nEjemplo:\n65498491,65498497,984654';
 
 export const HUBSPOT_ID_BATCH_NOT_FOUND_TITLE = 'Empresas no encontradas en HubSpot';
 
@@ -34,7 +34,7 @@ export function buildParseErrorMessage(raw: string): string | null {
   const parsed = parseHubSpotIdBatchInput(raw);
   if (parsed.ok) return null;
   if (parsed.reason === 'empty') {
-    return 'No encontré ningún HubSpot ID. Escríbelos separados por coma, por ejemplo: 65498491,65498497,984654';
+    return 'No encontré ningún HubSpot ID. Escríbelos separados por coma o uno por fila, por ejemplo: 65498491,65498497,984654';
   }
   if (parsed.reason === 'invalid') {
     return `Estos valores no son HubSpot IDs válidos (solo números): ${parsed.invalid.join(', ')}. Corrígelos y vuelve a enviar la lista.`;

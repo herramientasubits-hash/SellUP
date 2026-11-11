@@ -4,7 +4,7 @@
 //
 // Segundo modo del panel «Buscar contactos con IA». Se entra con el botón de
 // HubSpot de la cabecera («Buscar por lote de HubSpot IDs»). El usuario pega de 1 a 10 Company IDs
-// separados por coma y el panel busca empresa por empresa.
+// separados por coma o uno por fila y el panel busca empresa por empresa.
 //
 // Bryan 04-11 — el MISMO flujo que una empresa sola: cada empresa se prepara en el servidor
 // (resolver + request) y se busca por la ruta de «Buscar contactos con IA», así que corre en
@@ -125,13 +125,13 @@ interface ContactEnrichmentHubSpotIdBatchProps {
   placeholder?: string;
 }
 
-export const HUBSPOT_ID_BATCH_NEXT_PLACEHOLDER = 'Pega más Company IDs separados por coma';
+export const HUBSPOT_ID_BATCH_NEXT_PLACEHOLDER = 'Pega más Company IDs (con coma o uno por fila)';
 
 export function ContactEnrichmentHubSpotIdBatch({
   layout = 'panel',
   ref,
   onBusyChange,
-  placeholder = 'Company IDs separados por coma',
+  placeholder = 'Company IDs (con coma o uno por fila)',
 }: ContactEnrichmentHubSpotIdBatchProps) {
   const router = useRouter();
   const [state, store] = useHubSpotIdBatchConversation();

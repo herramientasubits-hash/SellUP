@@ -67,6 +67,8 @@ import {
 // teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
 import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
 import { OfficialContactStoredPhonesDisclosure } from './official-contact-stored-phones-disclosure';
+import { PROVIDER_PHONE_LABEL, readProviderPhone } from '@/modules/contact-enrichment/provider-phone';
+import { resolvePhoneSourceLabel } from '@/components/contact-enrichment/phone-display-labels';
 // AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — «Revelar teléfono» desde el
 // contacto OFICIAL. El botón sólo aparece cuando el SERVIDOR resuelve un candidato fuente
 // durable (`metadata.source_candidate_id`) y el contacto no tiene un teléfono reutilizable.
@@ -140,6 +142,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
   // ningún número viaja al navegador hasta que el operador abre el disclosure.
   const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
+  // 164: el número de Apollo / Lusha, aparte del de HubSpot (que no se reemplaza).
+  const providerPhone = readProviderPhone(contact?.metadata, contact?.phone);
   // Agente 3: ¿se ofrece «Preparar primer contacto»? Complementario: si no se puede saber, no se ofrece.
   const [firstCallEnabled, setFirstCallEnabled] = React.useState(false);
   // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
@@ -389,6 +393,18 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
                               {contact.phone}
                             </a>
+                          </DetailItem>
+                        )}
+                        {providerPhone && (
+                          <DetailItem icon={Phone} label={PROVIDER_PHONE_LABEL}>
+                            <span className="inline-flex flex-wrap items-center gap-2">
+                              <a href={`tel:${providerPhone.number}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                                {providerPhone.number}
+                              </a>
+                              {resolvePhoneSourceLabel(providerPhone.source) ? (
+                                <Badge variant="neutral">{resolvePhoneSourceLabel(providerPhone.source)}</Badge>
+                              ) : null}
+                            </span>
                           </DetailItem>
                         )}
                         {/*

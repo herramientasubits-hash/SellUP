@@ -61,10 +61,10 @@ import {
 
 const NOW_ISO = '2026-08-24T12:00:00.000Z';
 
-/** Los dos roles que el contrato de Product declara equivalentes. */
-const REVEAL_ROLES = ['admin', 'commercial_manager'] as const;
-/** Roles que NUNCA pudieron revelar teléfono. Este hito no los toca. */
-const NON_REVEAL_ROLES = ['seller', 'seller_bd', 'lead', 'viewer', '', null] as const;
+/** Los roles que el contrato de Product declara equivalentes (11-11: + líder y vendedor). */
+const REVEAL_ROLES = ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd'] as const;
+/** Roles que no pueden revelar teléfono. */
+const NON_REVEAL_ROLES = ['growth', 'seller', 'lead', 'viewer', '', null] as const;
 
 // ── Fixtures de candidato ──────────────────────────────────────
 
@@ -170,7 +170,7 @@ function startHarness(opts: {
 // ═══════════════════════════════════════════════════════════════
 
 describe('§ 1-2 — autoridad canónica única', () => {
-  test('PHONE_REVEAL_ALLOWED es admin + commercial_manager, y nada más', () => {
+  test('PHONE_REVEAL_ALLOWED es admin + commercial_manager + commercial_lead + seller_bd, y nada más', () => {
     assert.deepEqual([...PHONE_REVEAL_AUTHORIZED_ROLE_KEYS], [...REVEAL_ROLES]);
     for (const role of REVEAL_ROLES) assert.equal(isPhoneRevealRoleAuthorized(role), true, role);
     for (const role of NON_REVEAL_ROLES) {
@@ -196,10 +196,10 @@ describe('§ 1-2 — autoridad canónica única', () => {
     assert.equal(CORE_REEXPORTED_ROLE_KEYS, PHONE_REVEAL_AUTHORIZED_ROLE_KEYS);
   });
 
-  test('«Buscar más números» conserva su propia lista admin-only', () => {
+  test('«Buscar más números» conserva su propia lista (11-11: los mismos cuatro roles)', () => {
     // No es el botón «Revelar teléfono»: es una compra ADICIONAL. Ensanchar el
     // waterfall NO la ensancha, y este test es lo que impide que se acople otra vez.
-    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin']);
+    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd']);
     assert.notEqual(
       SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS,
       PHONE_REVEAL_AUTHORIZED_ROLE_KEYS,

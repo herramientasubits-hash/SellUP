@@ -852,8 +852,8 @@ describe('AGENT2A-SEARCH-MORE-PHONES-1 · runtime · nada se gasta sin autorizac
     assert.equal(world.lushaCalls.length, 0);
   });
 
-  it('§20.7 un rol NO admin ⇒ 0 corridas y 0 llamadas, aunque invoque el runtime directo', async () => {
-    world.actorRoleKey = 'commercial_manager';
+  it('§20.7 un rol sin permiso (growth) ⇒ 0 corridas y 0 llamadas, aunque invoque el runtime directo', async () => {
+    world.actorRoleKey = 'growth';
     const result = await run();
 
     assert.equal(result.outcome, 'not_started');

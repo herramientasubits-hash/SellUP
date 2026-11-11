@@ -18,6 +18,7 @@ import {
   createInitialContactEnrichmentChatState,
   classifyCompanyQuery,
   buildResolveInput,
+  extractHubSpotCompanyId,
   buildExtraDataResolveInput,
   extraDataPrefill,
   planExtraDataResolution,
@@ -114,6 +115,19 @@ describe('B — query classification', () => {
   it('B3 hubspot id', () => {
     assert.equal(classifyCompanyQuery('1234567'), 'hubspot_id');
   });
+  it('B3b el ID de HubSpot escrito junto al nombre se busca por ID (feedback líder 11-11)', () => {
+    const q = 'citibank Republica Dominicana - id hubspot:22069687728 · Rep. Dominicana';
+    assert.equal(classifyCompanyQuery(q), 'hubspot_id');
+    assert.deepEqual(buildResolveInput(q), { hubspotCompanyId: '22069687728' });
+    assert.equal(extraDataPrefill(q).name, 'citibank Republica Dominicana');
+    assert.equal(extractHubSpotCompanyId('Banco Popular ID 1234567'), '1234567');
+    assert.equal(extractHubSpotCompanyId('https://app.hubspot.com/contacts/1/record/0-2/22069687728'), '22069687728');
+    assert.equal(extraDataPrefill('https://app.hubspot.com/contacts/1/company/22069687728/').name, '');
+    // Un número dentro del nombre, sin «id»/«hubspot», sigue siendo nombre.
+    assert.equal(classifyCompanyQuery('Grupo 1234567 SA'), 'name');
+    assert.equal(classifyCompanyQuery('Video Identidad 2020'), 'name');
+  });
+
   it('B4 buildResolveInput maps to the right field', () => {
     assert.deepEqual(buildResolveInput('Acme'), { companyName: 'Acme' });
     assert.deepEqual(buildResolveInput('acme.com'), { companyDomain: 'acme.com' });

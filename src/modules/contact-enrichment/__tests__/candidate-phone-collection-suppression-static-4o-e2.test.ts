@@ -349,6 +349,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '162_storage_usage_report.sql',
       // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
       '163_budget_approvals_top_ups_rollover.sql',
+      // Dueña 11-11 mueve el techo a la 164 (el teléfono de HubSpot/manual no se reemplaza por el de Apollo/Lusha: dos triggers BEFORE UPDATE OF phone, sin esquema ni datos). AUTORIZADA y NO APLICADA.
+      '164_keep_crm_phone_over_provider_phone.sql',
     ]);
   });
 

@@ -237,7 +237,7 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     await rtl.screen.findByTestId('hubspot-id-batch-report', undefined, { timeout: 5000 });
     assert.equal(rtl.screen.queryByTestId('hubspot-id-batch-restart'), null);
     await rtl.waitFor(() => assert.equal(composer().disabled, false));
-    assert.equal(composer().placeholder, 'Pega más Company IDs separados por coma');
+    assert.equal(composer().placeholder, 'Pega más Company IDs (con coma o uno por fila)');
     await send('65498497');
     await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 2), { timeout: 5000 });
     await rtl.screen.findByText(/0 contactos aprobados \| 0 contactos nuevos/, undefined, { timeout: 5000 });

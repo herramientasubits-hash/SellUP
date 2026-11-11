@@ -969,7 +969,7 @@ describe('WATERFALL-2C · A — reautorización tras no_phone_found', () => {
   // autoridad que el reveal normal, así que «no autorizado» es «no puede revelar
   // teléfono» — ya no «no es admin».
   it('la reautorización revalida el rol: sin permiso de revelar no crea corrida ni llama a Lusha', async () => {
-    for (const roleKey of ['seller', 'seller_bd', 'lead']) {
+    for (const roleKey of ['seller', 'growth', 'lead']) {
       seedRun();
       const result = await deps.startLegacyPhoneRevealWaterfallForCandidate(CANDIDATE_ID, {
         internalUserId: 'user-x',

@@ -32,9 +32,14 @@ describe('parseHubSpotIdBatchInput', () => {
     assert.deepEqual(parsed, { ok: true, ids: ['65498491', '65498497', '984654'], duplicatesRemoved: 0 });
   });
 
-  it('un espacio dentro de un ID también se elimina (queda de corrido)', () => {
-    const parsed = parseHubSpotIdBatchInput('6549 8491');
-    assert.deepEqual(parsed, { ok: true, ids: ['65498491'], duplicatesRemoved: 0 });
+  it('un ID por fila (columna pegada de Excel) sin comas → cada fila es un ID', () => {
+    const parsed = parseHubSpotIdBatchInput('65498491\n65498497\r\n984654\n');
+    assert.deepEqual(parsed, { ok: true, ids: ['65498491', '65498497', '984654'], duplicatesRemoved: 0 });
+  });
+
+  it('espacios, tabulaciones y punto y coma también separan', () => {
+    const parsed = parseHubSpotIdBatchInput('111 222\t333;444');
+    assert.deepEqual(parsed, { ok: true, ids: ['111', '222', '333', '444'], duplicatesRemoved: 0 });
   });
 
   it('acepta 1 solo ID', () => {
