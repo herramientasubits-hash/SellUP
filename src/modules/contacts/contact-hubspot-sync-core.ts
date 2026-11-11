@@ -790,7 +790,11 @@ export async function runSyncContactToHubSpot(
       // con la regla de `planRevealedPhonesForHubSpot` (primero `phone`; si tiene otro número,
       // `mobilephone`; dos números y ningún campo lleno ⇒ uno a cada uno) y el pendiente se
       // cierra: de este reveal ya no queda nada sin enviar, y lo que HubSpot tenía se respeta.
-      if (priorState?.stale_source === 'reveal') {
+      //
+      // 11-11 (feedback líder): una UNIÓN (`merge`) tampoco es una edición de una persona —
+      // trae el número que encontró un proveedor— y antes viajaba por el PATCH completo,
+      // pisando el `phone` de HubSpot. Ahora sigue la misma regla de sólo-campos-vacíos.
+      if (priorState?.stale_source === 'reveal' || priorState?.stale_source === 'merge') {
         const failReveal = async (): Promise<SyncContactToHubSpotResult> => {
           await recordBlockedOrFailed('failed', HUBSPOT_SYNC_ERROR_CODES.hubspotUpdateFailed);
           return { ok: false, errorCode: 'HUBSPOT_ERROR', message: SYNC_MESSAGES.hubspotUpdateError };

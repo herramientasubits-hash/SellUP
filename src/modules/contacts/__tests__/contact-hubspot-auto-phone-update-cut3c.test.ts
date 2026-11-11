@@ -660,16 +660,20 @@ describe('17 · 18 · 19. el camino automático no crea, no asocia y no llama a 
         onCreate: () => calls.push('create'),
         onAssociate: () => calls.push('associate'),
         onUpdate: () => calls.push('update'),
+        onFindById: () => calls.push('find_by_id'),
+        onFillEmpty: (plan) => calls.push(`fill_empty:${Object.keys(plan).sort().join(',')}`),
       }),
     };
   }
 
-  it('17 · 18. sólo hay un PATCH: ni búsqueda por email, ni alta, ni reintento de asociación', async () => {
+  it('17 · 18. una unión sólo llena campos vacíos: ni PATCH, ni búsqueda por email, ni alta, ni asociación', async () => {
     const rec = surfaceRecorder();
     const result = await runSyncContactToHubSpot(CONTACT_ID, { ...rec.deps, method: 'auto' });
 
     assert.equal(result.ok, true);
-    assert.deepEqual(rec.calls, ['update'], 'exactamente UNA operación, y es el PATCH');
+    // 11-11 (feedback líder): el número que trajo la unión NO pisa el `phone` que ya tiene
+    // HubSpot; va al campo vacío (`mobilephone`).
+    assert.deepEqual(rec.calls, ['find_by_id', 'fill_empty:mobilephone']);
     // Buscar por email podría FUSIONAR o desviar la ficha del CRM; crear la DUPLICARÍA; y
     // reintentar la asociación afirmaría que se revisó algo que nadie revisó.
   });
@@ -864,6 +868,8 @@ function syncDeps(args: {
   onCreate?: () => void;
   onAssociate?: () => void;
   onUpdate?: (hubspotContactId: string) => void;
+  onFindById?: () => void;
+  onFillEmpty?: (plan: Record<string, unknown>) => void;
 }): SyncContactDeps {
   return {
     actorId: ACTOR,
@@ -887,6 +893,14 @@ function syncDeps(args: {
     associateContactWithCompany: async () => {
       args.onAssociate?.();
       return { ok: true };
+    },
+    findHubSpotContactById: async (id) => {
+      args.onFindById?.();
+      return { id, properties: { phone: '+57 601 000 0000', mobilephone: null } };
+    },
+    fillEmptyHubSpotContactProperties: async (_id, plan) => {
+      args.onFillEmpty?.(plan as Record<string, unknown>);
+      return { ok: true, written: Object.keys(plan) as never };
     },
     persistSync: async () => ({}),
   };
