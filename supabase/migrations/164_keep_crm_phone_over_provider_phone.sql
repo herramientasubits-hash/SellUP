@@ -82,7 +82,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.keep_crm_phone_on_candidate() IS
-  '164: el teléfono sin procedencia de proveedor (HubSpot/manual) no se reemplaza por uno de Apollo/Lusha; ése queda en contact_enrichment_candidate_phones.';
+  '164: el teléfono sin procedencia de proveedor (HubSpot/manual) no se reemplaza por uno de Apollo/Lusha; ése queda en su colección de teléfonos y en enrichment_metadata.provider_phone.';
 
 DROP TRIGGER IF EXISTS keep_crm_phone_on_candidate ON public.contact_enrichment_candidates;
 CREATE TRIGGER keep_crm_phone_on_candidate
@@ -141,7 +141,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.keep_crm_phone_on_contact() IS
-  '164: el teléfono de HubSpot/manual de un contacto no se reemplaza por uno de Apollo/Lusha; ése queda en contact_phones.';
+  '164: el teléfono de HubSpot/manual de un contacto no se reemplaza por uno de Apollo/Lusha; ése queda en su colección de teléfonos y en metadata.provider_phone.';
 
 DROP TRIGGER IF EXISTS keep_crm_phone_on_contact ON public.contacts;
 CREATE TRIGGER keep_crm_phone_on_contact
