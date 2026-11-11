@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import type { Role, InternalUser, AccessAuditEntry, UsersSummary, UserPreapproval, OrganizationGroup } from './types';
-import { sendSlackInvitation } from './slack-invitation.server';
+import { sendSlackAccessActivated, sendSlackInvitation } from './slack-invitation.server';
 import type { SlackInviteOutcome } from './slack-invitation-message';
 
 export async function getCurrentUser(): Promise<InternalUser | null> {
@@ -390,7 +390,7 @@ export async function suspendUser(
 export async function reactivateUser(
   userId: string,
   reason?: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] }> {
   const supabase = await createClient();
 
   const {
@@ -403,7 +403,7 @@ export async function reactivateUser(
 
   const { data: adminUser } = await supabase
     .from('internal_users')
-    .select('id')
+    .select('id, full_name, email')
     .eq('auth_user_id', currentUser.id)
     .eq('access_status', 'active')
     .single();
@@ -414,7 +414,7 @@ export async function reactivateUser(
 
   const { data: targetUser } = await supabase
     .from('internal_users')
-    .select('id, access_status')
+    .select('id, access_status, email, full_name')
     .eq('id', userId)
     .single();
 
@@ -445,7 +445,14 @@ export async function reactivateUser(
     p_reason: reason,
   });
 
-  return { success: true };
+  // Dueña 11-11: quien estaba inactivo se entera por Slack de que ya puede entrar.
+  if (targetUser.access_status === 'active') return { success: true };
+  const slackNotice = await sendSlackAccessActivated({
+    email: targetUser.email,
+    fullName: targetUser.full_name,
+    activatorName: adminUser.full_name ?? adminUser.email ?? null,
+  });
+  return { success: true, slackNotices: [slackNotice] };
 }
 
 export async function changeUserRole(
@@ -940,11 +947,14 @@ export async function bulkSuspend(
 
 export async function bulkReactivate(
   userIds: string[],
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] }> {
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
   if (!adminId) return { success: false, error: 'No autorizado' };
+
+  const { data: targets } = await supabase
+    .from('internal_users').select('id, access_status, email, full_name').in('id', userIds);
 
   const { error } = await supabase
     .from('internal_users')
@@ -955,7 +965,15 @@ export async function bulkReactivate(
   await Promise.allSettled(userIds.map(id =>
     supabase.rpc('log_access_event', { p_actor_user_id: adminId, p_target_user_id: id, p_action_type: 'reactivated', p_previous_status: 'suspended', p_new_status: 'active' })
   ));
-  return { success: true };
+
+  // Dueña 11-11: cada persona que estaba inactiva se entera por Slack de que ya puede entrar.
+  const me = await getCurrentUser();
+  const activatorName = me?.full_name ?? me?.email ?? null;
+  const newlyActive = (targets ?? []).filter((t) => t.access_status !== 'active');
+  const slackNotices = await Promise.all(
+    newlyActive.map((t) => sendSlackAccessActivated({ email: t.email, fullName: t.full_name, activatorName })),
+  );
+  return { success: true, slackNotices };
 }
 
 export async function bulkArchive(

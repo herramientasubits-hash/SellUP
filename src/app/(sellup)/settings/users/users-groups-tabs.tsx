@@ -47,7 +47,7 @@ const USER_FILTERS: { id: UserFilter; label: string; icon: LucideIcon }[] = [
   { id: 'active',      label: 'Activos',        icon: UserCheck },
   { id: 'pending',     label: 'Pendientes',     icon: Clock },
   { id: 'preapproved', label: 'Preautorizados', icon: UserPlus },
-  { id: 'suspended',   label: 'Suspendidos',    icon: PauseCircle },
+  { id: 'suspended',   label: 'Inactivos',      icon: PauseCircle },
   { id: 'rejected',    label: 'Rechazados',     icon: UserX },
 ];
 
