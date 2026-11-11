@@ -28,13 +28,15 @@ import {
   activateFromRejected,
 } from '@/modules/access/actions';
 import type { InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import type { SlackInviteOutcome } from '@/modules/access/slack-invitation-message';
+import { rememberActivationNotices } from './activation-notice-flash';
 import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const SELF_MANAGER_VALUE = '__self__';
 const NO_GROUP_VALUE = '__no_group__';
 const GENERIC_ERROR = 'No se pudo completar la acción. Inténtalo de nuevo.';
 
-type ActionResult = { success: boolean; error?: string };
+type ActionResult = { success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] };
 
 /** El diálogo abierto. Uno solo a la vez: nunca un modal sobre otro. */
 type DialogKind =
@@ -250,6 +252,7 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
       return;
     }
     closeDialog();
+    rememberActivationNotices(result.slackNotices);
     window.location.reload();
   };
 

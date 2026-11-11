@@ -32,6 +32,8 @@ import {
 import { UserActions } from './user-actions';
 import { UserAvatar } from './user-avatar';
 import type { AccessStatus, InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import type { SlackInviteOutcome } from '@/modules/access/slack-invitation-message';
+import { rememberActivationNotices } from './activation-notice-flash';
 import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const NO_GROUP = '__none__';
@@ -217,7 +219,7 @@ export function SelectableUsersList({
     setLoading(true);
     setError(null);
 
-    let result: { success: boolean; error?: string };
+    let result: { success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] };
 
     switch (action.id) {
       case 'suspend':        result = await bulkSuspend(ids); break;
@@ -236,6 +238,7 @@ export function SelectableUsersList({
     }
 
     closeDialog();
+    rememberActivationNotices(result.slackNotices);
     window.location.reload();
   };
 

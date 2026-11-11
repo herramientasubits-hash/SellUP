@@ -66,3 +66,88 @@ export const SLACK_INVITE_OUTCOME_COPY: Record<SlackInviteOutcome, string> = {
   slack_not_connected: 'Slack no está conectado: avísale por otro lado.',
   failed: 'No pudimos enviarle la invitación por Slack: avísale por otro lado o reenvíala.',
 };
+
+// ============================================================
+// Aviso por Slack al activar el acceso (dueña 11-11): quien estaba Inactivo
+// se entera de que ya puede entrar, con el botón al login.
+// ============================================================
+
+export interface SlackAccessActivatedInput {
+  /** Nombre de la persona activada. */
+  inviteeName: string | null;
+  /** Quién activó el acceso. */
+  activatorName: string | null;
+  /** Página de inicio de sesión de SellUp. */
+  loginUrl: string;
+}
+
+/** El mensaje directo que recibe la persona cuando le activan el acceso. */
+export function buildSlackAccessActivatedMessage(input: SlackAccessActivatedInput): SlackInvitationMessage {
+  const greeting = firstName(input.inviteeName) ? `Hola, ${firstName(input.inviteeName)}.` : 'Hola.';
+  const who = input.activatorName?.trim() || 'El equipo de UBITS';
+  const intro = `${greeting} ${who} activó tu acceso a *SellUp*, la plataforma de prospección comercial de UBITS.`;
+  const howTo = 'Ya puedes entrar con Google usando tu correo @ubits.co.';
+
+  return {
+    text: `${intro} ${howTo} ${input.loginUrl}`.replace(/\*/g, ''),
+    blocks: [
+      { type: 'section', text: { type: 'mrkdwn', text: intro } },
+      { type: 'section', text: { type: 'mrkdwn', text: howTo } },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            style: 'primary',
+            text: { type: 'plain_text', text: 'Entrar a SellUp' },
+            url: input.loginUrl,
+            action_id: 'sellup_access_activated_open',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export interface ActivationNoticeSummary {
+  tone: 'success' | 'warning';
+  title: string;
+  description: string;
+}
+
+/**
+ * Cómo se le cuenta a quien activó lo que pasó con los avisos de Slack.
+ * `null` si no se activó a nadie.
+ */
+export function summarizeActivationNotices(outcomes: ReadonlyArray<SlackInviteOutcome>): ActivationNoticeSummary | null {
+  const total = outcomes.length;
+  if (total === 0) return null;
+  const sent = outcomes.filter((o) => o === 'sent').length;
+  const title = total === 1 ? 'Acceso activado' : `Activaste ${total} accesos`;
+
+  if (sent === total) {
+    return {
+      tone: 'success',
+      title,
+      description: total === 1
+        ? 'Le avisamos por Slack que ya puede entrar.'
+        : 'Les avisamos por Slack que ya pueden entrar.',
+    };
+  }
+  if (outcomes.every((o) => o === 'slack_not_connected')) {
+    return { tone: 'warning', title, description: 'Slack no está conectado: avísales por otro lado que ya pueden entrar.' };
+  }
+  if (total === 1) {
+    const copy: Record<Exclude<SlackInviteOutcome, 'sent'>, string> = {
+      not_in_slack: 'No encontramos su correo en el Slack de UBITS: avísale por otro lado que ya puede entrar.',
+      slack_not_connected: 'Slack no está conectado: avísale por otro lado que ya puede entrar.',
+      failed: 'No pudimos avisarle por Slack: avísale por otro lado que ya puede entrar.',
+    };
+    return { tone: 'warning', title, description: copy[outcomes[0] as Exclude<SlackInviteOutcome, 'sent'>] };
+  }
+  return {
+    tone: 'warning',
+    title,
+    description: `Avisamos por Slack a ${sent} de ${total}. A los demás avísales por otro lado que ya pueden entrar.`,
+  };
+}

@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { UserCheck, Layers } from "@/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UsersTab, GroupsTab } from './users-groups-tabs';
+import { ActivationNoticeFlash } from './activation-notice-flash';
 import type { InternalUser, Role, UserPreapproval, OrganizationGroup } from '@/modules/access/types';
 
 type UserFilter = 'all' | 'active' | 'pending' | 'preapproved' | 'suspended' | 'rejected';
@@ -42,51 +43,54 @@ export function UsersSettingsClient({
   }
 
   return (
-    // Usuarios | Grupos. Los conteos por estado viven en la fila de chips de
-    // la pestaña «Usuarios»; aquí solo se dice cuántos grupos hay.
-    <Tabs
-      value={activeTab}
-      onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
-      className="gap-4"
-    >
-      <TabsList aria-label="Usuarios o grupos" className="shrink-0">
-        <TabsTrigger value="usuarios" className="gap-2">
-          <UserCheck className="h-4 w-4" />
-          Usuarios
-        </TabsTrigger>
-        <TabsTrigger value="grupos" className="gap-2">
-          <Layers className="h-4 w-4" />
-          Grupos
-          {groups.length > 0 && (
-            <span className="rounded-full bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
-              {groups.length}
-            </span>
-          )}
-        </TabsTrigger>
-      </TabsList>
+    <>
+      <ActivationNoticeFlash />
+      {/* Usuarios | Grupos. Los conteos por estado viven en la fila de chips de
+          la pestaña «Usuarios»; aquí solo se dice cuántos grupos hay. */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => navigate(v, v === 'usuarios' ? activeFilter : undefined)}
+        className="gap-4"
+      >
+        <TabsList aria-label="Usuarios o grupos" className="shrink-0">
+          <TabsTrigger value="usuarios" className="gap-2">
+            <UserCheck className="h-4 w-4" />
+            Usuarios
+          </TabsTrigger>
+          <TabsTrigger value="grupos" className="gap-2">
+            <Layers className="h-4 w-4" />
+            Grupos
+            {groups.length > 0 && (
+              <span className="rounded-full bg-surface-muted px-1.5 text-xs font-semibold tabular-nums text-muted-foreground">
+                {groups.length}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      <TabsContent value="usuarios">
-        <UsersTab
-          users={users}
-          roles={roles}
-          allUsers={users}
-          activeUsers={activeUsers}
-          groups={groups}
-          preapprovals={preapprovals}
-          isAdmin={isAdmin}
-          initialFilter={activeFilter}
-          onFilterChange={(f) => navigate('usuarios', f)}
-        />
-      </TabsContent>
+        <TabsContent value="usuarios">
+          <UsersTab
+            users={users}
+            roles={roles}
+            allUsers={users}
+            activeUsers={activeUsers}
+            groups={groups}
+            preapprovals={preapprovals}
+            isAdmin={isAdmin}
+            initialFilter={activeFilter}
+            onFilterChange={(f) => navigate('usuarios', f)}
+          />
+        </TabsContent>
 
-      <TabsContent value="grupos">
-        <GroupsTab
-          users={users}
-          groups={groups}
-          roles={roles}
-          isAdmin={isAdmin}
-        />
-      </TabsContent>
-    </Tabs>
+        <TabsContent value="grupos">
+          <GroupsTab
+            users={users}
+            groups={groups}
+            roles={roles}
+            isAdmin={isAdmin}
+          />
+        </TabsContent>
+      </Tabs>
+    </>
   );
 }

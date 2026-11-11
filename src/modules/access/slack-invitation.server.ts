@@ -6,7 +6,11 @@
 // ============================================================
 
 import { sendSlackDirectMessageByEmail } from '@/server/services/slack-connection';
-import { buildSlackInvitationMessage, type SlackInviteOutcome } from './slack-invitation-message';
+import {
+  buildSlackAccessActivatedMessage,
+  buildSlackInvitationMessage,
+  type SlackInviteOutcome,
+} from './slack-invitation-message';
 
 export interface SlackInvitationTarget {
   email: string;
@@ -35,6 +39,28 @@ export async function sendSlackInvitation(
     return await sendSlackDirectMessageByEmail(target.email, message);
   } catch (error) {
     console.error('[sendSlackInvitation]', error instanceof Error ? error.message : 'error');
+    return 'failed';
+  }
+}
+
+export interface SlackAccessActivatedTarget {
+  email: string | null;
+  fullName: string | null;
+  activatorName: string | null;
+}
+
+/** Le avisa por Slack a quien le activaron el acceso que ya puede entrar. Nunca lanza. */
+export async function sendSlackAccessActivated(target: SlackAccessActivatedTarget): Promise<SlackInviteOutcome> {
+  if (!target.email) return 'not_in_slack';
+  try {
+    const message = buildSlackAccessActivatedMessage({
+      inviteeName: target.fullName,
+      activatorName: target.activatorName,
+      loginUrl: sellupLoginUrl(),
+    });
+    return await sendSlackDirectMessageByEmail(target.email, message);
+  } catch (error) {
+    console.error('[sendSlackAccessActivated]', error instanceof Error ? error.message : 'error');
     return 'failed';
   }
 }
