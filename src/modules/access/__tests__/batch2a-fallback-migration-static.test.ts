@@ -72,13 +72,19 @@ describe('17B.4X.7C.5D.3B — commercial-scope.ts preserves its visibility contr
     path.join(repoRoot, 'src/modules/access/commercial-scope.ts'),
     'utf8',
   );
+  // Las reglas viven en el núcleo sin sesión (11-11); el resolver con sesión lo usa.
+  const core = readFileSync(
+    path.join(repoRoot, 'src/modules/access/commercial-scope-core.server.ts'),
+    'utf8',
+  );
 
   it('still resolves admin / self / team scope reasons unchanged', () => {
-    assert.match(source, /scopeReason:\s*'admin'/);
-    assert.match(source, /scopeReason:\s*'self'/);
-    assert.match(source, /scopeReason:\s*hasRealScope/);
-    assert.match(source, /'team_group_and_reports'/);
-    assert.match(source, /'team_without_scope_fallback_self'/);
+    assert.match(source, /resolveCommercialScopeForUser\(admin, current\)/);
+    assert.match(core, /scopeReason:\s*'admin'/);
+    assert.match(core, /scopeReason:\s*'self'/);
+    assert.match(core, /scopeReason:\s*hasRealScope/);
+    assert.match(core, /'team_group_and_reports'/);
+    assert.match(core, /'team_without_scope_fallback_self'/);
   });
 
   it('still exports resolveCommercialScope', () => {
