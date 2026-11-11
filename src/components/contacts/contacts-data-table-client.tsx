@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users } from "@/icons";
+import { Mail, Phone, Building2, Info, Pencil, Star, RefreshCw, Archive, Crown, Target, Users, Globe, Link2, MapPin } from "@/icons";
 import { RumboIcon } from '@/components/chat/chat-mark';
 import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import { firstCallHref } from '@/modules/speech/first-call-links';
@@ -33,13 +33,22 @@ import {
   type QuickFilterDefinition,
 } from '@/components/filters/quick-filter-strip';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
-import { EmptyCell, RowTitleButton } from '@/components/shared/table-cells';
+import { EmptyCell, ExternalLinkCell, RowTitleButton } from '@/components/shared/table-cells';
+import { formatInAppZone } from '@/lib/format-date';
 import {
   ROLE_LABELS,
   CONTACT_STATUS_LABELS,
+  CONTACT_SOURCE_LABELS,
+  SENIORITY_LABELS,
   type ContactStatus,
   type ContactRole,
+  type ContactSeniority,
+  type ContactSource,
 } from '@/modules/contacts/types';
+import {
+  hubspotCompanyUrl,
+  hubspotContactUrl,
+} from '@/components/contact-enrichment/hubspot-company-url';
 import type { ContactListItem } from '@/modules/contacts/actions';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import {
@@ -109,6 +118,34 @@ const ROLE_FILTER_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => 
   label,
 }));
 
+const SOURCE_FILTER_OPTIONS = Object.entries(CONTACT_SOURCE_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+const SENIORITY_FILTER_OPTIONS = Object.entries(SENIORITY_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+// ── Columnas por objeto (Contacto / Empresa) ───────────────────
+// AGENT2-CONTACTS-TABLE-COLUMNS: las mismas que ofrece «Por revisar», más las que sólo tiene
+// el contacto oficial (departamento, seniority). Salen ocultas y se piden desde «Configurar
+// tabla», agrupadas por el objeto al que pertenece el dato. La excepción es «Contacto en
+// HubSpot», que se ve de entrada. La empresa es la cuenta SellUp del contacto.
+
+const CONTACT_GROUP = 'Contacto';
+const COMPANY_GROUP = 'Empresa';
+
+/** Quita protocolo, `www.` y barra final: lo que se lee de una página web. */
+function displayWebsite(value: string): string {
+  return value.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
+}
+
+function formatDate(dateStr: string): string {
+  return formatInAppZone(new Date(dateStr), { day: '2-digit', month: 'short', year: 'numeric' }, 'es-CO');
+}
+
 // ── Types ──────────────────────────────────────────────────────
 
 type Row = ContactListItem;
@@ -122,6 +159,8 @@ interface ContactsDataTableClientProps {
   scopeFilterOptions?: ScopeFilterOptions;
   /** Agente 3 encendido: la fila ofrece «Preparar primer contacto» a ese decisor. */
   firstCallEnabled?: boolean;
+  /** Portal de HubSpot: para abrir el contacto y la empresa allí desde la tabla. */
+  hubspotPortalId?: string | null;
 }
 
 export function ContactsDataTableClient({
@@ -129,6 +168,7 @@ export function ContactsDataTableClient({
   accountOwners,
   scopeFilterOptions,
   firstCallEnabled = false,
+  hubspotPortalId = null,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
   // Agente 3: el panel del agente para la empresa de los decisores elegidos.
@@ -408,8 +448,269 @@ export function ContactsDataTableClient({
           filterOptions: ROLE_FILTER_OPTIONS,
         },
       },
+      // ── Contacto ──
+      {
+        id: 'contact_hubspot_id',
+        accessorFn: (row) => row.hubspot_contact_id ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contacto en HubSpot" />
+        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          const hubspotId = c.hubspot_contact_id?.trim();
+          if (!hubspotId) return <EmptyCell label="No está en HubSpot" />;
+          return (
+            <ExternalLinkCell
+              href={hubspotContactUrl(hubspotId, hubspotPortalId)}
+              label={`Abrir ${c.full_name} en HubSpot`}
+              className="tabular-nums"
+            >
+              {hubspotId}
+            </ExternalLinkCell>
+          );
+        },
+        size: 160,
+        minSize: 120,
+        // Se ve de entrada: es el atajo al contacto en HubSpot.
+        meta: {
+          label: 'Contacto en HubSpot',
+          popoverTitle: 'Contacto en HubSpot',
+          group: CONTACT_GROUP,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'contact_linkedin',
+        accessorFn: (row) => (row.linkedin_url ? 1 : 0),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="LinkedIn" />
+        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          return c.linkedin_url ? (
+            <ExternalLinkCell
+              href={c.linkedin_url}
+              icon={Link2}
+              label={`Abrir el LinkedIn de ${c.full_name}`}
+            >
+              Ver perfil
+            </ExternalLinkCell>
+          ) : (
+            <EmptyCell label="Sin LinkedIn" />
+          );
+        },
+        size: 110,
+        minSize: 100,
+        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+      },
+      {
+        id: 'department',
+        accessorFn: (row) => row.department ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Departamento" />
+        ),
+        cell: ({ row }) =>
+          row.original.department ? (
+            <span className="block truncate text-xs text-foreground" title={row.original.department}>
+              {row.original.department}
+            </span>
+          ) : (
+            <EmptyCell label="Sin departamento" />
+          ),
+        size: 160,
+        minSize: 120,
+        filterFn: 'arrIncludesSome',
+        // Enumerable: el embudo ofrece los departamentos que aparecen en la lista.
+        meta: { label: 'Departamento', popoverTitle: 'Departamento', group: CONTACT_GROUP, hiddenByDefault: true },
+      },
+      {
+        id: 'seniority',
+        accessorFn: (row) => row.seniority ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Seniority" />
+        ),
+        cell: ({ row }) => {
+          const seniority = row.original.seniority;
+          return seniority ? (
+            <span className="block truncate text-xs text-foreground">
+              {SENIORITY_LABELS[seniority as ContactSeniority] ?? seniority}
+            </span>
+          ) : (
+            <EmptyCell label="Sin seniority" />
+          );
+        },
+        size: 150,
+        minSize: 110,
+        filterFn: 'arrIncludesSome',
+        meta: {
+          label: 'Seniority',
+          popoverTitle: 'Seniority',
+          group: CONTACT_GROUP,
+          hiddenByDefault: true,
+          filterOptions: SENIORITY_FILTER_OPTIONS,
+        },
+      },
+      {
+        id: 'source',
+        accessorKey: 'source',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Fuente" />
+        ),
+        cell: ({ row }) => {
+          const source = row.original.source;
+          return (
+            <span className="block truncate text-xs text-foreground">
+              {CONTACT_SOURCE_LABELS[source as ContactSource] ?? source}
+            </span>
+          );
+        },
+        size: 120,
+        minSize: 100,
+        filterFn: 'arrIncludesSome',
+        meta: {
+          label: 'Fuente',
+          popoverTitle: 'Fuente',
+          group: CONTACT_GROUP,
+          hiddenByDefault: true,
+          filterOptions: SOURCE_FILTER_OPTIONS,
+        },
+      },
+      {
+        id: 'created_at',
+        accessorKey: 'created_at',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Creado" />
+        ),
+        cell: ({ row }) =>
+          row.original.created_at ? (
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              {formatDate(row.original.created_at)}
+            </span>
+          ) : (
+            <EmptyCell label="Sin fecha" />
+          ),
+        size: 120,
+        minSize: 110,
+        // Fecha: solo se ordena.
+        meta: {
+          label: 'Creado',
+          popoverTitle: 'Fecha de creación',
+          group: CONTACT_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      // ── Empresa ──
+      {
+        id: 'company_country',
+        accessorFn: (row) => row.account_country ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="País" />
+        ),
+        cell: ({ row }) => {
+          const country = row.original.account_country;
+          if (!country) return <EmptyCell label="Sin país" />;
+          return (
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground" title={country}>
+              <MapPin aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{country}</span>
+            </span>
+          );
+        },
+        size: 120,
+        minSize: 100,
+        filterFn: 'arrIncludesSome',
+        // Enumerable: el embudo ofrece los países que aparecen en la lista.
+        meta: { label: 'País', popoverTitle: 'País', group: COMPANY_GROUP, hiddenByDefault: true },
+      },
+      {
+        id: 'company_domain',
+        accessorFn: (row) => row.account_domain ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Dominio de la empresa" />
+        ),
+        cell: ({ row }) => {
+          const domain = row.original.account_domain;
+          return domain ? (
+            <span className="block truncate text-xs text-muted-foreground" title={domain}>
+              {domain}
+            </span>
+          ) : (
+            <EmptyCell label="Sin dominio" />
+          );
+        },
+        size: 170,
+        minSize: 130,
+        meta: {
+          label: 'Dominio de la empresa',
+          popoverTitle: 'Dominio de la empresa',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'company_website',
+        accessorFn: (row) => row.account_website ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Página web de la empresa" />
+        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          const website = c.account_website;
+          if (!website) return <EmptyCell label="Sin página web" />;
+          return (
+            <ExternalLinkCell
+              href={website}
+              icon={Globe}
+              label={`Abrir la página web de ${c.account_name ?? 'la empresa'}`}
+            >
+              {displayWebsite(website)}
+            </ExternalLinkCell>
+          );
+        },
+        size: 190,
+        minSize: 140,
+        meta: {
+          label: 'Página web de la empresa',
+          popoverTitle: 'Página web de la empresa',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
+      {
+        id: 'company_hubspot_id',
+        accessorFn: (row) => row.account_hubspot_company_id ?? '',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Empresa en HubSpot" />
+        ),
+        cell: ({ row }) => {
+          const c = row.original;
+          const companyId = c.account_hubspot_company_id?.trim();
+          if (!companyId) return <EmptyCell label="No existe en HubSpot" />;
+          return (
+            <ExternalLinkCell
+              href={hubspotCompanyUrl(companyId, hubspotPortalId)}
+              label={`Abrir ${c.account_name ?? 'la empresa'} en HubSpot`}
+              className="tabular-nums"
+            >
+              {companyId}
+            </ExternalLinkCell>
+          );
+        },
+        size: 150,
+        minSize: 120,
+        meta: {
+          label: 'Empresa en HubSpot',
+          popoverTitle: 'Empresa en HubSpot',
+          group: COMPANY_GROUP,
+          hiddenByDefault: true,
+          disableFilter: true,
+        },
+      },
     ],
-    [openDetail],
+    [openDetail, hubspotPortalId],
   );
 
   // ── Context menu ──────────────────────────────────────────────
