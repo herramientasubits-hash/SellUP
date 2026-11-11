@@ -60,11 +60,23 @@ BEGIN
   END IF;
 
   -- Un proveedor intentó reemplazarlo: se conserva el de HubSpot y su (falta de)
-  -- procedencia. El número del proveedor queda en la colección del candidato.
-  NEW.phone := OLD.phone;
-  IF jsonb_typeof(COALESCE(NEW.enrichment_metadata, '{}'::jsonb) -> 'phone') IS NOT NULL THEN
+  -- procedencia. El número del proveedor queda en la colección del candidato y, para que
+  -- quien lo reveló lo vea sin permisos extra, en `enrichment_metadata.provider_phone`
+  -- («Teléfono Apollo / Lusha» en la UI).
+  IF btrim(COALESCE(NEW.phone, '')) <> '' THEN
+    NEW.enrichment_metadata := (COALESCE(NEW.enrichment_metadata, '{}'::jsonb) - 'phone')
+      || jsonb_build_object(
+           'provider_phone',
+           CASE
+             WHEN jsonb_typeof(NEW.enrichment_metadata -> 'phone') = 'object'
+               THEN (NEW.enrichment_metadata -> 'phone') || jsonb_build_object('number', NEW.phone)
+             ELSE jsonb_build_object('number', NEW.phone)
+           END
+         );
+  ELSIF jsonb_typeof(COALESCE(NEW.enrichment_metadata, '{}'::jsonb) -> 'phone') IS NOT NULL THEN
     NEW.enrichment_metadata := NEW.enrichment_metadata - 'phone';
   END IF;
+  NEW.phone := OLD.phone;
   RETURN NEW;
 END;
 $$;
@@ -108,6 +120,17 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- El del proveedor queda en `contact_phones` y en `metadata.provider_phone`
+  -- («Teléfono Apollo / Lusha» en la UI).
+  NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) || jsonb_build_object(
+    'provider_phone',
+    jsonb_strip_nulls(jsonb_build_object(
+      'number',      NEW.phone,
+      'type',        NEW.phone_type,
+      'source',      NEW.phone_source,
+      'observed_at', NEW.phone_revealed_at
+    ))
+  );
   NEW.phone             := OLD.phone;
   NEW.phone_type        := OLD.phone_type;
   NEW.phone_source      := OLD.phone_source;

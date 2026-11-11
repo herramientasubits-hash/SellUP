@@ -88,7 +88,8 @@ describe('164 — el teléfono de HubSpot/manual no se reemplaza por uno de prov
         phone_type text,
         phone_source text,
         phone_raw_type text,
-        phone_revealed_at timestamptz
+        phone_revealed_at timestamptz,
+        metadata jsonb DEFAULT '{}'::jsonb
       );`);
     await client.query(readFileSync(MIGRATION, 'utf8'));
   });
@@ -127,8 +128,11 @@ describe('164 — el teléfono de HubSpot/manual no se reemplaza por uno de prov
       const row = await candidate('c-hs');
       assert.equal(row.phone, HUBSPOT_PHONE);
       assert.equal(row.phone_reveal_status, 'revealed', 'el estado terminal del reveal sí se escribe');
-      assert.equal((row.enrichment_metadata as Record<string, unknown>).phone, undefined);
-      assert.equal((row.enrichment_metadata as Record<string, unknown>).hubspot_first, true);
+      const meta = row.enrichment_metadata as Record<string, Record<string, unknown>>;
+      assert.equal(meta.phone, undefined);
+      assert.equal(meta.hubspot_first as unknown, true);
+      // El de Apollo queda a la vista, aparte.
+      assert.deepEqual(meta.provider_phone, { number: APOLLO_PHONE, source: 'apollo_reveal' });
     });
 
     it('un reveal que vuelve sin número tampoco borra el de HubSpot', async () => {
@@ -137,7 +141,9 @@ describe('164 — el teléfono de HubSpot/manual no se reemplaza por uno de prov
         [HUBSPOT_PHONE],
       );
       await reveal('c-hs-empty', null);
-      assert.equal((await candidate('c-hs-empty')).phone, HUBSPOT_PHONE);
+      const row = await candidate('c-hs-empty');
+      assert.equal(row.phone, HUBSPOT_PHONE);
+      assert.equal((row.enrichment_metadata as Record<string, unknown>).provider_phone, undefined);
     });
 
     it('la supresión (vaciar sin reveal) sí borra el número', async () => {
@@ -180,6 +186,10 @@ describe('164 — el teléfono de HubSpot/manual no se reemplaza por uno de prov
       assert.equal(row.phone_source, null);
       assert.equal(row.phone_type, null);
       assert.equal(row.phone_revealed_at, null);
+      const provider = (row.metadata as Record<string, Record<string, unknown>>).provider_phone;
+      assert.equal(provider.number, APOLLO_PHONE);
+      assert.equal(provider.source, 'apollo_reveal');
+      assert.equal(provider.type, 'mobile');
     });
 
     it('una edición manual sí cambia el número', async () => {

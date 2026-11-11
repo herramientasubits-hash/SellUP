@@ -111,6 +111,7 @@ import { CandidateSearchMorePhonesCta } from './candidate-search-more-phones-cta
 import { getSearchMorePhonesPreflightAction } from '@/modules/contact-enrichment/search-more-phones-actions';
 import type { SearchMorePreflightSummary } from '@/modules/contact-enrichment/search-more-phones-read';
 import { resolvePhoneSourceLabel, resolvePhoneTypeLabel } from './phone-display-labels';
+import { PROVIDER_PHONE_LABEL, readProviderPhone } from '@/modules/contact-enrichment/provider-phone';
 // Compatibilidad legacy (AGENT2A-PHONE-WATERFALL-2): con el waterfall encendido el
 // botón manual separado de Lusha desaparece, así que un candidato cuyo Apollo YA
 // terminó `no_phone_found` antes de que existiera la corrida se quedaría sin ninguna
@@ -1602,6 +1603,8 @@ export function ContactCandidateDetailSheet({
   const hasPhone = typeof phoneNumber === 'string' && phoneNumber.trim().length > 0;
   const phoneTypeLabel = resolvePhoneTypeLabel(phoneMeta?.type);
   const phoneSourceLabel = resolvePhoneSourceLabel(phoneMeta?.source);
+  // 164: si ya tenía teléfono (HubSpot / manual), el que trajo Apollo o Lusha va aparte.
+  const providerPhone = readProviderPhone(candidate?.enrichment_metadata, phoneNumber);
   const directPhoneHint = describeApolloDirectPhoneHint(
     readApolloDirectPhoneHint(candidate?.enrichment_metadata),
   );
@@ -2669,6 +2672,22 @@ export function ContactCandidateDetailSheet({
                   )}
                 </div>
               </CandidateDetailItem>
+              {providerPhone ? (
+                <CandidateDetailItem icon={Phone} label={PROVIDER_PHONE_LABEL} className="sm:col-span-2">
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <span className="break-all tabular-nums">{providerPhone.number}</span>
+                    {providerPhone.type ? (
+                      <Badge variant="brand">{resolvePhoneTypeLabel(providerPhone.type)}</Badge>
+                    ) : null}
+                    {resolvePhoneSourceLabel(providerPhone.source) ? (
+                      <Badge variant="neutral">{resolvePhoneSourceLabel(providerPhone.source)}</Badge>
+                    ) : null}
+                  </span>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    No reemplaza el teléfono de HubSpot: verifícalo antes de usarlo.
+                  </p>
+                </CandidateDetailItem>
+              ) : null}
             </DetailList>
           </DrawerSection>
 
