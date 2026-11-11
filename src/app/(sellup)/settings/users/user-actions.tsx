@@ -28,13 +28,15 @@ import {
   activateFromRejected,
 } from '@/modules/access/actions';
 import type { InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import type { SlackInviteOutcome } from '@/modules/access/slack-invitation-message';
+import { rememberActivationNotices } from './activation-notice-flash';
 import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const SELF_MANAGER_VALUE = '__self__';
 const NO_GROUP_VALUE = '__no_group__';
 const GENERIC_ERROR = 'No se pudo completar la acción. Inténtalo de nuevo.';
 
-type ActionResult = { success: boolean; error?: string };
+type ActionResult = { success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] };
 
 /** El diálogo abierto. Uno solo a la vez: nunca un modal sobre otro. */
 type DialogKind =
@@ -158,7 +160,7 @@ function buildRowActions(
   };
   const suspend: RowAction = {
     id: 'suspend',
-    label: 'Suspender acceso',
+    label: 'Desactivar acceso',
     icon: <Pause />,
     tone: 'danger',
     onSelect: () => openDialog('suspend'),
@@ -179,7 +181,7 @@ function buildRowActions(
       ];
     case 'suspended':
       return [
-        { id: 'reactivate', label: 'Reactivar acceso', icon: <RotateCcw />, onSelect: () => openDialog('reactivate') },
+        { id: 'reactivate', label: 'Activar acceso', icon: <RotateCcw />, onSelect: () => openDialog('reactivate') },
         archive,
       ];
     case 'rejected':
@@ -250,6 +252,7 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
       return;
     }
     closeDialog();
+    rememberActivationNotices(result.slackNotices);
     window.location.reload();
   };
 
@@ -383,11 +386,11 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
         onOpenChange={onOpenChangeFor('suspend')}
         variant="destructive"
         icon={Pause}
-        title="Suspender acceso"
+        title="Desactivar acceso"
         description={confirmDescription(
-          `¿Estás seguro de que deseas suspender el acceso de ${userName}? El usuario no podrá acceder a SellUp hasta que su acceso sea reactivado.`,
+          `¿Desactivar el acceso de ${userName}? No podrá entrar a SellUp hasta que lo vuelvas a activar desde Usuarios.`,
         )}
-        confirmLabel="Suspender"
+        confirmLabel="Desactivar"
         loading={loading}
         onConfirm={handleSuspend}
       />
@@ -397,9 +400,9 @@ export function UserActions({ user, roles, activeUsers, groups }: UserActionsPro
         open={dialog === 'reactivate'}
         onOpenChange={onOpenChangeFor('reactivate')}
         icon={RotateCcw}
-        title="Reactivar acceso"
-        description={confirmDescription(`¿Estás seguro de que deseas reactivar el acceso de ${userName}?`)}
-        confirmLabel="Reactivar"
+        title="Activar acceso"
+        description={confirmDescription(`¿Activar el acceso de ${userName}? Desde ya podrá entrar a SellUp con Google.`)}
+        confirmLabel="Activar"
         loading={loading}
         onConfirm={handleReactivate}
       />

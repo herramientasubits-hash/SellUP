@@ -95,9 +95,9 @@ afterEach(() => {
 describe('Acciones por usuario — qué se ofrece en cada estado', () => {
   const EXPECTED: Partial<Record<AccessStatus, string[]>> = {
     pending_approval: ['Aprobar y asignar rol', 'Rechazar solicitud'],
-    active: ['Cambiar rol', 'Cambiar jefe directo', 'Asignar grupo', 'Suspender acceso'],
-    suspended: ['Reactivar acceso', 'Archivar usuario'],
-    rejected: ['Activar y asignar rol', 'Suspender acceso', 'Archivar usuario'],
+    active: ['Cambiar rol', 'Cambiar jefe directo', 'Asignar grupo', 'Desactivar acceso'],
+    suspended: ['Activar acceso', 'Archivar usuario'],
+    rejected: ['Activar y asignar rol', 'Desactivar acceso', 'Archivar usuario'],
   };
 
   for (const status of Object.keys(EXPECTED) as AccessStatus[]) {
@@ -116,27 +116,27 @@ describe('Acciones por usuario — qué se ofrece en cada estado', () => {
 describe('Acciones por usuario — confirmar', () => {
   it('abrir la confirmación no ejecuta nada', () => {
     openMenu('active');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Suspender acceso' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Desactivar acceso' }));
 
     assert.ok(screen.getByRole('alertdialog'));
     assert.equal(calls.length, 0);
   });
 
-  it('🔴 confirmar «Suspender» suspende a esa persona y a nadie más', async () => {
+  it('🔴 confirmar «Desactivar» suspende a esa persona y a nadie más', async () => {
     openMenu('active');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Suspender acceso' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Desactivar acceso' }));
 
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Suspender' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Desactivar' }));
 
     await waitFor(() => assert.equal(calls.length, 1));
     assert.deepEqual(calls[0], { name: 'suspendUser', args: ['u-bea'] });
   });
 
-  it('🔴 confirmar «Reactivar» reactiva a esa persona', async () => {
+  it('🔴 confirmar «Activar» reactiva a esa persona', async () => {
     openMenu('suspended');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Reactivar acceso' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Activar acceso' }));
 
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Reactivar' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Activar' }));
 
     await waitFor(() => assert.equal(calls.length, 1));
     assert.deepEqual(calls[0], { name: 'reactivateUser', args: ['u-bea'] });

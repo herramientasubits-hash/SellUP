@@ -203,10 +203,10 @@ describe('Usuarios — permisos', () => {
 
 describe('Usuarios — acciones en lote según la vista', () => {
   const EXPECTED: Record<Mode, string[]> = {
-    all: ['Asignar grupo', 'Suspender'],
-    active: ['Asignar grupo', 'Suspender'],
-    suspended: ['Reactivar', 'Archivar'],
-    rejected: ['Suspender', 'Archivar'],
+    all: ['Asignar grupo', 'Desactivar'],
+    active: ['Asignar grupo', 'Desactivar'],
+    suspended: ['Activar', 'Archivar'],
+    rejected: ['Desactivar', 'Archivar'],
     pending: ['Rechazar'],
   };
 
@@ -223,7 +223,7 @@ describe('Usuarios — acciones en lote según la vista', () => {
       for (const expected of EXPECTED[mode]) {
         assert.ok(labels.includes(expected), `falta «${expected}» en ${JSON.stringify(labels)}`);
       }
-      const all = ['Asignar grupo', 'Suspender', 'Reactivar', 'Archivar', 'Rechazar'];
+      const all = ['Asignar grupo', 'Desactivar', 'Activar', 'Archivar', 'Rechazar'];
       for (const other of all.filter((label) => !EXPECTED[mode].includes(label))) {
         assert.ok(!labels.includes(other), `«${other}» no debe ofrecerse en la vista ${mode}`);
       }
@@ -237,9 +237,9 @@ describe('Usuarios — confirmar una acción en lote', () => {
     selectRow('Ana Ruiz');
     selectRow('Cam Díaz');
 
-    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Suspender' }));
+    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Desactivar' }));
 
-    assert.ok(screen.getByText('Suspender 2 usuarios'));
+    assert.ok(screen.getByText('Desactivar 2 usuarios'));
     assert.equal(calls.length, 0);
   });
 
@@ -247,10 +247,10 @@ describe('Usuarios — confirmar una acción en lote', () => {
     renderList();
     selectRow('Ana Ruiz');
     selectRow('Cam Díaz');
-    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Suspender' }));
+    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Desactivar' }));
 
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Suspender' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Desactivar' }));
 
     await waitFor(() => assert.equal(calls.length, 1));
     assert.equal(calls[0].name, 'bulkSuspend');
@@ -260,11 +260,11 @@ describe('Usuarios — confirmar una acción en lote', () => {
   it('cancelar cierra la confirmación sin actuar', () => {
     renderList();
     selectRow('Bea Soto');
-    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Suspender' }));
+    fireEvent.click(within(bulkBar()).getByRole('button', { name: 'Desactivar' }));
 
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar' }));
 
-    assert.equal(screen.queryByText('Suspender 1 usuario'), null);
+    assert.equal(screen.queryByText('Desactivar 1 usuario'), null);
     assert.equal(calls.length, 0);
   });
 });

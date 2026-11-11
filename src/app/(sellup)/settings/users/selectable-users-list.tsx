@@ -32,6 +32,8 @@ import {
 import { UserActions } from './user-actions';
 import { UserAvatar } from './user-avatar';
 import type { AccessStatus, InternalUser, Role, OrganizationGroup } from '@/modules/access/types';
+import type { SlackInviteOutcome } from '@/modules/access/slack-invitation-message';
+import { rememberActivationNotices } from './activation-notice-flash';
 import { formatGroupDisplayName, formatGroupLabel } from '@/modules/access/display-helpers';
 
 const NO_GROUP = '__none__';
@@ -53,7 +55,7 @@ const STATUS_PRESENTATION: Record<AccessStatus, { label: string; status: StatusT
   pending_approval: { label: 'Pendiente',  status: 'pending',  dateLabel: 'Solicitado' },
   active:           { label: 'Activo',     status: 'active',   dateLabel: 'Aprobado' },
   rejected:         { label: 'Rechazado',  status: 'error',    dateLabel: 'Rechazado' },
-  suspended:        { label: 'Suspendido', status: 'warning',  dateLabel: 'Suspendido' },
+  suspended:        { label: 'Inactivo',   status: 'warning',  dateLabel: 'Desactivado' },
   archived:         { label: 'Archivado',  status: 'inactive', dateLabel: 'Archivado' },
 };
 
@@ -103,11 +105,11 @@ const ASSIGN_GROUP: BulkActionDef = {
 
 const SUSPEND: BulkActionDef = {
   id: 'suspend',
-  label: 'Suspender',
+  label: 'Desactivar',
   icon: Pause,
   variant: 'destructive',
-  confirmTitle: n => `Suspender ${n} usuario${plural(n)}`,
-  confirmDesc: n => `${n} usuario${plural(n)} perderá acceso a SellUp hasta ser reactivado.`,
+  confirmTitle: n => `Desactivar ${n} usuario${plural(n)}`,
+  confirmDesc: n => `${n} usuario${plural(n)} no podrá entrar a SellUp hasta que vuelvas a activar${n > 1 ? "los" : "lo"}.`,
 };
 
 const ARCHIVE: BulkActionDef = {
@@ -121,11 +123,11 @@ const ARCHIVE: BulkActionDef = {
 
 const REACTIVATE: BulkActionDef = {
   id: 'reactivate',
-  label: 'Reactivar',
+  label: 'Activar',
   icon: RotateCcw,
   variant: 'default',
-  confirmTitle: n => `Reactivar ${n} usuario${plural(n)}`,
-  confirmDesc: n => `${n} usuario${plural(n)} recuperará acceso a SellUp.`,
+  confirmTitle: n => `Activar ${n} usuario${plural(n)}`,
+  confirmDesc: n => `${n} usuario${plural(n)} podrá entrar a SellUp desde ya.`,
 };
 
 const REJECT: BulkActionDef = {
@@ -217,7 +219,7 @@ export function SelectableUsersList({
     setLoading(true);
     setError(null);
 
-    let result: { success: boolean; error?: string };
+    let result: { success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] };
 
     switch (action.id) {
       case 'suspend':        result = await bulkSuspend(ids); break;
@@ -236,6 +238,7 @@ export function SelectableUsersList({
     }
 
     closeDialog();
+    rememberActivationNotices(result.slackNotices);
     window.location.reload();
   };
 
