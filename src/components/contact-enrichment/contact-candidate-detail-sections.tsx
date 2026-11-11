@@ -121,12 +121,19 @@ function countryLabel(candidate: PendingContactCandidate): string | null {
  * («Empresa») más abajo, sólo para el botón «Reasignar empresa», el aviso de que no tiene
  * empresa y la reasignación. Se unificó aquí: el botón va en el encabezado, el aviso arriba
  * (es lo que impide aprobar) y la reasignación como nota bajo el campo Empresa.
+ *
+ * AGENT2A-COMPANY-CONSISTENCY-NOTICE-IN-MAIN-INFO: el aviso de pertenencia («Revisar
+ * pertenencia a empresa» / «Posible empresa relacionada») también vive aquí, debajo de «Sin
+ * empresa asociada». Antes salía al final de la ficha, lejos del botón con el que se corrige.
  */
 export function CandidateMainInfoSection({
   candidate,
   companyAction,
+  companyConsistency = null,
 }: {
   candidate: PendingContactCandidate;
+  /** Hito 17A.9G: la consistencia del correo con la empresa. Sólo avisa, no bloquea. */
+  companyConsistency?: ContactCandidateCompanyConsistency | null;
   /**
    * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: el botón «Reasignar empresa». Lo construye la ficha
    * (que es quien llama al servidor); esta sección sólo lo coloca.
@@ -147,6 +154,11 @@ export function CandidateMainInfoSection({
           </AlertDescription>
         </Alert>
       )}
+      <CandidateCompanyConsistencyNotice
+        companyConsistency={companyConsistency}
+        showReassignHint={Boolean(companyAction)}
+        className="mb-3"
+      />
       <DetailList>
         <CandidateDetailItem icon={User} label="Nombre completo">
           {candidate.full_name || null}
@@ -282,13 +294,21 @@ export function CandidateIdentityConsistencySection({
 }
 
 /**
- * 3b. Consistencia con la empresa (Hito 17A.9G). Sólo cuando el correo apunta a
- * otro dominio: es un aviso para revisar, no un bloqueo.
+ * Consistencia con la empresa (Hito 17A.9G). Sólo cuando el correo apunta a
+ * otro dominio: es un aviso para revisar, no un bloqueo. Se pinta dentro de
+ * «Información principal», junto al botón «Reasignar empresa».
  */
+export const COMPANY_CONSISTENCY_REASSIGN_HINT = 'Si no pertenece, usa «Reasignar empresa».';
+
 export function CandidateCompanyConsistencyNotice({
   companyConsistency,
+  showReassignHint = false,
+  className,
 }: {
   companyConsistency: ContactCandidateCompanyConsistency | null;
+  /** Sólo cuando la ficha ofrece «Reasignar empresa» (candidato por revisar). */
+  showReassignHint?: boolean;
+  className?: string;
 }) {
   const showConsistencyWarning =
     companyConsistency?.status === 'possible_mismatch' ||
@@ -296,7 +316,7 @@ export function CandidateCompanyConsistencyNotice({
   if (!showConsistencyWarning || !companyConsistency) return null;
 
   return (
-    <Alert variant="warning" role="note">
+    <Alert variant="warning" role="note" className={className}>
       <AlertTitle className="text-sm">
         {companyConsistency.status === 'possible_related_domain'
           ? 'Posible empresa relacionada'
@@ -304,6 +324,7 @@ export function CandidateCompanyConsistencyNotice({
       </AlertTitle>
       <AlertDescription className="text-xs leading-relaxed">
         {companyConsistency.explanation}
+        {showReassignHint && ` ${COMPANY_CONSISTENCY_REASSIGN_HINT}`}
       </AlertDescription>
       {companyConsistency.email_domain &&
         companyConsistency.expected_domain &&

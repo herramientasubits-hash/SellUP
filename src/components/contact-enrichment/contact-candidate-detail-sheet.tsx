@@ -42,7 +42,6 @@ import {
   normalizeLinkedinUrl,
 } from './contact-candidate-detail-format';
 import {
-  CandidateCompanyConsistencyNotice,
   CandidateDetailItem,
   CandidateIdentityConsistencySection,
   CandidateMainInfoSection,
@@ -2075,6 +2074,7 @@ export function ContactCandidateDetailSheet({
           {/* 1. Información principal (incluye la empresa y «Reasignar empresa») */}
           <CandidateMainInfoSection
             candidate={candidate}
+            companyConsistency={companyConsistency}
             companyAction={
               candidate.status === 'pending_review' ? (
                 <Button
@@ -2722,9 +2722,6 @@ export function ContactCandidateDetailSheet({
 
           {/* 3a. Consistencia de identidad (Hito 17B.4W.6) — observacional */}
           <CandidateIdentityConsistencySection personIdentity={personIdentity} />
-
-          {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
-          <CandidateCompanyConsistencyNotice companyConsistency={companyConsistency} />
 
           {/* 5. Revisión humana (Hito 17A.4B): el override de identidad, el motivo de
               rechazo o, en reposo, el aviso de qué pasa al aprobar. */}

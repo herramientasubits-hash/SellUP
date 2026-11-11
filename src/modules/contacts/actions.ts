@@ -164,6 +164,25 @@ function sanitizeEmail(email?: string): string | null {
 
 export interface ContactListItem extends Contact {
   account_name: string | null;
+  /**
+   * AGENT2-CONTACTS-TABLE-COLUMNS: datos de la empresa para las columnas del grupo «Empresa»
+   * de la tabla (las mismas que ofrece «Por revisar»). Vienen de la cuenta SellUp.
+   */
+  account_domain: string | null;
+  account_website: string | null;
+  account_country: string | null;
+  account_hubspot_company_id: string | null;
+}
+
+/** Lo que la lista lee de la cuenta de cada contacto. */
+const CONTACT_LIST_ACCOUNT_FIELDS = 'name, domain, website, country, hubspot_company_id';
+
+interface ContactListAccountEmbed {
+  name: string | null;
+  domain: string | null;
+  website: string | null;
+  country: string | null;
+  hubspot_company_id: string | null;
 }
 
 export async function getAllContacts(): Promise<ContactListItem[]> {
@@ -179,8 +198,8 @@ export async function getAllContacts(): Promise<ContactListItem[]> {
     .from('contacts')
     .select(
       scopeIds
-        ? '*, account:account_id!inner ( name, owner_id, created_by )'
-        : '*, account:account_id ( name )',
+        ? `*, account:account_id!inner ( ${CONTACT_LIST_ACCOUNT_FIELDS}, owner_id, created_by )`
+        : `*, account:account_id ( ${CONTACT_LIST_ACCOUNT_FIELDS} )`,
     )
     .is('archived_at', null);
   // Corte de visibilidad: los contactos de antes de la entrega siguen guardados (banco de
@@ -195,10 +214,17 @@ export async function getAllContacts(): Promise<ContactListItem[]> {
 
   if (error) throw new Error(`getAllContacts: ${error.message}`);
 
-  return (data ?? []).map((row) => ({
-    ...(row as unknown as Contact),
-    account_name: (row.account as unknown as { name: string } | null)?.name ?? null,
-  }));
+  return (data ?? []).map((row) => {
+    const account = (row as unknown as { account: ContactListAccountEmbed | null }).account;
+    return {
+      ...(row as unknown as Contact),
+      account_name: account?.name ?? null,
+      account_domain: account?.domain ?? null,
+      account_website: account?.website ?? null,
+      account_country: account?.country ?? null,
+      account_hubspot_company_id: account?.hubspot_company_id ?? null,
+    };
+  });
 }
 
 // ============================================================

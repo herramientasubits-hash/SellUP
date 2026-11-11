@@ -297,3 +297,97 @@ describe('Contactos — vista «Lista»', () => {
     assert.ok(first.getByText('Activo'));
   });
 });
+
+describe('Contactos — columnas del contacto y su empresa (AGENT2-CONTACTS-TABLE-COLUMNS)', () => {
+  const PORTAL = '123456';
+  const ENRICHED = [
+    contact({
+      id: 'h1',
+      full_name: 'Ana Ruiz',
+      hubspot_contact_id: '987001',
+      linkedin_url: 'https://www.linkedin.com/in/ana-ruiz',
+      department: 'Recursos Humanos',
+      seniority: 'director',
+      source: 'apollo',
+      account_country: 'Colombia',
+      account_domain: 'acme.co',
+      account_website: 'https://www.acmegroup.co/',
+      account_hubspot_company_id: '555001',
+    }),
+    contact({ id: 'h2', full_name: 'Beto Gil', seniority: null, source: 'manual' }),
+  ];
+
+  function headers(): string[] {
+    return Array.from(document.querySelectorAll('thead th')).map((th) => th.textContent?.trim() ?? '');
+  }
+
+  function renderEnriched() {
+    return render(<ContactsDataTableClient contacts={ENRICHED} hubspotPortalId={PORTAL} />);
+  }
+
+  it('de entrada sólo suma «Contacto en HubSpot»; las demás se piden desde «Configurar tabla»', () => {
+    renderEnriched();
+
+    const visible = headers();
+    assert.ok(visible.some((h) => h.includes('Contacto en HubSpot')), 'se ve de entrada');
+    for (const hidden of [
+      'LinkedIn',
+      'Departamento',
+      'Seniority',
+      'Fuente',
+      'Creado',
+      'País',
+      'Dominio de la empresa',
+      'Página web de la empresa',
+      'Empresa en HubSpot',
+    ]) {
+      assert.ok(!visible.some((h) => h === hidden || h.startsWith(hidden)), `${hidden} arranca oculta`);
+    }
+  });
+
+  it('el ID de HubSpot abre el contacto en HubSpot en otra pestaña, sin abrir la ficha', () => {
+    renderEnriched();
+
+    const link = screen.getByRole('link', { name: /Abrir Ana Ruiz en HubSpot/ });
+    assert.equal(link.getAttribute('href'), `https://app.hubspot.com/contacts/${PORTAL}/contact/987001`);
+    assert.equal(link.getAttribute('target'), '_blank');
+    assert.equal(link.textContent?.includes('987001'), true);
+
+    fireEvent.click(link);
+    assert.equal(detailOpenFor, null, 'el clic en el enlace no abre el detalle');
+
+    const otherRow = screen.getByRole('button', { name: 'Beto Gil' }).closest('tr');
+    assert.ok(otherRow);
+    assert.ok(within(otherRow).getByText('No está en HubSpot'));
+  });
+
+  it('con todas las columnas a la vista: datos del contacto y de su empresa', () => {
+    window.localStorage.setItem('sellup:table:contacts', JSON.stringify({ hidden: [] }));
+    renderEnriched();
+
+    const row = within(screen.getByRole('button', { name: 'Ana Ruiz' }).closest('tr') as HTMLElement);
+    assert.equal(
+      row.getByRole('link', { name: /Abrir el LinkedIn de Ana Ruiz/ }).getAttribute('href'),
+      'https://www.linkedin.com/in/ana-ruiz',
+    );
+    assert.ok(row.getByText('Recursos Humanos'));
+    assert.ok(row.getByText('Director'));
+    assert.ok(row.getByText('Apollo'));
+    assert.ok(row.getByText('Colombia'));
+    assert.ok(row.getByText('acme.co'));
+    assert.equal(
+      row.getByRole('link', { name: /Abrir la página web de Acme/ }).getAttribute('href'),
+      'https://www.acmegroup.co/',
+    );
+    assert.ok(row.getByText('acmegroup.co'), 'la web se lee sin protocolo ni «www.»');
+    assert.equal(
+      row.getByRole('link', { name: /Abrir Acme en HubSpot/ }).getAttribute('href'),
+      `https://app.hubspot.com/contacts/${PORTAL}/company/555001`,
+    );
+
+    const empty = within(screen.getByRole('button', { name: 'Beto Gil' }).closest('tr') as HTMLElement);
+    for (const label of ['Sin LinkedIn', 'Sin departamento', 'Sin seniority', 'Sin país', 'Sin dominio', 'Sin página web', 'No existe en HubSpot']) {
+      assert.ok(empty.getByText(label), label);
+    }
+  });
+});

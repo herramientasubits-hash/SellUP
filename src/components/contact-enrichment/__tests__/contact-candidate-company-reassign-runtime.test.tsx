@@ -263,6 +263,58 @@ describe('Reasignar empresa — ficha del candidato', () => {
     assert.equal(screen.queryByText('Empresa reasignada'), null);
   });
 
+  // AGENT2A-COMPANY-CONSISTENCY-NOTICE-IN-MAIN-INFO — antes salía al final de la ficha.
+  const mismatch: PendingContactCandidate['enrichment_metadata'] = {
+    company_consistency: {
+      status: 'possible_mismatch',
+      email_domain: 'otrodominio.com',
+      expected_domain: 'pizzapizza.cl',
+      organization_name: null,
+      organization_domain: null,
+      signals: ['email_domain_mismatch'],
+      review_required: true,
+      explanation: 'El candidato podría no pertenecer a la empresa seleccionada.',
+    },
+  };
+
+  it('el aviso de pertenencia vive arriba en «Información principal», antes de los datos', async () => {
+    await renderSheet(
+      makeCandidate({
+        account_id: 'acc-pizza',
+        company_domain: 'pizzapizza.cl',
+        enrichment_metadata: mismatch,
+      }),
+    );
+    const mainInfo = screen.getByRole('heading', { name: 'Información principal' }).closest('section');
+    assert.ok(mainInfo);
+    const title = screen.getByText('Revisar pertenencia a empresa');
+    assert.ok(mainInfo.contains(title), 'el aviso está dentro de «Información principal»');
+    const firstField = screen.getByText('Nombre completo');
+    assert.ok(
+      title.compareDocumentPosition(firstField) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'el aviso va antes de los datos',
+    );
+    assert.equal(screen.getAllByText('Revisar pertenencia a empresa').length, 1, 'no se repite abajo');
+    assert.match(
+      mainInfo.textContent ?? '',
+      /podría no pertenecer a la empresa seleccionada\. Si no pertenece, usa «Reasignar empresa»\./,
+    );
+    assert.match(mainInfo.textContent ?? '', /Correo: @otrodominio\.com · Empresa: pizzapizza\.cl/);
+  });
+
+  it('sin «Reasignar empresa» (ya no está por revisar) el aviso no sugiere reasignar', async () => {
+    await renderSheet(
+      makeCandidate({
+        status: 'duplicate' as PendingContactCandidate['status'],
+        account_id: 'acc-pizza',
+        company_domain: 'pizzapizza.cl',
+        enrichment_metadata: mismatch,
+      }),
+    );
+    assert.ok(screen.getByText('Revisar pertenencia a empresa'));
+    assert.doesNotMatch(document.body.textContent ?? '', /Si no pertenece, usa «Reasignar empresa»/);
+  });
+
   it('busca en SellUp/HubSpot, oculta «manual» y reasigna la empresa elegida por id', async () => {
     await renderSheet(makeCandidate());
     fireEvent.click(screen.getByRole('button', { name: 'Reasignar empresa' }));
