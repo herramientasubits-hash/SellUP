@@ -1,0 +1,39 @@
+// ============================================================
+// Interacciones de Slack (botones) → acciones confirmadas del asistente
+// (dueña 11-11). Slack exige respuesta en menos de 3 segundos: se verifica la
+// firma, se responde 200 al instante y la acción corre después (`after`); el
+// resultado reemplaza el mensaje por su `response_url`.
+// Configuración: «Interactivity & Shortcuts» de la app de Slack apunta aquí.
+// ============================================================
+
+import { after, NextResponse } from 'next/server';
+import { isValidSlackSignature } from '@/server/slack-assistant/signature';
+import { handleSlackActionClick, type SlackBlockActionPayload } from '@/server/slack-assistant/execute-action.server';
+
+/** Aprobar varias empresas (con HubSpot) puede tardar: corre dentro de `after`. */
+export const maxDuration = 120;
+
+export async function POST(request: Request): Promise<Response> {
+  const rawBody = await request.text();
+  const valid = isValidSlackSignature({
+    signingSecret: process.env.SLACK_SIGNING_SECRET,
+    timestamp: request.headers.get('x-slack-request-timestamp'),
+    signature: request.headers.get('x-slack-signature'),
+    rawBody,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  if (!valid) return NextResponse.json({ error: 'invalid_signature' }, { status: 401 });
+
+  let payload: SlackBlockActionPayload;
+  try {
+    payload = JSON.parse(new URLSearchParams(rawBody).get('payload') ?? '') as SlackBlockActionPayload;
+  } catch {
+    return NextResponse.json({ error: 'invalid_payload' }, { status: 400 });
+  }
+
+  if (payload?.type === 'block_actions') {
+    after(() => handleSlackActionClick(payload));
+  }
+  // Cuerpo vacío: Slack no cambia el mensaje por esta respuesta (lo hace la response_url).
+  return new Response(null, { status: 200 });
+}

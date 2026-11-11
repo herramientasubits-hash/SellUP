@@ -1,10 +1,10 @@
 // ============================================================
-// Asistente de Slack — lectura de SellUp con el alcance de quien pregunta.
-// Usa el cliente de servicio (no hay sesión del navegador) y por eso CADA
-// consulta filtra a mano por los responsables que esa persona puede ver:
-// admin → todo; líder → su equipo; vendedor → lo suyo. Los filtros que pide
-// Claude (país, fecha, responsable…) sólo pueden ACOTAR ese alcance, nunca
-// ampliarlo. Sólo lectura.
+// Asistente de Slack — lectura comercial de SellUp con el alcance de quien
+// pregunta. Usa el cliente de servicio (no hay sesión del navegador) y por eso
+// CADA consulta filtra a mano con la regla de la plataforma: admin → todo;
+// líder/manager → su equipo en cascada por el organigrama; vendedor → lo suyo.
+// Los filtros que pide Claude (país, fecha, responsable…) sólo ACOTAN ese
+// alcance, nunca lo amplían. Sólo lectura.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -19,94 +19,114 @@ import {
   type CandidateStatus,
 } from '@/modules/prospect-batches/types';
 import { providerDisplayName } from '@/modules/usage-tracking/provider-failure';
-import { accountLink, accountsLink, pendingProspectsLink, searchesLink } from './links';
+import { getVisibleSince } from '@/lib/visible-since';
+import { accountLink, accountsLink, aiUsageLink, pendingProspectsLink, prospectsLink, searchesLink } from './links';
+import {
+  accountLookup,
+  accountScopeClause,
+  batchScopeClause,
+  clip,
+  combineOr,
+  countryFilter,
+  createdSince,
+  day,
+  ilikePattern,
+  PROSPECT_STATE_STATUSES,
+  round2,
+  scopeOwnerIds,
+  usagePeriodStart,
+} from './query-helpers';
 import type {
+  AssistantAccountDetail,
   AssistantAccountList,
   AssistantContact,
+  AssistantContactList,
   AssistantDataSource,
   AssistantProspectList,
   AssistantSearch,
   AssistantSummary,
   AssistantUsage,
-  CreatedPeriod,
   UsagePeriod,
 } from './tools';
 
-/** Los mismos estados que la pantalla «Por revisar». */
-export const PENDING_CANDIDATE_STATUSES = ['needs_review', 'generated', 'normalized'] as const;
 /** Estados de una búsqueda que todavía no termina. */
 const OPEN_BATCH_STATUSES: BatchStatus[] = ['generating', 'ready_for_review', 'in_review'];
 const USAGE_PAGE_SIZE = 1000;
 const USAGE_MAX_PAGES = 20;
-/** Bogotá (UTC-5, sin horario de verano): «hoy» y «este mes» del equipo. */
-const TEAM_UTC_OFFSET_HOURS = -5;
-
-/** `null` = sin filtro (admin). Si no, los responsables visibles. */
-export function scopeOwnerIds(scope: Pick<CommercialScope, 'canViewAll' | 'allowedUserIds'>): string[] | null {
-  return scope.canViewAll ? null : [...scope.allowedUserIds];
-}
-
-/** Inicio del periodo en hora de Bogotá, como instante ISO. */
-export function usagePeriodStart(period: UsagePeriod, now: Date): string {
-  const offsetMs = TEAM_UTC_OFFSET_HOURS * 3_600_000;
-  const local = new Date(now.getTime() + offsetMs);
-  const y = local.getUTCFullYear();
-  const m = local.getUTCMonth();
-  const d = local.getUTCDate();
-  const startLocal =
-    period === 'mes' ? Date.UTC(y, m, 1) : period === 'semana' ? Date.UTC(y, m, d - 6) : Date.UTC(y, m, d);
-  return new Date(startLocal - offsetMs).toISOString();
-}
-
-/** `null` = sin límite de fecha. */
-export function createdSince(period: CreatedPeriod | undefined, now: Date): string | null {
-  return !period || period === 'todo' ? null : usagePeriodStart(period, now);
-}
-
-/** Escapa los comodines de `ilike` en lo que escribió la persona. */
-export function ilikePattern(text: string): string {
-  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/[,()]/g, ' ').trim()}%`;
-}
-
-/** País: 2 letras = código ISO exacto; si no, por nombre. */
-export function countryFilter(pais: string | undefined): { column: 'country_code'; value: string } | { column: 'country'; value: string } | null {
-  const value = pais?.trim();
-  if (!value) return null;
-  return value.length === 2 ? { column: 'country_code', value: value.toUpperCase() } : { column: 'country', value: ilikePattern(value) };
-}
-
-function day(iso: string | null | undefined): string {
-  return iso ? iso.slice(0, 10) : '';
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-/** Junta dos cláusulas `or` de PostgREST en una sola: (a) Y (b). */
-export function combineOr(a: string | null, b: string | null): string | null {
-  if (a && b) return `and(or(${a}),or(${b}))`;
-  return a || b || null;
-}
+const BRIEF_STATUS_LABELS: Record<string, string> = {
+  ready: 'Lista',
+  completed: 'Lista',
+  running: 'En curso',
+  pending: 'En curso',
+  failed: 'Falló',
+  expired: 'Vencida',
+};
+const PACK_STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  needs_review: 'Por revisar',
+  used: 'Usado',
+  discarded: 'Descartado',
+  failed: 'Falló',
+};
 
 // Supabase encadena filtros sobre el mismo builder; el tipo exacto no importa aquí.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Query = any;
 
-function applyCountry(query: Query, pais: string | undefined): Query {
+function applyCountry(query: Query, pais: string | undefined, prefix = ''): Query {
   const filter = countryFilter(pais);
   if (!filter) return query;
-  return filter.column === 'country_code' ? query.eq('country_code', filter.value) : query.ilike('country', filter.value);
+  return filter.column === 'country_code'
+    ? query.eq(`${prefix}country_code`, filter.value)
+    : query.ilike(`${prefix}country`, filter.value);
+}
+
+type ContactRow = {
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  job_title: string | null;
+  department: string | null;
+  email: string | null;
+  phone: string | null;
+  mobile_phone: string | null;
+  linkedin_url: string | null;
+  account?: { id: string; name: string | null } | null;
+};
+
+const CONTACT_COLUMNS = 'full_name, first_name, last_name, job_title, department, email, phone, mobile_phone, linkedin_url';
+
+export interface AssistantDataSourceOptions {
+  appUrl: string;
+  /** Ve dólares (admin y líderes/managers, como en Uso de IA). */
+  moneyVisible: boolean;
+  now?: Date;
 }
 
 export function createAssistantDataSource(
   admin: SupabaseClient,
-  scope: Pick<CommercialScope, 'canViewAll' | 'allowedUserIds'>,
-  options: { appUrl: string; now?: Date },
+  scope: Pick<CommercialScope, 'canViewAll' | 'allowedUserIds' | 'isRestrictedToSelf'>,
+  options: AssistantDataSourceOptions,
 ): AssistantDataSource {
   const owners = scopeOwnerIds(scope);
   const now = options.now ?? new Date();
+  // Corte de visibilidad de la plataforma (SELLUP_VISIBLE_SINCE): lo de antes de
+  // la entrega no aparece en Contactos ni en Uso de IA; el asistente tampoco lo muestra.
+  const visibleSince = getVisibleSince();
   const appUrl = options.appUrl;
+
+  function toContact(c: ContactRow): AssistantContact {
+    return {
+      nombre: c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Sin nombre',
+      cargo: c.job_title,
+      area: c.department,
+      correo: c.email,
+      telefono: c.mobile_phone || c.phone,
+      linkedin: c.linkedin_url,
+      empresa: c.account?.name ?? null,
+      enlaceEmpresa: c.account?.id ? accountLink(appUrl, c.account.id) : null,
+    };
+  }
 
   async function namesOf(ids: ReadonlyArray<string | null | undefined>): Promise<Map<string, string>> {
     const unique = [...new Set(ids.filter((id): id is string => !!id))];
@@ -121,7 +141,7 @@ export function createAssistantDataSource(
   }
 
   /**
-   * Responsables a filtrar: el alcance ∩ la persona pedida. `null` = sin
+   * Personas a filtrar: el alcance ∩ la persona pedida. `null` = sin
    * restricción (admin sin filtro); `[]` = nada visible.
    */
   async function ownerIds(responsable: string | undefined): Promise<string[] | null> {
@@ -139,12 +159,7 @@ export function createAssistantDataSource(
   /** Lotes cuyo dueño o creador está entre `users` (como la pantalla). */
   async function batchesOwnedBy(users: string[]): Promise<string[]> {
     if (users.length === 0) return [];
-    const list = users.join(',');
-    const { data, error } = await admin
-      .from('prospect_batches')
-      .select('id')
-      .or(`owner_id.in.(${list}),created_by.in.(${list})`)
-      .limit(5000);
+    const { data, error } = await admin.from('prospect_batches').select('id').or(batchScopeClause(users)).limit(5000);
     if (error) throw new Error(error.message);
     return (data ?? []).map((b) => b.id as string);
   }
@@ -162,7 +177,7 @@ export function createAssistantDataSource(
     let query = admin
       .from('prospect_candidates')
       .select('id', { count: 'exact', head: true })
-      .in('status', [...PENDING_CANDIDATE_STATUSES]);
+      .in('status', [...(PROSPECT_STATE_STATUSES.por_revisar ?? [])]);
     if (ownership) query = query.or(ownership);
     const { count, error } = await query;
     if (error) throw new Error(error.message);
@@ -177,21 +192,22 @@ export function createAssistantDataSource(
       }
 
       let accounts = admin.from('accounts').select('pipeline_status').is('archived_at', null).limit(20000);
-      if (owners) accounts = accounts.in('owner_id', owners);
+      if (owners) accounts = accounts.or(accountScopeClause(owners));
 
       let openBatches = admin
         .from('prospect_batches')
         .select('id', { count: 'exact', head: true })
         .is('archived_at', null)
         .in('status', OPEN_BATCH_STATUSES);
-      if (owners) openBatches = openBatches.in('owner_id', owners);
+      if (owners) openBatches = openBatches.or(batchScopeClause(owners));
 
       let contacts = admin
         .from('contacts')
-        .select('id, accounts!inner(owner_id)', { count: 'exact', head: true })
+        .select('id, accounts!inner(owner_id, created_by)', { count: 'exact', head: true })
         .is('archived_at', null)
         .is('accounts.archived_at', null);
-      if (owners) contacts = contacts.in('accounts.owner_id', owners);
+      if (visibleSince) contacts = contacts.gte('created_at', visibleSince);
+      if (owners) contacts = contacts.or(accountScopeClause(owners), { referencedTable: 'accounts' });
 
       const [acc, open, cont, pending] = await Promise.all([accounts, openBatches, contacts, countPending()]);
       for (const res of [acc, open, cont]) if (res.error) throw new Error(res.error.message);
@@ -211,9 +227,9 @@ export function createAssistantDataSource(
       };
     },
 
-    async pendingProspects(filters, limit): Promise<AssistantProspectList> {
-      const enlace = pendingProspectsLink(appUrl, filters);
-      const empty: AssistantProspectList = { total: 0, mostrados: 0, enlace, prospectos: [] };
+    async prospects(filters, limit): Promise<AssistantProspectList> {
+      const enlace = prospectsLink(appUrl, filters.estado, filters);
+      const empty: AssistantProspectList = { estado: filters.estado, total: 0, mostrados: 0, enlace, prospectos: [] };
       const ownership = await candidateOwnership(await ownerIds(filters.responsable));
       if (ownership === '') return empty;
 
@@ -232,14 +248,14 @@ export function createAssistantDataSource(
       let query = admin
         .from('prospect_candidates')
         .select(
-          'name, country, industry, company_size, employee_count, website, tax_identifier, tax_id, assigned_to, created_at, batch:prospect_batches!prospect_candidates_batch_id_fkey(name, owner_id)',
+          'name, status, country, industry, company_size, employee_count, website, tax_identifier, tax_id, assigned_to, created_at, reviewed_by, reviewed_at, rejection_reason, review_notes, batch:prospect_batches!prospect_candidates_batch_id_fkey(name, owner_id)',
           { count: 'exact' },
         )
-        .in('status', [...PENDING_CANDIDATE_STATUSES])
         .order('created_at', { ascending: false })
         .limit(limit);
-      // Un solo `or`: responsable efectivo Y (si viene) texto, sin depender de
-      // cómo combine PostgREST dos parámetros `or` sueltos.
+      const statuses = PROSPECT_STATE_STATUSES[filters.estado];
+      if (statuses) query = query.in('status', [...statuses]);
+      // Un solo `or`: responsable efectivo Y (si viene) texto.
       const textClause = filters.texto
         ? (() => {
             const p = ilikePattern(filters.texto);
@@ -258,6 +274,7 @@ export function createAssistantDataSource(
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as unknown as Array<{
         name: string;
+        status: string;
         country: string | null;
         industry: string | null;
         company_size: string | null;
@@ -267,17 +284,24 @@ export function createAssistantDataSource(
         tax_id: string | null;
         assigned_to: string | null;
         created_at: string;
+        reviewed_by: string | null;
+        reviewed_at: string | null;
+        rejection_reason: string | null;
+        review_notes: string | null;
         batch: { name: string | null; owner_id: string | null } | null;
       }>;
-      const names = await namesOf(rows.map((r) => r.assigned_to ?? r.batch?.owner_id ?? null));
+      const names = await namesOf(rows.flatMap((r) => [r.assigned_to ?? r.batch?.owner_id ?? null, r.reviewed_by]));
       return {
+        estado: filters.estado,
         total: count ?? rows.length,
         mostrados: rows.length,
         enlace,
         prospectos: rows.map((r) => {
           const ownerId = r.assigned_to ?? r.batch?.owner_id ?? null;
+          const decided = r.status === 'discarded' || r.status === 'approved' || r.status === 'converted_to_account';
           return {
             nombre: r.name,
+            estado: CANDIDATE_STATUS_LABELS[r.status as CandidateStatus] ?? r.status,
             pais: r.country,
             industria: r.industry,
             tamano: r.company_size ?? (r.employee_count ? `${r.employee_count} empleados` : null),
@@ -286,6 +310,13 @@ export function createAssistantDataSource(
             busqueda: r.batch?.name ?? null,
             responsable: ownerId ? names.get(ownerId) ?? null : null,
             creado: day(r.created_at),
+            ...(decided
+              ? {
+                  decidioPor: r.reviewed_by ? names.get(r.reviewed_by) ?? null : 'Automático',
+                  decidido: day(r.reviewed_at),
+                  motivo: clip(r.rejection_reason ?? r.review_notes, 200),
+                }
+              : {}),
           };
         }),
       };
@@ -301,11 +332,14 @@ export function createAssistantDataSource(
         .is('archived_at', null)
         .order('updated_at', { ascending: false })
         .limit(limit);
-      if (users) query = query.in('owner_id', users);
-      if (filters.texto) {
-        const p = ilikePattern(filters.texto);
-        query = query.or(`name.ilike.${p},legal_name.ilike.${p},domain.ilike.${p},tax_identifier.ilike.${p}`);
-      }
+      const textClause = filters.texto
+        ? (() => {
+            const p = ilikePattern(filters.texto);
+            return `name.ilike.${p},legal_name.ilike.${p},domain.ilike.${p},tax_identifier.ilike.${p}`;
+          })()
+        : null;
+      const orClause = combineOr(users ? accountScopeClause(users) : null, textClause);
+      if (orClause) query = query.or(orClause);
       query = applyCountry(query, filters.pais);
       if (filters.industria) query = query.ilike('industry', ilikePattern(filters.industria));
       if (filters.estado) query = query.eq('pipeline_status', filters.estado);
@@ -343,43 +377,141 @@ export function createAssistantDataSource(
       };
     },
 
-    async accountContacts(accountText, limit) {
-      if (owners !== null && owners.length === 0) return { empresa: null, enlace: null, contactos: [] };
-      const pattern = ilikePattern(accountText);
-      let accountQuery = admin
-        .from('accounts')
-        .select('id, name')
-        .is('archived_at', null)
-        .or(`name.ilike.${pattern},domain.ilike.${pattern}`)
-        .order('updated_at', { ascending: false })
-        .limit(1);
-      if (owners) accountQuery = accountQuery.in('owner_id', owners);
-      const { data: account, error } = await accountQuery.maybeSingle();
-      if (error) throw new Error(error.message);
-      if (!account) return { empresa: null, enlace: null, contactos: [] };
+    async accountDetail(queryText): Promise<AssistantAccountDetail> {
+      const notFound: AssistantAccountDetail = { encontrada: false, otrasCoincidencias: [] };
+      if (owners !== null && owners.length === 0) return notFound;
+      const lookup = accountLookup(queryText);
 
-      const { data: contacts, error: contactsError } = await admin
-        .from('contacts')
-        .select('full_name, first_name, last_name, job_title, email, phone, mobile_phone, linkedin_url')
-        .eq('account_id', account.id)
+      let query = admin
+        .from('accounts')
+        .select(
+          'id, name, legal_name, tax_identifier, tax_identifier_type, pipeline_status, pipeline_substatus, country, city, region, industry, company_size, website, domain, linkedin_url, hubspot_company_id, source, owner_id, created_by, created_at, updated_at, notes',
+        )
         .is('archived_at', null)
-        .order('is_primary', { ascending: false })
-        .limit(limit);
-      if (contactsError) throw new Error(contactsError.message);
+        .order('updated_at', { ascending: false })
+        .limit(4);
+      if (lookup.kind === 'id') query = query.eq('id', lookup.value);
+      const orClause = combineOr(owners ? accountScopeClause(owners) : null, lookup.kind === 'text' ? lookup.clause : null);
+      if (orClause) query = query.or(orClause);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as Array<Record<string, string | null>>;
+      if (rows.length === 0) return notFound;
+
+      const a = rows[0];
+      const accountId = a.id as string;
+      const [contactsRes, briefRes, packsRes] = await Promise.all([
+        admin
+          .from('contacts')
+          .select(CONTACT_COLUMNS, { count: 'exact' })
+          .eq('account_id', accountId)
+          .is('archived_at', null)
+          .order('is_primary', { ascending: false })
+          .limit(10),
+        admin
+          .from('account_research_briefs')
+          .select('status, summary, created_at')
+          .eq('account_id', accountId)
+          .order('created_at', { ascending: false })
+          .limit(1),
+        admin
+          .from('first_call_packs')
+          .select('target_name, target_title, channel, status, created_at')
+          .eq('account_id', accountId)
+          .is('discarded_at', null)
+          .order('created_at', { ascending: false })
+          .limit(5),
+      ]);
+      for (const res of [contactsRes, briefRes, packsRes]) if (res.error) throw new Error(res.error.message);
+      const names = await namesOf([a.owner_id, a.created_by]);
+      const brief = ((briefRes.data ?? []) as Array<{ status: string; summary: string | null; created_at: string }>)[0];
 
       return {
-        empresa: account.name as string,
-        enlace: accountLink(appUrl, account.id as string),
-        contactos: ((contacts ?? []) as Array<Record<string, string | null>>).map(
-          (c): AssistantContact => ({
-            nombre: c.full_name || [c.first_name, c.last_name].filter(Boolean).join(' ') || 'Sin nombre',
-            cargo: c.job_title,
-            correo: c.email,
-            telefono: c.mobile_phone || c.phone,
-            linkedin: c.linkedin_url,
-          }),
-        ),
+        encontrada: true,
+        otrasCoincidencias: rows.slice(1).map((r) => r.name as string),
+        empresa: {
+          id: accountId,
+          nombre: a.name as string,
+          razonSocial: a.legal_name,
+          nit: a.tax_identifier,
+          tipoNit: a.tax_identifier_type,
+          estado: PIPELINE_STATUS_LABELS[a.pipeline_status as PipelineStatus] ?? a.pipeline_status ?? 'Sin estado',
+          subestado: a.pipeline_substatus,
+          pais: a.country,
+          ciudad: a.city,
+          region: a.region,
+          industria: a.industry,
+          tamano: a.company_size,
+          sitioWeb: a.website,
+          dominio: a.domain,
+          linkedin: a.linkedin_url,
+          hubspotId: a.hubspot_company_id,
+          fuente: a.source,
+          responsable: a.owner_id ? names.get(a.owner_id) ?? null : null,
+          creadaPor: a.created_by ? names.get(a.created_by) ?? null : null,
+          creada: day(a.created_at),
+          actualizada: day(a.updated_at),
+          notas: clip(a.notes, 600),
+          enlace: accountLink(appUrl, accountId),
+        },
+        contactos: ((contactsRes.data ?? []) as unknown as ContactRow[]).map(toContact),
+        totalContactos: contactsRes.count ?? 0,
+        rumbo: {
+          investigacion: brief
+            ? { estado: BRIEF_STATUS_LABELS[brief.status] ?? brief.status, resumen: clip(brief.summary, 500), fecha: day(brief.created_at) }
+            : null,
+          primerosContactos: ((packsRes.data ?? []) as Array<Record<string, string | null>>).map((p) => ({
+            para: p.target_name,
+            cargo: p.target_title,
+            canal: p.channel,
+            estado: PACK_STATUS_LABELS[p.status ?? ''] ?? p.status ?? '',
+            fecha: day(p.created_at),
+          })),
+        },
       };
+    },
+
+    async contacts(filters, limit): Promise<AssistantContactList> {
+      if (owners !== null && owners.length === 0) return { total: 0, mostrados: 0, contactos: [] };
+      let query = admin
+        .from('contacts')
+        .select(`${CONTACT_COLUMNS}, account:accounts!inner(id, name, owner_id, created_by, country, country_code, domain, archived_at)`, {
+          count: 'exact',
+        })
+        .is('archived_at', null)
+        .is('account.archived_at', null)
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+      if (visibleSince) query = query.gte('created_at', visibleSince);
+      // Persona Y cargo en un solo `or` de la tabla de contactos.
+      const personClause = filters.texto
+        ? (() => {
+            const p = ilikePattern(filters.texto);
+            return `full_name.ilike.${p},first_name.ilike.${p},last_name.ilike.${p},email.ilike.${p}`;
+          })()
+        : null;
+      const titleClause = filters.cargo
+        ? (() => {
+            const p = ilikePattern(filters.cargo);
+            return `job_title.ilike.${p},department.ilike.${p}`;
+          })()
+        : null;
+      const contactClause = combineOr(personClause, titleClause);
+      if (contactClause) query = query.or(contactClause);
+      // Alcance de la empresa Y (si viene) empresa pedida, en un solo `or` de la tabla embebida.
+      const companyClause = filters.empresa
+        ? (() => {
+            const p = ilikePattern(filters.empresa);
+            return `name.ilike.${p},domain.ilike.${p}`;
+          })()
+        : null;
+      const accountClause = combineOr(owners ? accountScopeClause(owners) : null, companyClause);
+      if (accountClause) query = query.or(accountClause, { referencedTable: 'account' });
+      query = applyCountry(query, filters.pais, 'account.');
+      const { data, count, error } = await query;
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as unknown as ContactRow[];
+      return { total: count ?? rows.length, mostrados: rows.length, contactos: rows.map(toContact) };
     },
 
     async searches(filters, limit): Promise<AssistantSearch[]> {
@@ -391,10 +523,7 @@ export function createAssistantDataSource(
         .is('archived_at', null)
         .order('created_at', { ascending: false })
         .limit(limit);
-      if (users) {
-        const list = users.join(',');
-        query = query.or(`owner_id.in.(${list}),created_by.in.(${list})`);
-      }
+      if (users) query = query.or(batchScopeClause(users));
       if (filters.texto) query = query.ilike('name', ilikePattern(filters.texto));
       query = applyCountry(query, filters.pais);
       const since = createdSince(filters.periodo, now);
@@ -441,43 +570,81 @@ export function createAssistantDataSource(
       }));
     },
 
-    async aiUsage(period: UsagePeriod): Promise<AssistantUsage> {
-      const since = usagePeriodStart(period, now);
-      const empty: AssistantUsage = { periodo: period, desde: day(since), consultas: 0, errores: 0, costoUsd: 0, porProveedor: [] };
-      if (owners !== null && owners.length === 0) return empty;
+    async aiUsage(period: UsagePeriod, responsable?: string): Promise<AssistantUsage> {
+      const periodStart = usagePeriodStart(period, now);
+      const since = visibleSince && visibleSince > periodStart ? visibleSince : periodStart;
+      const money = options.moneyVisible;
+      const users = await ownerIds(responsable);
+      const alcance = responsable
+        ? `de ${responsable}`
+        : scope.canViewAll
+          ? 'toda la plataforma'
+          : scope.isRestrictedToSelf
+            ? 'sólo lo tuyo'
+            : 'tu equipo (en cascada por el organigrama)';
+      const empty: AssistantUsage = {
+        periodo: period,
+        desde: day(since),
+        alcance,
+        consultas: 0,
+        errores: 0,
+        creditos: 0,
+        costoUsd: money ? 0 : null,
+        porProveedor: [],
+        porPersona: [],
+        enlace: aiUsageLink(appUrl),
+      };
+      if (users !== null && users.length === 0) return empty;
 
-      const rows: Array<{ provider_key: string; status: string; estimated_cost_usd: number | null }> = [];
+      const rows: Array<{ provider_key: string; status: string; estimated_cost_usd: number | null; credits_used: number | null; triggered_by: string | null }> = [];
       for (let page = 0; page < USAGE_MAX_PAGES; page++) {
         let query = admin
           .from('provider_usage_logs')
-          .select('provider_key, status, estimated_cost_usd')
+          .select('provider_key, status, estimated_cost_usd, credits_used, triggered_by')
           .gte('created_at', since)
           .order('created_at', { ascending: true })
           .range(page * USAGE_PAGE_SIZE, (page + 1) * USAGE_PAGE_SIZE - 1);
-        if (owners) query = query.in('triggered_by', owners);
+        if (users) query = query.in('triggered_by', users);
         const { data, error } = await query;
         if (error) throw new Error(error.message);
         rows.push(...((data ?? []) as typeof rows));
         if (!data || data.length < USAGE_PAGE_SIZE) break;
       }
 
-      const byProvider = new Map<string, { consultas: number; errores: number; costoUsd: number }>();
+      type Bucket = { consultas: number; errores: number; creditos: number; costoUsd: number };
+      const add = (map: Map<string, Bucket>, key: string, r: (typeof rows)[number]) => {
+        const b = map.get(key) ?? { consultas: 0, errores: 0, creditos: 0, costoUsd: 0 };
+        b.consultas += 1;
+        if (r.status !== 'success') b.errores += 1;
+        b.creditos += Number(r.credits_used ?? 0);
+        b.costoUsd += Number(r.estimated_cost_usd ?? 0);
+        map.set(key, b);
+      };
+      const byProvider = new Map<string, Bucket>();
+      const byPerson = new Map<string, Bucket>();
       for (const r of rows) {
-        const bucket = byProvider.get(r.provider_key) ?? { consultas: 0, errores: 0, costoUsd: 0 };
-        bucket.consultas += 1;
-        if (r.status !== 'success') bucket.errores += 1;
-        bucket.costoUsd += Number(r.estimated_cost_usd ?? 0);
-        byProvider.set(r.provider_key, bucket);
+        add(byProvider, r.provider_key, r);
+        add(byPerson, r.triggered_by ?? 'sistema', r);
       }
+      const names = await namesOf([...byPerson.keys()].filter((k) => k !== 'sistema'));
+      const usd = (n: number) => (money ? round2(n) : null);
       const porProveedor = [...byProvider.entries()]
-        .map(([key, b]) => ({ proveedor: providerDisplayName(key), consultas: b.consultas, errores: b.errores, costoUsd: round2(b.costoUsd) }))
-        .sort((a, b) => b.costoUsd - a.costoUsd || b.consultas - a.consultas);
+        .map(([key, b]) => ({ proveedor: providerDisplayName(key), consultas: b.consultas, errores: b.errores, creditos: round2(b.creditos), costoUsd: usd(b.costoUsd) }))
+        .sort((a, b) => (b.costoUsd ?? 0) - (a.costoUsd ?? 0) || b.consultas - a.consultas);
+      const porPersona = [...byPerson.entries()]
+        .map(([key, b]) => ({ persona: key === 'sistema' ? 'Automático' : names.get(key) ?? 'Sin nombre', consultas: b.consultas, creditos: round2(b.creditos), costoUsd: usd(b.costoUsd) }))
+        .sort((a, b) => (b.costoUsd ?? 0) - (a.costoUsd ?? 0) || b.consultas - a.consultas)
+        .slice(0, 15);
+      const totalUsd = [...byProvider.values()].reduce((s, b) => s + b.costoUsd, 0);
       return {
         ...empty,
         consultas: rows.length,
         errores: porProveedor.reduce((s, p) => s + p.errores, 0),
-        costoUsd: round2(porProveedor.reduce((s, p) => s + p.costoUsd, 0)),
+        creditos: round2([...byProvider.values()].reduce((s, b) => s + b.creditos, 0)),
+        costoUsd: usd(totalUsd),
         porProveedor,
+        // Un vendedor sólo se ve a sí mismo: el desglose por persona no aporta.
+        porPersona: scope.isRestrictedToSelf && !scope.canViewAll ? [] : porPersona,
       };
     },
   };

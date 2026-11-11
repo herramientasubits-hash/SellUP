@@ -14,7 +14,13 @@ import {
   type AnthropicUsageTotals,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
-import { ASSISTANT_TOOLS, runAssistantTool, type AssistantDataSource } from './tools';
+import {
+  runAssistantTool,
+  toolsForRole,
+  type AssistantActionContext,
+  type AssistantAdminDataSource,
+  type AssistantDataSource,
+} from './tools';
 import type { ConversationTurn } from './conversation';
 
 /** Vueltas de herramientas como máximo antes de pedir la respuesta final. */
@@ -48,6 +54,10 @@ export interface AnswerQuestionInput {
 export interface AnswerQuestionDeps {
   runConversation: (body: AnthropicRequestBody, apiKey: string) => Promise<AnthropicConversationResult>;
   data: AssistantDataSource;
+  /** Sólo para administradores; `null` = no se le ofrecen ni se ejecutan esas herramientas. */
+  adminData?: AssistantAdminDataSource | null;
+  /** Acciones con confirmación (proponer aprobar/descartar/asignar). */
+  actions?: AssistantActionContext | null;
 }
 
 export interface AnswerQuestionResult {
@@ -69,6 +79,10 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- «Por revisar» / prospectos / candidatas: empresas que encontró una búsqueda y esperan que alguien las apruebe o descarte → herramienta prospectos_por_revisar.',
     '- «Empresas»: las ya aprobadas, con responsable y contactos → herramienta empresas.',
     '- «Búsquedas»: los lotes de prospección que las encontraron → herramienta busquedas.',
+    '- Una empresa en concreto (por nombre, NIT, dominio o ID) → ficha_empresa. Personas → contactos.',
+    '- Descartadas, aprobadas o duplicadas → prospectos con ese estado.',
+    '- «Uso de IA», consumo, costos → uso_de_ia (admin ve todo; líder su equipo en cascada; vendedor lo suyo; sólo admin y líderes ven dólares).',
+    '- Usuarios, catálogo de fuentes, catálogo de industrias y presupuesto son sólo para administradores: si no tienes esas herramientas, explica que esa información la ve un administrador en SellUp.',
     '',
     'Cómo responder:',
     '- Ve directo a la respuesta. Nada de saludos, emojis ni frases de relleno.',
@@ -78,7 +92,9 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- Para datos de SellUp usa SIEMPRE las herramientas, con los filtros que correspondan (país en código ISO de 2 letras: Chile = CL). Nunca inventes cifras, nombres ni contactos.',
     '- Si el resultado trae más de lo que muestras, di cuántos hay en total y comparte el `enlace` que trae la herramienta para ver el resto filtrado en SellUp.',
     '- Si no hay resultados, dilo en una línea y sugiere ampliar el filtro (otro periodo, otro país).',
-    '- Sólo puedes CONSULTAR. Si te piden aprobar, descartar, asignar, cambiar o buscar empresas nuevas, explica que eso se hace en SellUp y comparte el enlace de la pantalla que corresponda (o ' + input.appUrl + ').',
+    '- Acciones: SÍ puedes PROPONER aprobar o descartar prospectos de «Por revisar» y asignar prospectos o empresas a una persona (herramientas proponer_*). Nunca se ejecutan solas: queda un botón «Confirmar» que la persona pulsa. Di qué quedará hecho al confirmar; jamás digas que ya se hizo.',
+    '- Para descartar hace falta un motivo: si no lo dijeron, pregúntalo antes de proponer. Una propuesta por respuesta.',
+    '- Cualquier otra acción (cambiar estados, buscar empresas nuevas, pedir teléfonos, Rumbo…) todavía no se hace por Slack: explica que se hace en SellUp y comparte el enlace de la pantalla que corresponda (o ' + input.appUrl + ').',
     '- Si preguntan por algo fuera de sus permisos, explica que sólo ves lo que su rol puede ver.',
     '- Formato de Slack: *negrita* con un asterisco, listas con «•», enlaces como <url|texto>. Sin tablas ni títulos con #. Listas de hasta ~20 líneas.',
     '- Dinero en dólares con 2 decimales (US$1,25). Fechas como «11 nov».',
@@ -126,7 +142,7 @@ export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQue
           model: input.model,
           max_tokens: ASSISTANT_MAX_TOKENS,
           system,
-          tools: [...ASSISTANT_TOOLS],
+          tools: [...toolsForRole(Boolean(deps.adminData))],
           messages,
         },
         input.apiKey,
@@ -151,7 +167,7 @@ export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQue
       for (const block of toolUses) {
         const name = String(block.name ?? '');
         toolCalls.push(name);
-        const output = await runAssistantTool(deps.data, name, block.input);
+        const output = await runAssistantTool(deps.data, deps.adminData ?? null, name, block.input, deps.actions ?? null);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output.content, is_error: output.isError });
       }
       messages = [...messages, { role: 'assistant', content: result.content }, { role: 'user', content: toolResults }];

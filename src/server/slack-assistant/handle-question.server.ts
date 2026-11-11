@@ -17,9 +17,14 @@ import { runAnthropicConversation } from '@/server/agents/prospecting-toolkit/cl
 import { resolveActiveAnthropicModel } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server';
 import { estimateClassifierCost } from '@/server/agents/prospecting-toolkit/claude-classifier/cost';
 import { createAssistantDataSource } from './data-source.server';
+import { createAssistantAdminDataSource } from './admin-data-source.server';
+import { canSeeMoney } from '@/modules/ai-usage/money-visibility';
 import { answerQuestion } from './run';
 import { buildConversationTurns, HISTORY_MAX_MESSAGES } from './conversation';
 import { scopeLabelFor, SLACK_ASSISTANT_COPY } from './copy';
+import { createAssistantActionResolver } from './action-resolver.server';
+import { ACTION_TTL_SECONDS, proposalBlocks } from './action-proposal';
+import type { ProposedAction } from './tools';
 
 export const SLACK_ASSISTANT_AGENT_KEY = 'slack_assistant';
 export const SLACK_ASSISTANT_STEP = 'responder_pregunta';
@@ -100,6 +105,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
     const conversation = buildConversationTurns(history, question.text, question.messageTs);
     const appUrl = sellupLoginUrl().replace(/\/login$/, '');
 
+    let proposed: ProposedAction | null = null;
     const startedAt = Date.now();
     const deadlineAtMs = startedAt + ANSWER_DEADLINE_MS;
     const now = new Date();
@@ -115,11 +121,35 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
       },
       {
         runConversation: (body, apiKey) => runAnthropicConversation({ apiKey, body, deadlineAtMs, timeoutMs: 40_000 }),
-        data: createAssistantDataSource(admin, scope, { appUrl, now }),
+        data: createAssistantDataSource(admin, scope, {
+          appUrl,
+          now,
+          moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
+        }),
+        // Aprobar, descartar y asignar: sólo se PROPONEN; la persona confirma con un botón.
+        actions: {
+          resolver: createAssistantActionResolver(admin, scope),
+          propose: (proposal) => {
+            proposed = proposal;
+          },
+        },
+        // Usuarios, catálogos y presupuesto: sólo un administrador (como en la plataforma).
+        adminData: scope.canViewAll ? createAssistantAdminDataSource(admin, { appUrl, now }) : null,
       },
     );
 
     await reply(result.answer);
+    // La propuesta va aparte, con sus botones (vale sólo para quien preguntó, 30 min).
+    const proposal = proposed as ProposedAction | null;
+    if (proposal && result.status === 'success') {
+      const message = proposalBlocks({
+        ...proposal,
+        askerId: asker.id,
+        askerSlackId: question.slackUserId,
+        expiresAt: Math.floor(Date.now() / 1000) + ACTION_TTL_SECONDS,
+      });
+      await postSlackMessage({ channel: question.channel, threadTs: question.threadTs, text: message.text, blocks: message.blocks });
+    }
 
     if (result.requests > 0 || result.errorCode) {
       const cost = estimateClassifierCost(result.usage, active.model);
@@ -143,6 +173,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
           slack_event_id: question.eventId,
           tool_calls: result.toolCalls,
           history_turns: conversation.length - 1,
+          proposed_action: (proposed as ProposedAction | null)?.kind ?? null,
           requests: result.requests,
           pricing_source: cost.pricingSource,
           cache_read_input_tokens: result.usage.cacheReadInputTokens,
