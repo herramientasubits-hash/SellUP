@@ -1,7 +1,5 @@
 import { GoogleSignInButton } from '@/modules/auth/components/google-sign-in-button';
 import { LoginAccessCard } from '@/modules/auth/components/login-access-card';
-import { LaunchHoldNotice } from '@/modules/auth/components/launch-hold-notice';
-import { parseLaunchAudience, readLaunchGateConfig } from '@/modules/auth/launch-gate';
 
 const errorMessages: Record<string, string> = {
   auth_callback_failed:
@@ -17,11 +15,9 @@ const errorMessages: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; hold?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const params = await searchParams;
-  // LAUNCH-GATE-2026-11: mientras el ingreso está cerrado, el aviso va arriba del botón.
-  const launchGate = readLaunchGateConfig();
   const errorMessage = params.error
     ? (errorMessages[params.error] ??
       'Ocurrió un error al autenticar. Intenta nuevamente.')
@@ -41,9 +37,6 @@ export default async function LoginPage({
         style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--chart-3) 30%, transparent), transparent 60%)' }}
       />
       <LoginAccessCard errorMessage={errorMessage}>
-        {launchGate.enabled && (
-          <LaunchHoldNotice audience={parseLaunchAudience(params.hold)} leadersOpenAt={launchGate.leadersOpenAt} />
-        )}
         <GoogleSignInButton />
       </LoginAccessCard>
     </main>

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { UserPlus, Mail, CheckCircle2, XCircle, ChevronDown, User, KeyRound, Network, Loader2 } from "@/icons";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { createPreapproval } from '@/modules/access/actions';
+import { SLACK_INVITE_OUTCOME_COPY } from '@/modules/access/slack-invitation-message';
 import type { Role, InternalUser, OrganizationGroup } from '@/modules/access/types';
 import { UserAvatar } from './user-avatar';
 
@@ -43,6 +46,7 @@ export function AddUserDrawer({
   open: controlledOpen,
   onOpenChange,
 }: AddUserDrawerProps) {
+  const router = useRouter();
   const isControlled = controlledOpen !== undefined;
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isControlled ? controlledOpen : internalOpen;
@@ -99,9 +103,17 @@ export function AddUserDrawer({
       return;
     }
 
+    // Dueña 11-11: además de preautorizarla, SellUp le escribe por Slack.
+    const invited = email.trim().toLowerCase();
+    if (result.slackInvite === 'sent') {
+      toast.success(`Agregaste a ${invited}`, { description: SLACK_INVITE_OUTCOME_COPY.sent });
+    } else if (result.slackInvite) {
+      toast.warning(`Agregaste a ${invited}`, { description: SLACK_INVITE_OUTCOME_COPY[result.slackInvite] });
+    }
+
     reset();
     setOpen(false);
-    window.location.reload();
+    router.refresh();
   }
 
   return (
@@ -117,7 +129,7 @@ export function AddUserDrawer({
         )
       }
       title="Agregar usuario"
-      description="Preautoriza un correo @ubits.co. El acceso se activa en el primer inicio de sesión con Google."
+      description="Preautoriza un correo @ubits.co y SellUp le avisa por Slack. El acceso se activa en el primer inicio de sesión con Google."
       icon={<User className="h-4 w-4" />}
       size="lg"
       actions={

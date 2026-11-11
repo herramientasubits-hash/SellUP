@@ -49,6 +49,7 @@ let openSlackDMForUser: SlackModule['openSlackDMForUser'];
 let testSlackConnection: SlackModule['testSlackConnection'];
 let createSlackChannel: SlackModule['createSlackChannel'];
 let sendSlackTestMessage: SlackModule['sendSlackTestMessage'];
+let sendSlackDirectMessageByEmail: SlackModule['sendSlackDirectMessageByEmail'];
 
 // Fake, non-real credentials. Never a real Slack token, never a Supabase key.
 const FAKE_BOT_TOKEN = 'xoxb-fake-slack-bot-token-not-real-0000';
@@ -188,6 +189,7 @@ before(async () => {
   getSlackOAuthConfig = mod.getSlackOAuthConfig;
   getSlackClientSecret = mod.getSlackClientSecret;
   openSlackDMForUser = mod.openSlackDMForUser;
+  sendSlackDirectMessageByEmail = mod.sendSlackDirectMessageByEmail;
   testSlackConnection = mod.testSlackConnection;
   createSlackChannel = mod.createSlackChannel;
   sendSlackTestMessage = mod.sendSlackTestMessage;
@@ -526,6 +528,63 @@ describe('slack-connection (offline — fake Vault via fetch, mocked fetch, no r
     const channelId = await openSlackDMForUser('ghost@example.com');
     assert.equal(channelId, null);
     assert.equal(slackCalls, 1);
+  });
+
+  // ── sendSlackDirectMessageByEmail (invitación al agregar usuario, 11-11) ────
+
+  it('sendSlackDirectMessageByEmail: sin token no llama a Slack y dice que no está conectado', async () => {
+    installFetch({ vault: () => jsonResponse(null) });
+    assert.equal(await sendSlackDirectMessageByEmail('a@ubits.co', { text: 'hola' }), 'slack_not_connected');
+    assert.equal(slackCalls, 0);
+  });
+
+  it('sendSlackDirectMessageByEmail: busca por correo, abre el DM y escribe el mensaje', async () => {
+    let posted: Record<string, unknown> | undefined;
+    installFetch({
+      vault: () => jsonResponse(FAKE_BOT_TOKEN),
+      lookupByEmail: (c) => {
+        assert.ok(c.url.includes('email=a%40ubits.co'));
+        return jsonResponse({ ok: true, user: { id: 'U1' } });
+      },
+      conversationsOpen: () => jsonResponse({ ok: true, channel: { id: 'D1' } }),
+      postMessage: (c) => {
+        posted = c.body as Record<string, unknown>;
+        return jsonResponse({ ok: true });
+      },
+    });
+    const outcome = await sendSlackDirectMessageByEmail('a@ubits.co', { text: 'hola', blocks: [{ type: 'divider' }] });
+    assert.equal(outcome, 'sent');
+    assert.equal(slackCalls, 3);
+    assert.equal(posted?.channel, 'D1');
+    assert.equal(posted?.text, 'hola');
+    assert.deepEqual(posted?.blocks, [{ type: 'divider' }]);
+  });
+
+  it('sendSlackDirectMessageByEmail: correo que no está en Slack ⇒ not_in_slack, sin escribir', async () => {
+    installFetch({
+      vault: () => jsonResponse(FAKE_BOT_TOKEN),
+      lookupByEmail: () => jsonResponse({ ok: false, error: 'users_not_found' }),
+    });
+    assert.equal(await sendSlackDirectMessageByEmail('x@ubits.co', { text: 'hola' }), 'not_in_slack');
+    assert.equal(slackCalls, 1);
+  });
+
+  it('sendSlackDirectMessageByEmail: token revocado ⇒ slack_not_connected', async () => {
+    installFetch({
+      vault: () => jsonResponse(FAKE_BOT_TOKEN),
+      lookupByEmail: () => jsonResponse({ ok: false, error: 'token_revoked' }),
+    });
+    assert.equal(await sendSlackDirectMessageByEmail('a@ubits.co', { text: 'hola' }), 'slack_not_connected');
+  });
+
+  it('sendSlackDirectMessageByEmail: si Slack rechaza el mensaje ⇒ failed, sin lanzar', async () => {
+    installFetch({
+      vault: () => jsonResponse(FAKE_BOT_TOKEN),
+      lookupByEmail: () => jsonResponse({ ok: true, user: { id: 'U1' } }),
+      conversationsOpen: () => jsonResponse({ ok: true, channel: { id: 'D1' } }),
+      postMessage: () => jsonResponse({ ok: false, error: 'restricted_action' }),
+    });
+    assert.equal(await sendSlackDirectMessageByEmail('a@ubits.co', { text: 'hola' }), 'failed');
   });
 
   // ── createSlackChannel (conversations.create) ──────────────────────────────
