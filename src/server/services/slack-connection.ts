@@ -414,6 +414,65 @@ export async function sendSlackDirectMessageByEmail(
 }
 
 // ============================================================
+// Asistente de Slack (dueña 11-11): quién escribe y responder en su hilo
+// ============================================================
+
+/**
+ * Correo de una persona de Slack (para saber quién es en SellUp).
+ * Requiere scope: users:read.email. `null` si no se pudo leer.
+ */
+export async function getSlackUserEmail(slackUserId: string): Promise<string | null> {
+  const token = await getSlackToken();
+  if (!token) return null;
+  try {
+    const res = await fetch(`https://slack.com/api/users.info?user=${encodeURIComponent(slackUserId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await res.json()) as { ok: boolean; user?: { profile?: { email?: string } }; error?: string };
+    if (!body.ok) {
+      console.error('[slack] users.info', body.error);
+      return null;
+    }
+    return body.user?.profile?.email?.trim().toLowerCase() || null;
+  } catch (error) {
+    console.error('[slack] users.info', error instanceof Error ? error.message : 'error');
+    return null;
+  }
+}
+
+/**
+ * Publica un mensaje en un canal o mensaje directo, dentro del hilo `threadTs`
+ * si viene. Requiere scope: chat:write. Nunca lanza.
+ */
+export async function postSlackMessage(params: {
+  channel: string;
+  text: string;
+  threadTs?: string | null;
+}): Promise<boolean> {
+  const token = await getSlackToken();
+  if (!token) return false;
+  try {
+    const res = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: params.channel,
+        text: params.text,
+        ...(params.threadTs ? { thread_ts: params.threadTs } : {}),
+        unfurl_links: false,
+        unfurl_media: false,
+      }),
+    });
+    const body = (await res.json()) as { ok: boolean; error?: string };
+    if (!body.ok) console.error('[slack] chat.postMessage', body.error);
+    return body.ok;
+  } catch (error) {
+    console.error('[slack] chat.postMessage', error instanceof Error ? error.message : 'error');
+    return false;
+  }
+}
+
+// ============================================================
 // Prueba de conexión — auth.test
 // ============================================================
 

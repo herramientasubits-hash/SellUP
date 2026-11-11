@@ -63,6 +63,6 @@ export async function proxy(request: NextRequest) {
 // expone un cron nuevo de nombre parecido.
 export const config = {
   matcher: [
-    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|api/cron/apollo-round-continuation(?:$|/)|api/cron/post-approval-nit-enrich(?:$|/)|api/cron/bulk-search-rounds(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static(?:$|/)|_next/image(?:$|/)|favicon.ico(?:$|/)|api/health(?:$|/)|api/integrations/slack/oauth/callback(?:$|/)|api/integrations/slack/events(?:$|/)|api/integrations/samu/webhook(?:$|/)|api/integrations/apollo/phone-reveal/webhook(?:$|/)|api/cron/enrich(?:$|/)|api/cron/phone-reveal-recovery(?:$|/)|api/cron/claude-rescue-continuation(?:$|/)|api/cron/apollo-round-continuation(?:$|/)|api/cron/post-approval-nit-enrich(?:$|/)|api/cron/bulk-search-rounds(?:$|/)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
