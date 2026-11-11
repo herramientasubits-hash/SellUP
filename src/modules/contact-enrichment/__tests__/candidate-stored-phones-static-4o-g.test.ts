@@ -267,10 +267,10 @@ describe('4O-G — autorización de servidor, no de UI', () => {
     assert.equal(gateCount, 2, 'las DOS acciones deben pasar por el gate');
   });
 
-  it('el rol autorizado es el mismo `admin` de la revisión del candidato', () => {
+  it('los roles autorizados son los que pueden revelar (11-11: + líder y vendedor)', () => {
     assert.match(
       sources[ROLES],
-      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \['admin'\]/,
+      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \[\s*'admin',\s*'commercial_manager',\s*'commercial_lead',\s*'seller_bd',\s*\]/,
     );
     // Y la acción lo consume de ahí, en vez de declarar una segunda lista propia.
     assert.match(

@@ -196,10 +196,10 @@ describe('§ 1-2 — autoridad canónica única', () => {
     assert.equal(CORE_REEXPORTED_ROLE_KEYS, PHONE_REVEAL_AUTHORIZED_ROLE_KEYS);
   });
 
-  test('«Buscar más números» conserva su propia lista admin-only', () => {
+  test('«Buscar más números» conserva su propia lista (11-11: los mismos cuatro roles)', () => {
     // No es el botón «Revelar teléfono»: es una compra ADICIONAL. Ensanchar el
     // waterfall NO la ensancha, y este test es lo que impide que se acople otra vez.
-    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin']);
+    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd']);
     assert.notEqual(
       SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS,
       PHONE_REVEAL_AUTHORIZED_ROLE_KEYS,
