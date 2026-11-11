@@ -12,11 +12,18 @@ El bot lee con los mismos permisos que la persona tiene en SellUp:
 
 | Herramienta | Qué lee |
 |---|---|
-| `mi_resumen` | Empresas activas por estado, prospectos por revisar, búsquedas en curso y contactos. |
-| `buscar_empresas` | Empresas por nombre, dominio o NIT: estado, país, industria, responsable y número de contactos. |
+| `mi_resumen` | Totales: empresas activas por estado, prospectos por revisar, búsquedas en curso y contactos (con enlaces). |
+| `prospectos_por_revisar` | Las empresas de «Por revisar» **con nombre**: país, industria, tamaño, NIT, búsqueda de origen y responsable. Filtros: país, periodo (hoy/semana/mes/todo), búsqueda, industria, responsable y texto. Usa la misma regla de responsable que la pantalla: el asignado o, si no hay, el dueño de la búsqueda. |
+| `empresas` | Empresas aprobadas. Busca por texto (nombre, dominio o NIT) y filtra por país, estado, industria, responsable y periodo. Cada una lleva enlace a su ficha. |
 | `contactos_de_empresa` | Contactos de una empresa: nombre, cargo, correo, teléfono y LinkedIn. |
-| `ultimas_busquedas` | Búsquedas recientes: estado, país, industria, meta y candidatos por estado. |
+| `busquedas` | Búsquedas recientes con sus candidatos por estado. Filtros: país, periodo, responsable y nombre. |
 | `uso_de_ia` | Consultas y costo por proveedor: hoy, últimos 7 días o el mes en curso (hora de Bogotá). |
+
+**Memoria:** antes de responder, el bot lee los mensajes anteriores del hilo o de la conversación directa: hasta 12 mensajes y no más de 6 horas atrás. Ignora los avisos con botones (invitaciones y activaciones). Así «¿cuáles son?» o «¿y de México?» retoman lo que se venía hablando.
+
+**Enlaces:** las respuestas llevan a la pantalla exacta y no al login. Por ejemplo, Empresas › Por revisar con el país ya filtrado (`/accounts?tab=prospectos&country=CL`), la ficha de una empresa (`/accounts/<id>`) o una búsqueda resaltada (`/accounts?tab=busquedas&focus=<id>`).
+
+**Los filtros sólo acotan:** el responsable que pide Claude se cruza con el alcance de quien pregunta, así que nunca puede ampliar lo que esa persona ve.
 
 **No escribe nada.** Si alguien le pide crear, aprobar, descartar, asignar o buscar empresas nuevas, el bot explica que eso se hace en SellUp y comparte el enlace. Las acciones con confirmación serán la fase 2.
 

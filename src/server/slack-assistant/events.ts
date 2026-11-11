@@ -18,6 +18,8 @@ export type SlackEventAction =
        * persona escribió dentro de uno; si no, en la conversación (`null`).
        */
       threadTs: string | null;
+      /** `ts` del propio mensaje (para leer lo que vino antes). */
+      messageTs: string;
       text: string;
       source: 'direct_message' | 'mention';
     }
@@ -76,6 +78,7 @@ export function parseSlackEvent(payload: unknown): SlackEventAction {
     slackUserId,
     channel,
     threadTs: str(event.thread_ts) ?? (source === 'mention' ? ts : null),
+    messageTs: ts,
     text,
     source,
   };

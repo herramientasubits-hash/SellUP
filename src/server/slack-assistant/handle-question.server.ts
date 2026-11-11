@@ -12,12 +12,13 @@ import { resolveCommercialScopeForUser } from '@/modules/access/commercial-scope
 import { roleLabelFor } from '@/modules/access/role-labels';
 import { sellupLoginUrl } from '@/modules/access/slack-invitation.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
-import { getSlackUserEmail, postSlackMessage } from '@/server/services/slack-connection';
+import { getSlackConversationHistory, getSlackUserEmail, postSlackMessage } from '@/server/services/slack-connection';
 import { runAnthropicConversation } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { resolveActiveAnthropicModel } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server';
 import { estimateClassifierCost } from '@/server/agents/prospecting-toolkit/claude-classifier/cost';
 import { createAssistantDataSource } from './data-source.server';
 import { answerQuestion } from './run';
+import { buildConversationTurns, HISTORY_MAX_MESSAGES } from './conversation';
 import { scopeLabelFor, SLACK_ASSISTANT_COPY } from './copy';
 
 export const SLACK_ASSISTANT_AGENT_KEY = 'slack_assistant';
@@ -30,6 +31,7 @@ export interface SlackQuestion {
   slackUserId: string;
   channel: string;
   threadTs: string | null;
+  messageTs: string;
   text: string;
   source: 'direct_message' | 'mention';
   eventId: string | null;
@@ -88,21 +90,32 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
       return;
     }
 
+    // Memoria: lo que se venía hablando en el hilo o en la conversación directa.
+    const history = await getSlackConversationHistory({
+      channel: question.channel,
+      threadTs: question.threadTs,
+      beforeTs: question.messageTs,
+      limit: HISTORY_MAX_MESSAGES + 4,
+    });
+    const conversation = buildConversationTurns(history, question.text, question.messageTs);
+    const appUrl = sellupLoginUrl().replace(/\/login$/, '');
+
     const startedAt = Date.now();
     const deadlineAtMs = startedAt + ANSWER_DEADLINE_MS;
     const now = new Date();
     const result = await answerQuestion(
       {
         question: question.text,
+        conversation,
         asker: { name: asker.full_name, roleLabel: roleLabelFor(roleKey), scopeLabel: scopeLabelFor(scope) },
         model: active.model,
         apiKey: active.apiKey,
         today: bogotaToday(now),
-        loginUrl: sellupLoginUrl(),
+        appUrl,
       },
       {
         runConversation: (body, apiKey) => runAnthropicConversation({ apiKey, body, deadlineAtMs, timeoutMs: 40_000 }),
-        data: createAssistantDataSource(admin, scope, now),
+        data: createAssistantDataSource(admin, scope, { appUrl, now }),
       },
     );
 
@@ -129,6 +142,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
           source: question.source,
           slack_event_id: question.eventId,
           tool_calls: result.toolCalls,
+          history_turns: conversation.length - 1,
           requests: result.requests,
           pricing_source: cost.pricingSource,
           cache_read_input_tokens: result.usage.cacheReadInputTokens,
