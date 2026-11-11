@@ -156,9 +156,37 @@ export function companyQueryDomain(query: string): { domain: string; personal: b
   return host && DOMAIN_RE.test(host) ? { domain: host, personal: false } : null;
 }
 
+const HUBSPOT_ID_ONLY_RE = /^\d{6,}$/;
+/** Enlace de HubSpot: `.../company/22069687728` o `.../record/0-2/22069687728`. */
+const HUBSPOT_URL_ID_RE = /hubspot\.com\/.*?\/(?:company|0-2)\/(\d{6,})/i;
+/** «id hubspot: 22069687728», «hubspot id 22069687728», «ID: 22069687728», «#22069687728». */
+const HUBSPOT_LABELED_ID_RE = /(?:hubspot|\bid\b|#)[^\d\n]{0,15}?(\d{6,})\b/i;
+
+/**
+ * El ID de HubSpot escrito junto al nombre. Antes sólo se reconocía si el texto era
+ * SOLO el número; «citibank Republica Dominicana - id hubspot:22069687728» se buscaba
+ * entero como NOMBRE, no aparecía y terminaba como empresa manual sin dominio
+ * (feedback líder 11-11).
+ */
+export function extractHubSpotCompanyId(query: string): string | null {
+  const q = query.trim();
+  if (HUBSPOT_ID_ONLY_RE.test(q)) return q;
+  return HUBSPOT_URL_ID_RE.exec(q)?.[1] ?? HUBSPOT_LABELED_ID_RE.exec(q)?.[1] ?? null;
+}
+
+/** Lo escrito sin la parte del ID de HubSpot: sirve como nombre si el ID no aparece. */
+export function companyNameWithoutHubSpotId(query: string): string {
+  const id = extractHubSpotCompanyId(query);
+  if (!id) return query.trim();
+  if (HUBSPOT_URL_ID_RE.test(query)) return '';
+  const at = query.indexOf(id);
+  const before = query.slice(0, at).replace(/(?:hubspot|\bid\b|#|[\s:·\-–—|,(])+$/gi, '');
+  return before.replace(/\s*(?:hubspot|\bid\b)\s*$/i, '').trim();
+}
+
 export function classifyCompanyQuery(query: string): CompanyQueryKind {
   const q = query.trim();
-  if (/^\d{6,}$/.test(q)) return 'hubspot_id';
+  if (extractHubSpotCompanyId(q)) return 'hubspot_id';
   const domain = companyQueryDomain(q);
   if (domain?.personal) return 'personal_email';
   if (domain) return 'domain';
@@ -169,7 +197,7 @@ export function classifyCompanyQuery(query: string): CompanyQueryKind {
 export function buildResolveInput(query: string): Record<string, string> {
   const q = query.trim();
   const kind = classifyCompanyQuery(q);
-  if (kind === 'hubspot_id') return { hubspotCompanyId: q };
+  if (kind === 'hubspot_id') return { hubspotCompanyId: extractHubSpotCompanyId(q) ?? q };
   if (kind === 'domain') return { companyDomain: companyQueryDomain(q)?.domain ?? q };
   return { companyName: q };
 }
@@ -180,7 +208,7 @@ export function extraDataPrefill(query: string): ExtraDataPrefill {
   const kind = classifyCompanyQuery(q);
   const found = companyQueryDomain(q);
   return {
-    name: kind === 'name' ? q : '',
+    name: kind === 'name' ? q : kind === 'hubspot_id' ? companyNameWithoutHubSpotId(q) : '',
     domain: found && !found.personal ? found.domain : '',
   };
 }

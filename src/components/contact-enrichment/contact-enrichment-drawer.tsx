@@ -32,7 +32,7 @@ export type EnrichmentPanelMode = 'single' | 'hubspot_id_batch' | 'linkedin';
 /** Lo que dice la caja de texto en cada modo. */
 export const SEARCH_MODE_PLACEHOLDER: Record<EnrichmentPanelMode, string> = {
   single: 'Nombre o dominio de la empresa',
-  hubspot_id_batch: 'Company IDs separados por coma',
+  hubspot_id_batch: 'Company IDs (con coma o uno por fila)',
   linkedin: 'Pega el LinkedIn o el correo de la persona',
 };
 
