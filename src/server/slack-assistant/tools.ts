@@ -28,6 +28,7 @@ import type {
 } from './tool-types';
 
 import type { AssistantActionResolver, Resolution } from './action-resolver.server';
+import type { HelpAnswer } from './help/lookup';
 import {
   discardReasonLabel,
   DISCARD_REASON_KEYS,
@@ -77,6 +78,8 @@ export interface AssistantDataSource {
   searches(filters: AssistantFilters, limit: number): Promise<AssistantSearch[]>;
   /** Mismo alcance que la pantalla Uso de IA: admin todo, líder su equipo en cascada, vendedor lo suyo. */
   aiUsage(period: UsagePeriod, responsable?: string): Promise<AssistantUsage>;
+  /** Guía de uso de SellUp (fichas escritas desde el código), filtrada por rol. */
+  help(query: string): HelpAnswer;
 }
 
 /** Datos de administración: sólo si quien pregunta es admin. */
@@ -202,6 +205,17 @@ export const COMMERCIAL_TOOLS = [
         responsable: OWNER_PROPERTY,
       },
       required: ['periodo'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'ayuda_sellup',
+    description:
+      'Guía de uso de SellUp: CÓMO se hace algo en la plataforma (importar empresas desde un archivo, buscar empresas y sus modos, revisar y aprobar, Rumbo, contactos y teléfonos, asignar, uso de IA, presupuesto, usuarios…). Úsala SIEMPRE ante preguntas de «cómo» y responde sólo con lo que traiga.',
+    input_schema: {
+      type: 'object',
+      properties: { tema: { type: 'string', description: 'La pregunta o el tema (p. ej. «importar empresas desde un archivo»).' } },
+      required: ['tema'],
       additionalProperties: false,
     },
   },
@@ -400,6 +414,10 @@ export async function runAssistantTool(
         return ok(await admin!.industryCatalog({ texto: text(args.texto) }));
       case 'presupuesto':
         return ok(await admin!.budget());
+      case 'ayuda_sellup': {
+        const query = text(args.tema);
+        return query ? ok(data.help(query)) : fail('Falta el tema.');
+      }
       case 'proponer_aprobar':
       case 'proponer_descartar':
       case 'proponer_asignar':

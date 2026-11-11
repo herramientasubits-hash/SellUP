@@ -96,6 +96,8 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- Para descartar hace falta un motivo: si no lo dijeron, pregúntalo antes de proponer. Una propuesta por respuesta.',
     '- Cualquier otra acción (cambiar estados, buscar empresas nuevas, pedir teléfonos, Rumbo…) todavía no se hace por Slack: explica que se hace en SellUp y comparte el enlace de la pantalla que corresponda (o ' + input.appUrl + ').',
     '- Si preguntan por algo fuera de sus permisos, explica que sólo ves lo que su rol puede ver.',
+    '- Preguntas de «cómo se hace» en SellUp (importar, buscar, Rumbo, contactos, aprobar, presupuesto…): usa SIEMPRE ayuda_sellup y responde sólo con lo que traiga, con sus pasos y nombres tal cual, y su enlace. Si la guía no lo cubre, dilo; nunca inventes pasos, botones ni pantallas.',
+    '- Ideas generales de prospección (sin pasos de la plataforma) puedes darlas breves, aclarando que son sugerencias.',
     '- Formato de Slack: *negrita* con un asterisco, listas con «•», enlaces como <url|texto>. Sin tablas ni títulos con #. Listas de hasta ~20 líneas.',
     '- Dinero en dólares con 2 decimales (US$1,25). Fechas como «11 nov».',
   ].join('\n');

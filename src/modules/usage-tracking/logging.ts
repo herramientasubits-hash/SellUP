@@ -108,6 +108,11 @@ export async function updateAgentRun(
       console.error('[usage-tracking] updateAgentRun error:', error.message);
       return false;
     }
+    // «Tu trabajo terminó» (dueña 11-11): campanita + Slack, una vez por corrida.
+    if (input.status === 'completed' || input.status === 'failed') {
+      const { notifyAgentRunFinished } = await import('@/modules/notifications/run-finished.server');
+      await notifyAgentRunFinished(id, input.status);
+    }
     return true;
   } catch (err) {
     console.error('[usage-tracking] updateAgentRun unexpected error:', err);

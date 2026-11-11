@@ -135,6 +135,10 @@ function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSo
       calls.push({ tool: 'usage', period, responsable });
       return { ...USAGE_RESULT, periodo: period };
     },
+    help: (query) => {
+      calls.push({ tool: 'help', query });
+      return { encontrada: false, fichas: [], temasDisponibles: [], nota: '' };
+    },
     ...overrides,
   };
 }
@@ -219,7 +223,7 @@ describe('herramientas de sólo lectura', () => {
   it('🔴 a un no-admin ni siquiera se le ofrecen las de administración', () => {
     const commercial = toolsForRole(false).map((t) => t.name);
     assert.deepEqual(commercial, [
-      'mi_resumen', 'prospectos', 'empresas', 'ficha_empresa', 'contactos', 'busquedas', 'uso_de_ia',
+      'mi_resumen', 'prospectos', 'empresas', 'ficha_empresa', 'contactos', 'busquedas', 'uso_de_ia', 'ayuda_sellup',
       'proponer_aprobar', 'proponer_descartar', 'proponer_asignar',
     ]);
     assert.deepEqual(
