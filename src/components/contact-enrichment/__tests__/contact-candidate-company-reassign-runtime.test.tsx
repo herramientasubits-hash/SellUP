@@ -1,5 +1,6 @@
 /**
- * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1 — «Reasignar empresa» desde la sección Empresa.
+ * AGENT2A-CANDIDATE-COMPANY-REASSIGN-1 — «Reasignar empresa» desde «Información principal»
+ * (AGENT2A-CANDIDATE-COMPANY-IN-MAIN-INFO: antes tenía su propia sección «Empresa»).
  *
  * Caso real: un candidato (p. ej. juvenal.lavin@pizzapizza.cl) sin cuenta SellUp ni empresa
  * HubSpot no se podía aprobar. La ficha avisa, ofrece «Reasignar empresa», busca igual que el
@@ -227,6 +228,39 @@ describe('Reasignar empresa — ficha del candidato', () => {
     assert.equal(screen.queryByText('Trazabilidad'), null);
     assert.equal(screen.queryByText('ID del candidato'), null);
     assert.equal(screen.queryByText('ID de la ejecución'), null);
+  });
+
+  it('la empresa vive en «Información principal»: sin sección «Empresa» aparte', async () => {
+    await renderSheet(makeCandidate());
+    const mainInfo = screen.getByRole('heading', { name: 'Información principal' }).closest('section');
+    assert.ok(mainInfo, 'la sección «Información principal» existe');
+    const button = screen.getByRole('button', { name: 'Reasignar empresa' });
+    assert.ok(mainInfo.contains(button), 'el botón está en el encabezado de «Información principal»');
+    assert.ok(mainInfo.contains(screen.getByText('Sin empresa asociada')), 'el aviso también');
+    assert.equal(screen.queryByRole('heading', { name: 'Empresa' }), null);
+  });
+
+  it('candidato reasignado: la reasignación se lee como nota bajo el campo Empresa', async () => {
+    await renderSheet(
+      makeCandidate({
+        account_id: 'acc-pizza',
+        company_name: 'Pizza Pizza Chile',
+        enrichment_metadata: {
+          company_reassignment: {
+            version: 1,
+            account_id: 'acc-pizza',
+            company_name: 'Pizza Pizza Chile',
+            selected_source: 'hubspot',
+            reassigned_at: '',
+            original: { company_name: 'Pizza Pizza' },
+          },
+        },
+      }),
+    );
+    const mainInfo = screen.getByRole('heading', { name: 'Información principal' }).closest('section');
+    assert.ok(mainInfo);
+    assert.match(mainInfo.textContent ?? '', /Reasignada desde HubSpot · antes: Pizza Pizza/);
+    assert.equal(screen.queryByText('Empresa reasignada'), null);
   });
 
   it('busca en SellUp/HubSpot, oculta «manual» y reasigna la empresa elegida por id', async () => {
