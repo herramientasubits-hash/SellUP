@@ -2,12 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeSlackSignature, isValidSlackSignature } from '../signature';
 import { cleanSlackText, parseSlackEvent } from '../events';
-import { ASSISTANT_TOOLS, runAssistantTool, type AssistantDataSource } from '../tools';
+import { runAssistantTool, toolsForRole, type AssistantAdminDataSource, type AssistantDataSource } from '../tools';
 import { buildConversationTurns } from '../conversation';
 import { accountLink, pendingProspectsLink, searchesLink } from '../links';
 import { answerQuestion, buildAssistantSystemPrompt, MAX_TOOL_ROUNDS } from '../run';
 import { scopeLabelFor } from '../copy';
-import { combineOr, countryFilter, createdSince, ilikePattern, scopeOwnerIds, usagePeriodStart } from '../data-source.server';
+import { accountLookup, accountScopeClause, combineOr, countryFilter, createdSince, ilikePattern, scopeOwnerIds, usagePeriodStart } from '../query-helpers';
 import {
   AnthropicApiError,
   EMPTY_USAGE,
@@ -83,6 +83,19 @@ describe('eventos de Slack', () => {
 
 // ── Herramientas ─────────────────────────────────────────────────────────────
 
+const USAGE_RESULT = {
+  periodo: 'mes' as const,
+  desde: '2026-11-01',
+  alcance: 'x',
+  consultas: 0,
+  errores: 0,
+  creditos: 0,
+  costoUsd: 0,
+  porProveedor: [],
+  porPersona: [],
+  enlace: 'u',
+};
+
 function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSource & { calls: unknown[] } {
   const calls: unknown[] = [];
   return {
@@ -98,44 +111,63 @@ function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSo
         enlaces: { empresas: 'e', porRevisar: 'p', busquedas: 'b' },
       };
     },
-    pendingProspects: async (filters, limit) => {
-      calls.push({ tool: 'pending', filters, limit });
-      return { total: 0, mostrados: 0, enlace: 'p', prospectos: [] };
+    prospects: async (filters, limit) => {
+      calls.push({ tool: 'prospects', filters, limit });
+      return { estado: filters.estado, total: 0, mostrados: 0, enlace: 'p', prospectos: [] };
     },
     accounts: async (filters, limit) => {
       calls.push({ tool: 'accounts', filters, limit });
       return { total: 0, mostradas: 0, empresas: [] };
     },
-    accountContacts: async (text, limit) => {
-      calls.push({ tool: 'contacts', text, limit });
-      return { empresa: null, enlace: null, contactos: [] };
+    accountDetail: async (query) => {
+      calls.push({ tool: 'detail', query });
+      return { encontrada: false, otrasCoincidencias: [] };
+    },
+    contacts: async (filters, limit) => {
+      calls.push({ tool: 'contacts', filters, limit });
+      return { total: 0, mostrados: 0, contactos: [] };
     },
     searches: async (filters, limit) => {
       calls.push({ tool: 'searches', filters, limit });
       return [];
     },
-    aiUsage: async (period) => {
-      calls.push({ tool: 'usage', period });
-      return { periodo: period, desde: '2026-11-01', consultas: 0, errores: 0, costoUsd: 0, porProveedor: [] };
+    aiUsage: async (period, responsable) => {
+      calls.push({ tool: 'usage', period, responsable });
+      return { ...USAGE_RESULT, periodo: period };
     },
     ...overrides,
   };
 }
 
+function fakeAdmin(): AssistantAdminDataSource & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    users: async () => { calls.push('users'); return { total: 0, porEstado: {}, usuarios: [], enlace: 'u' }; },
+    sourceCatalog: async () => { calls.push('sources'); return { total: 0, porEstado: {}, fuentes: [], enlace: 's' }; },
+    industryCatalog: async () => { calls.push('industries'); return { version: null, industrias: [] }; },
+    budget: async () => { calls.push('budget'); return { mes: '2026-11', proveedores: [], reglasActivas: [], enlace: 'b' }; },
+  };
+}
+
 describe('herramientas de sólo lectura', () => {
-  it('prospectos por revisar: pasa país, periodo, búsqueda y recorta el límite', async () => {
+  it('prospectos: estado por defecto «por revisar», filtros y límite recortado', async () => {
     const data = fakeData();
-    await runAssistantTool(data, 'prospectos_por_revisar', { pais: ' CL ', periodo: 'hoy', busqueda: 'Copec', limite: 999, otro: 'x' });
+    await runAssistantTool(data, null, 'prospectos', { pais: ' CL ', periodo: 'hoy', busqueda: 'Copec', limite: 999, otro: 'x' });
     assert.deepEqual(data.calls[0], {
-      tool: 'pending',
-      filters: { texto: undefined, pais: 'CL', industria: undefined, responsable: undefined, periodo: 'hoy', busqueda: 'Copec' },
+      tool: 'prospects',
+      filters: { texto: undefined, pais: 'CL', industria: undefined, responsable: undefined, periodo: 'hoy', busqueda: 'Copec', estado: 'por_revisar' },
       limit: 50,
     });
+    await runAssistantTool(data, null, 'prospectos', { estado: 'descartados' });
+    assert.equal((data.calls[1] as { filters: { estado: string } }).filters.estado, 'descartados');
+    await runAssistantTool(data, null, 'prospectos', { estado: 'borrados' });
+    assert.equal((data.calls[2] as { filters: { estado: string } }).filters.estado, 'por_revisar');
   });
 
   it('empresas: estado desconocido se ignora; periodo inválido = todo', async () => {
     const data = fakeData();
-    await runAssistantTool(data, 'empresas', { estado: 'borrada', periodo: 'año', responsable: 'Pedro' });
+    await runAssistantTool(data, null, 'empresas', { estado: 'borrada', periodo: 'año', responsable: 'Pedro' });
     const call = data.calls[0] as { filters: Record<string, unknown>; limit: number };
     assert.equal(call.filters.estado, undefined);
     assert.equal(call.filters.periodo, 'todo');
@@ -143,26 +175,57 @@ describe('herramientas de sólo lectura', () => {
     assert.equal(call.limit, 15);
   });
 
-  it('búsquedas y uso de IA con sus valores por defecto', async () => {
+  it('ficha y contactos piden algo que buscar', async () => {
     const data = fakeData();
-    await runAssistantTool(data, 'busquedas', {});
-    await runAssistantTool(data, 'uso_de_ia', { periodo: 'año' });
-    assert.equal((data.calls[0] as { limit: number }).limit, 5);
-    assert.deepEqual(data.calls[1], { tool: 'usage', period: 'mes' });
+    assert.equal((await runAssistantTool(data, null, 'ficha_empresa', {})).isError, true);
+    assert.equal((await runAssistantTool(data, null, 'contactos', {})).isError, true);
+    await runAssistantTool(data, null, 'ficha_empresa', { consulta: '900123456' });
+    await runAssistantTool(data, null, 'contactos', { cargo: 'talento', pais: 'CL' });
+    assert.deepEqual(data.calls, [
+      { tool: 'detail', query: '900123456' },
+      { tool: 'contacts', filters: { texto: undefined, empresa: undefined, cargo: 'talento', pais: 'CL' }, limit: 15 },
+    ]);
   });
 
-  it('sin empresa, herramienta desconocida o error de lectura: vuelve un error, no lanza', async () => {
+  it('uso de IA es de todos los roles (con su alcance); búsquedas con sus valores por defecto', async () => {
+    const data = fakeData();
+    await runAssistantTool(data, null, 'busquedas', {});
+    await runAssistantTool(data, null, 'uso_de_ia', { periodo: 'año', responsable: 'Ana' });
+    assert.equal((data.calls[0] as { limit: number }).limit, 5);
+    assert.deepEqual(data.calls[1], { tool: 'usage', period: 'mes', responsable: 'Ana' });
+  });
+
+  it('herramienta desconocida o error de lectura: vuelve un error, no lanza', async () => {
     const data = fakeData({ summary: async () => { throw new Error('caída'); } });
-    assert.equal((await runAssistantTool(data, 'contactos_de_empresa', {})).isError, true);
-    assert.equal((await runAssistantTool(data, 'borrar_todo', {})).isError, true);
-    const failed = await runAssistantTool(data, 'mi_resumen', {});
+    assert.equal((await runAssistantTool(data, null, 'borrar_todo', {})).isError, true);
+    const failed = await runAssistantTool(data, null, 'mi_resumen', {});
     assert.equal(failed.isError, true);
     assert.match(failed.content, /No se pudo leer: caída/);
   });
 
-  it('🔴 ninguna herramienta escribe: los nombres son de consulta', () => {
-    const names = ASSISTANT_TOOLS.map((t) => t.name);
-    assert.deepEqual(names, ['mi_resumen', 'prospectos_por_revisar', 'empresas', 'contactos_de_empresa', 'busquedas', 'uso_de_ia']);
+  it('🔴 usuarios, catálogos y presupuesto: sin admin responden «sin permiso» aunque Claude los pida', async () => {
+    for (const name of ['usuarios', 'catalogo_de_fuentes', 'catalogo_de_industrias', 'presupuesto']) {
+      const result = await runAssistantTool(fakeData(), null, name, {});
+      assert.equal(result.isError, true, name);
+      assert.match(result.content, /sólo la ven los administradores/);
+    }
+    const admin = fakeAdmin();
+    for (const name of ['usuarios', 'catalogo_de_fuentes', 'catalogo_de_industrias', 'presupuesto']) {
+      assert.equal((await runAssistantTool(fakeData(), admin, name, {})).isError, false, name);
+    }
+    assert.deepEqual(admin.calls, ['users', 'sources', 'industries', 'budget']);
+  });
+
+  it('🔴 a un no-admin ni siquiera se le ofrecen las de administración', () => {
+    const commercial = toolsForRole(false).map((t) => t.name);
+    assert.deepEqual(commercial, [
+      'mi_resumen', 'prospectos', 'empresas', 'ficha_empresa', 'contactos', 'busquedas', 'uso_de_ia',
+      'proponer_aprobar', 'proponer_descartar', 'proponer_asignar',
+    ]);
+    assert.deepEqual(
+      toolsForRole(true).map((t) => t.name),
+      [...commercial, 'usuarios', 'catalogo_de_fuentes', 'catalogo_de_industrias', 'presupuesto'],
+    );
   });
 });
 
@@ -330,11 +393,12 @@ describe('conversación con Claude', () => {
     assert.equal(script.bodies.length, MAX_TOOL_ROUNDS + 1);
   });
 
-  it('el sistema dice quién pregunta, qué ve, que sólo consulta y la fecha', () => {
+  it('el sistema dice quién pregunta, qué ve, que propone sin ejecutar y la fecha', () => {
     const prompt = buildAssistantSystemPrompt(INPUT);
     assert.match(prompt, /Carla \(Vendedor\)/);
     assert.match(prompt, /sólo sus propias empresas/);
-    assert.match(prompt, /Sólo puedes CONSULTAR/);
+    assert.match(prompt, /SÍ puedes PROPONER/);
+    assert.match(prompt, /jamás digas que ya se hizo/);
     assert.match(prompt, /Nada de saludos, emojis/);
     assert.match(prompt, /LISTA los nombres/);
     assert.match(prompt, /conversación anterior/);
@@ -357,6 +421,19 @@ describe('alcance y periodos', () => {
     assert.equal(usagePeriodStart('hoy', now), '2026-11-10T05:00:00.000Z');
     assert.equal(usagePeriodStart('semana', now), '2026-11-04T05:00:00.000Z');
     assert.equal(usagePeriodStart('mes', now), '2026-11-01T05:00:00.000Z');
+  });
+
+  it('empresas: responsable O creador, como Empresas y Contactos en la plataforma', () => {
+    assert.equal(accountScopeClause(['a', 'b']), 'owner_id.in.(a,b),created_by.in.(a,b)');
+  });
+
+  it('ficha: ID de SellUp exacto; número largo también busca el ID de HubSpot', () => {
+    assert.deepEqual(accountLookup('3F2504E0-4F89-11D3-9A0C-0305E82C3301'), { kind: 'id', value: '3f2504e0-4f89-11d3-9a0c-0305e82c3301' });
+    const hubspot = accountLookup('123456789');
+    assert.equal(hubspot.kind, 'text');
+    assert.match(hubspot.kind === 'text' ? hubspot.clause : '', /tax_identifier\.ilike\.%123456789%,hubspot_company_id\.eq\.123456789$/);
+    const name = accountLookup('Copec');
+    assert.doesNotMatch(name.kind === 'text' ? name.clause : '', /hubspot/);
   });
 
   it('el texto de búsqueda no rompe el filtro (comodines, comas, paréntesis)', () => {
