@@ -15,6 +15,7 @@ import {
 } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
 import { ASSISTANT_TOOLS, runAssistantTool, type AssistantDataSource } from './tools';
+import type { ConversationTurn } from './conversation';
 
 /** Vueltas de herramientas como máximo antes de pedir la respuesta final. */
 export const MAX_TOOL_ROUNDS = 5;
@@ -30,12 +31,18 @@ export interface AssistantAsker {
 
 export interface AnswerQuestionInput {
   question: string;
+  /**
+   * La conversación hasta aquí, terminando en la pregunta actual (ver
+   * `buildConversationTurns`). Sin ella, sólo la pregunta.
+   */
+  conversation?: readonly ConversationTurn[];
   asker: AssistantAsker;
   model: string;
   apiKey: string;
   /** Fecha de hoy (AAAA-MM-DD), para que «hoy» y «este mes» tengan sentido. */
   today: string;
-  loginUrl: string;
+  /** Página principal de SellUp (para remitir lo que no se hace por Slack). */
+  appUrl: string;
 }
 
 export interface AnswerQuestionDeps {
@@ -52,20 +59,28 @@ export interface AnswerQuestionResult {
   errorCode: string | null;
 }
 
-export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'asker' | 'today' | 'loginUrl'>): string {
+export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'asker' | 'today' | 'appUrl'>): string {
   const who = input.asker.name ? `${input.asker.name} (${input.asker.roleLabel})` : input.asker.roleLabel;
   return [
     'Eres el asistente de SellUp, la plataforma de prospección comercial de UBITS, y respondes por Slack.',
-    `Hoy es ${input.today}. Te escribe ${who}. Con sus permisos ve ${input.asker.scopeLabel}.`,
+    `Hoy es ${input.today} (hora de Bogotá). Te escribe ${who}. Con sus permisos ve ${input.asker.scopeLabel}.`,
+    '',
+    'Vocabulario de SellUp:',
+    '- «Por revisar» / prospectos / candidatas: empresas que encontró una búsqueda y esperan que alguien las apruebe o descarte → herramienta prospectos_por_revisar.',
+    '- «Empresas»: las ya aprobadas, con responsable y contactos → herramienta empresas.',
+    '- «Búsquedas»: los lotes de prospección que las encontraron → herramienta busquedas.',
     '',
     'Cómo responder:',
-    '- En español, claro y corto: primero la respuesta, después el detalle que haga falta.',
-    '- Para datos de SellUp usa SIEMPRE las herramientas. Nunca inventes cifras, nombres ni contactos.',
-    '- Si una herramienta no trae nada, dilo así («no encontré…») y sugiere cómo buscar de otra forma.',
-    '- Sólo puedes CONSULTAR. Si te piden crear, cambiar, aprobar, descartar, asignar o buscar empresas nuevas, explica que eso se hace en SellUp y comparte el enlace ' + input.loginUrl + '.',
+    '- Ve directo a la respuesta. Nada de saludos, emojis ni frases de relleno.',
+    '- Usa la conversación anterior para entender preguntas cortas («¿cuáles son?», «¿y de México?»): retoma los filtros que se venían usando.',
+    '- Si piden «cuáles», LISTA los nombres. Nunca respondas sólo con totales si hay una herramienta que da el listado.',
+    '- Ante una pregunta ambigua, elige la lectura más probable, respóndela y di en una línea qué supusiste. Sólo pregunta si de verdad no se puede responder.',
+    '- Para datos de SellUp usa SIEMPRE las herramientas, con los filtros que correspondan (país en código ISO de 2 letras: Chile = CL). Nunca inventes cifras, nombres ni contactos.',
+    '- Si el resultado trae más de lo que muestras, di cuántos hay en total y comparte el `enlace` que trae la herramienta para ver el resto filtrado en SellUp.',
+    '- Si no hay resultados, dilo en una línea y sugiere ampliar el filtro (otro periodo, otro país).',
+    '- Sólo puedes CONSULTAR. Si te piden aprobar, descartar, asignar, cambiar o buscar empresas nuevas, explica que eso se hace en SellUp y comparte el enlace de la pantalla que corresponda (o ' + input.appUrl + ').',
     '- Si preguntan por algo fuera de sus permisos, explica que sólo ves lo que su rol puede ver.',
-    '- Preguntas generales (cómo usar SellUp, ideas de prospección) puedes contestarlas sin herramientas, breve.',
-    '- Formato de Slack: *negrita* con un asterisco, listas con «•», sin tablas ni títulos con #. Máximo ~15 líneas.',
+    '- Formato de Slack: *negrita* con un asterisco, listas con «•», enlaces como <url|texto>. Sin tablas ni títulos con #. Listas de hasta ~20 líneas.',
     '- Dinero en dólares con 2 decimales (US$1,25). Fechas como «11 nov».',
   ].join('\n');
 }
@@ -96,7 +111,10 @@ export const ASSISTANT_GENERIC_ERROR =
 /** Responde una pregunta. Nunca lanza: si Claude falla, la respuesta dice por qué. */
 export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQuestionDeps): Promise<AnswerQuestionResult> {
   const system = buildAssistantSystemPrompt(input);
-  let messages: AnthropicRequestBody['messages'] = [{ role: 'user', content: input.question }];
+  let messages: AnthropicRequestBody['messages'] =
+    input.conversation && input.conversation.length > 0
+      ? input.conversation.map((turn) => ({ role: turn.role, content: turn.content }))
+      : [{ role: 'user', content: input.question }];
   let usage = EMPTY_USAGE;
   let requests = 0;
   const toolCalls: string[] = [];
