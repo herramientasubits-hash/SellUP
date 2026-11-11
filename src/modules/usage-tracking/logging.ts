@@ -366,6 +366,10 @@ export async function logProviderUsageReturningId(
       console.error('[usage-tracking] logProviderUsageReturningId error:', error.message);
       return { ok: false, id: null };
     }
+    if (payload.error_code === 'credits_exhausted' || payload.error_code === 'invalid_credentials') {
+      const { alertProviderBlocked } = await import('@/server/slack-assistant/digests/digests.server');
+      await alertProviderBlocked(input.provider_key, String(payload.error_code), (payload.error_message as string | null) ?? null);
+    }
 
     const id = data && typeof (data as { id?: unknown }).id === 'string'
       ? ((data as { id: string }).id)
@@ -389,6 +393,12 @@ export async function logProviderUsage(input: LogProviderUsageInput): Promise<bo
     if (error) {
       console.error('[usage-tracking] logProviderUsage error:', error.message);
       return false;
+    }
+    // Proveedor sin saldo o con la llave rechazada: aviso inmediato a administradores
+    // (una vez al día por proveedor; dueña 11-11). Nunca lanza.
+    if (payload.error_code === 'credits_exhausted' || payload.error_code === 'invalid_credentials') {
+      const { alertProviderBlocked } = await import('@/server/slack-assistant/digests/digests.server');
+      await alertProviderBlocked(input.provider_key, String(payload.error_code), (payload.error_message as string | null) ?? null);
     }
     return true;
   } catch (err) {

@@ -135,6 +135,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
         // Aprobar, descartar y asignar: sólo se PROPONEN; la persona confirma con un botón.
         actions: {
           resolver: createAssistantActionResolver(admin, scope),
+          isAdmin: scope.canViewAll,
           propose: (proposal) => {
             proposed = proposal;
           },

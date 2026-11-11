@@ -34,8 +34,15 @@ import {
   DISCARD_REASON_KEYS,
   MAX_ACTION_ITEMS,
   proposalSummary,
+  MOVABLE_STAGES,
+  STAGE_NOTE_MAX,
+  STAGE_NOTE_MIN,
   type ActionItem,
   type ActionKind,
+  type MovableStage,
+  MAX_FIND_CONTACTS_ACCOUNTS,
+  RUMBO_CHANNELS,
+  type RumboChannel,
 } from './action-proposal';
 import { composeDiscardReason, validateDiscardReason } from '@/modules/prospect-review/discard-reason';
 
@@ -48,12 +55,16 @@ export interface ProposedAction {
   targetUserId?: string;
   targetName?: string;
   reason?: string;
+  stage?: MovableStage;
+  channels?: RumboChannel[];
 }
 
 /** Acciones con confirmación: se resuelve qué y se PROPONE; nunca se ejecuta aquí. */
 export interface AssistantActionContext {
   resolver: AssistantActionResolver;
   propose(proposal: ProposedAction): void;
+  /** Activar o desactivar accesos es sólo de administradores. */
+  isAdmin?: boolean;
 }
 
 /** Filtros comunes. Todos opcionales; el alcance por rol se aplica siempre aparte. */
@@ -267,10 +278,91 @@ export const COMMERCIAL_TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'proponer_recordatorio',
+    description:
+      'PROPONE mandarle a una persona de tu equipo (admin: a cualquiera) un mensaje por Slack, de tu parte, con lo que tiene por revisar en SellUp, más una nota opcional. No envía nada: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: {
+        persona: { type: 'string', description: 'Nombre o correo de quien recibe.' },
+        nota: { type: 'string', description: 'Mensaje opcional de tu parte (máx. 300).' },
+      },
+      required: ['persona'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_etapa',
+    description:
+      'PROPONE mover empresas a otra etapa del Flujo de prospección (new=Nueva, ready_for_research=Lista para investigar, research_in_progress=Investigación en curso, ready_for_outreach=Lista para contacto) con un motivo de al menos 10 caracteres. No ejecuta: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: {
+        empresas: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+        etapa: { type: 'string', enum: [...MOVABLE_STAGES] },
+        motivo: { type: 'string', description: 'Por qué se mueve (mínimo 10 caracteres).' },
+      },
+      required: ['empresas', 'etapa', 'motivo'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_nota',
+    description: 'PROPONE dejar una nota en la ficha de una o varias empresas (mínimo 10 caracteres). No ejecuta: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: {
+        empresas: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+        nota: { type: 'string' },
+      },
+      required: ['empresas', 'nota'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_rumbo',
+    description:
+      'PROPONE que Rumbo prepare el primer contacto de UNA empresa aprobada (investigación + guion o mensaje por canal, objetivo «conseguir una reunión», con sus contactos principales). Gasta IA. No ejecuta: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: {
+        empresa: { type: 'string', description: 'Nombre, dominio o NIT.' },
+        canales: { type: 'array', items: { type: 'string', enum: [...RUMBO_CHANNELS] }, description: 'Por defecto: llamada.' },
+      },
+      required: ['empresa'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'proponer_buscar_contactos',
+    description:
+      'PROPONE buscar contactos (decisores) de hasta 3 empresas aprobadas con Apollo y, si no alcanza, Lusha (gasta créditos). Los candidatos quedan en Contactos › Por revisar. No ejecuta: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: { empresas: { type: 'array', items: { type: 'string' }, maxItems: MAX_FIND_CONTACTS_ACCOUNTS } },
+      required: ['empresas'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 /** Herramientas de administración: sólo para administradores (como en la plataforma). */
 export const ADMIN_TOOLS = [
+  {
+    name: 'proponer_acceso',
+    description:
+      'Sólo administradores. PROPONE activar el acceso de personas inactivas (les llega un Slack de que ya pueden entrar) o desactivar el de personas activas. No ejecuta: deja un botón «Confirmar».',
+    input_schema: {
+      type: 'object',
+      properties: {
+        accion: { type: 'string', enum: ['activar', 'desactivar'] },
+        personas: { type: 'array', items: { type: 'string' }, maxItems: 25 },
+      },
+      required: ['accion', 'personas'],
+      additionalProperties: false,
+    },
+  },
   {
     name: 'usuarios',
     description:
@@ -421,6 +513,12 @@ export async function runAssistantTool(
       case 'proponer_aprobar':
       case 'proponer_descartar':
       case 'proponer_asignar':
+      case 'proponer_recordatorio':
+      case 'proponer_etapa':
+      case 'proponer_nota':
+      case 'proponer_acceso':
+      case 'proponer_rumbo':
+      case 'proponer_buscar_contactos':
         if (!actions) return fail('Las acciones no están disponibles en esta conversación.');
         return await proposeAction(actions, name, args);
       default:
@@ -463,6 +561,10 @@ function nothingToPropose(resolution: Resolution) {
 }
 
 async function proposeAction(actions: AssistantActionContext, name: string, args: Record<string, unknown>) {
+  if (name === 'proponer_rumbo' || name === 'proponer_buscar_contactos') return proposeSpend(actions, name, args);
+  if (name === 'proponer_recordatorio' || name === 'proponer_etapa' || name === 'proponer_nota' || name === 'proponer_acceso') {
+    return proposeOther(actions, name, args);
+  }
   const selection = { nombres: stringList(args.nombres), busqueda: text(args.busqueda), pais: text(args.pais) };
 
   if (name === 'proponer_aprobar' || name === 'proponer_descartar') {
@@ -509,3 +611,81 @@ async function proposeAction(actions: AssistantActionContext, name: string, args
 
 /** Para el mensaje: el motivo legible de una clave. */
 export { discardReasonLabel };
+
+function noteText(value: unknown): string | null {
+  const t = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  return t.length >= STAGE_NOTE_MIN && t.length <= STAGE_NOTE_MAX ? t : null;
+}
+
+async function proposeOther(actions: AssistantActionContext, name: string, args: Record<string, unknown>) {
+  if (name === 'proponer_recordatorio') {
+    const persona = text(args.persona);
+    if (!persona) return fail('Falta a quién recordarle.');
+    const found = await actions.resolver.resolveTeamMember(persona);
+    if (!found.user) {
+      return ok({
+        propuesta: 'ninguna',
+        nota: found.fueraDeAlcance
+          ? `«${persona}» no está en tu equipo: sólo puedes recordarle a tu equipo (un administrador, a cualquiera).`
+          : `No hay una única persona activa que coincida con «${persona}».`,
+        opciones: found.opciones,
+      });
+    }
+    const note = typeof args.nota === 'string' ? args.nota.trim().slice(0, 300) : '';
+    const proposal: ProposedAction = {
+      kind: 'remind',
+      items: [{ id: found.user.id, nombre: found.user.nombre }],
+      targetUserId: found.user.id,
+      targetName: found.user.nombre,
+      ...(note ? { reason: note } : {}),
+    };
+    actions.propose(proposal);
+    return ok(proposalResult(proposal, { items: proposal.items, noEncontrados: [], ambiguos: [], recortados: 0 }));
+  }
+
+  if (name === 'proponer_acceso') {
+    if (!actions.isAdmin) return fail('Sin permiso: activar o desactivar accesos es sólo de administradores.');
+    const activar = args.accion === 'activar';
+    const resolution = await actions.resolver.resolveUsersByStatus(stringList(args.personas), activar ? 'suspended' : 'active');
+    if (resolution.items.length === 0) return ok(nothingToPropose(resolution));
+    const proposal: ProposedAction = { kind: activar ? 'activate_users' : 'deactivate_users', items: resolution.items };
+    actions.propose(proposal);
+    return ok(proposalResult(proposal, resolution));
+  }
+
+  // proponer_etapa / proponer_nota
+  const note = noteText(name === 'proponer_etapa' ? args.motivo : args.nota);
+  if (!note) return fail(`Falta ${name === 'proponer_etapa' ? 'el motivo' : 'la nota'} (entre ${STAGE_NOTE_MIN} y ${STAGE_NOTE_MAX} caracteres).`);
+  const stage = (MOVABLE_STAGES as readonly string[]).includes(args.etapa as string) ? (args.etapa as MovableStage) : null;
+  if (name === 'proponer_etapa' && !stage) return fail('Etapa no válida.');
+  const resolution = await actions.resolver.resolveAccounts({ nombres: stringList(args.empresas) });
+  if (resolution.items.length === 0) return ok(nothingToPropose(resolution));
+  const proposal: ProposedAction = {
+    kind: name === 'proponer_etapa' ? 'set_stage' : 'add_note',
+    items: resolution.items,
+    reason: note,
+    ...(stage ? { stage } : {}),
+  };
+  actions.propose(proposal);
+  return ok(proposalResult(proposal, resolution));
+}
+
+async function proposeSpend(actions: AssistantActionContext, name: string, args: Record<string, unknown>) {
+  if (name === 'proponer_rumbo') {
+    const empresa = text(args.empresa);
+    if (!empresa) return fail('Falta la empresa.');
+    const resolution = await actions.resolver.resolveAccounts({ nombres: [empresa] });
+    if (resolution.items.length !== 1) return ok(nothingToPropose(resolution));
+    const requested = Array.isArray(args.canales)
+      ? args.canales.filter((c): c is RumboChannel => (RUMBO_CHANNELS as readonly string[]).includes(c as string))
+      : [];
+    const proposal: ProposedAction = { kind: 'rumbo', items: resolution.items, channels: requested.length ? [...new Set(requested)] : ['call'] };
+    actions.propose(proposal);
+    return ok(proposalResult(proposal, resolution));
+  }
+  const resolution = await actions.resolver.resolveAccounts({ nombres: stringList(args.empresas).slice(0, MAX_FIND_CONTACTS_ACCOUNTS) });
+  if (resolution.items.length === 0) return ok(nothingToPropose(resolution));
+  const proposal: ProposedAction = { kind: 'find_contacts', items: resolution.items.slice(0, MAX_FIND_CONTACTS_ACCOUNTS) };
+  actions.propose(proposal);
+  return ok(proposalResult(proposal, resolution));
+}

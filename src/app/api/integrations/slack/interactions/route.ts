@@ -13,7 +13,7 @@ import { handleCreditDecisionClick } from '@/server/slack-assistant/credit-decis
 import { CREDIT_APPROVE_ACTION_ID, CREDIT_REJECT_ACTION_ID } from '@/modules/notifications/credit-approval-slack';
 
 /** Aprobar varias empresas (con HubSpot) puede tardar: corre dentro de `after`. */
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request): Promise<Response> {
   const rawBody = await request.text();
