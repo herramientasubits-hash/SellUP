@@ -48,7 +48,6 @@ import {
   CandidateMainInfoSection,
   CandidateSignalsSection,
   CandidateSummarySection,
-  CandidateCompanySection,
 } from './contact-candidate-detail-sections';
 import {
   CandidateDuplicateDecisionDialog,
@@ -2070,8 +2069,26 @@ export function ContactCandidateDetailSheet({
               el dato y si ya lo teníamos. */}
           <CandidateSummarySection candidate={candidate} />
 
-          {/* 1. Información principal */}
-          <CandidateMainInfoSection candidate={candidate} />
+          {/* 1. Información principal (incluye la empresa y «Reasignar empresa») */}
+          <CandidateMainInfoSection
+            candidate={candidate}
+            companyAction={
+              candidate.status === 'pending_review' ? (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={() => {
+                    setReassignCompanySession((n) => n + 1);
+                    setReassignCompanyOpen(true);
+                  }}
+                  disabled={busy}
+                >
+                  <Building2 aria-hidden="true" />
+                  Reasignar empresa
+                </Button>
+              ) : undefined
+            }
+          />
 
           {/* 2. Canales de contacto */}
             <DrawerSection icon={Phone} title="Canales de contacto">
@@ -2689,27 +2706,6 @@ export function ContactCandidateDetailSheet({
 
           {/* 3b. Consistencia con la empresa (Hito 17A.9G) */}
           <CandidateCompanyConsistencyNotice companyConsistency={companyConsistency} />
-
-          {/* 4. Empresa (antes «Trazabilidad»: se quitó de la vista) */}
-          <CandidateCompanySection
-            candidate={candidate}
-            companyAction={
-              candidate.status === 'pending_review' ? (
-                <Button
-                  variant="outline"
-                  size="xs"
-                  onClick={() => {
-                    setReassignCompanySession((n) => n + 1);
-                    setReassignCompanyOpen(true);
-                  }}
-                  disabled={busy}
-                >
-                  <Building2 aria-hidden="true" />
-                  Reasignar empresa
-                </Button>
-              ) : undefined
-            }
-          />
 
           {/* 5. Revisión humana (Hito 17A.4B): el override de identidad, el motivo de
               rechazo o, en reposo, el aviso de qué pasa al aprobar. */}
