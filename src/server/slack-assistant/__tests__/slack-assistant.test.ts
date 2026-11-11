@@ -2,10 +2,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeSlackSignature, isValidSlackSignature } from '../signature';
 import { cleanSlackText, parseSlackEvent } from '../events';
-import { runAssistantTool, type AssistantDataSource } from '../tools';
+import { ASSISTANT_TOOLS, runAssistantTool, type AssistantDataSource } from '../tools';
+import { buildConversationTurns } from '../conversation';
+import { accountLink, pendingProspectsLink, searchesLink } from '../links';
 import { answerQuestion, buildAssistantSystemPrompt, MAX_TOOL_ROUNDS } from '../run';
 import { scopeLabelFor } from '../copy';
-import { ilikePattern, scopeOwnerIds, usagePeriodStart } from '../data-source.server';
+import { combineOr, countryFilter, createdSince, ilikePattern, scopeOwnerIds, usagePeriodStart } from '../data-source.server';
 import {
   AnthropicApiError,
   EMPTY_USAGE,
@@ -61,6 +63,7 @@ describe('eventos de Slack', () => {
     assert.equal(action.kind, 'question');
     if (action.kind !== 'question') return;
     assert.equal(action.threadTs, '2.2');
+    assert.equal(action.messageTs, '2.2');
     assert.equal(action.text, 'mis búsquedas');
   });
 
@@ -80,28 +83,39 @@ describe('eventos de Slack', () => {
 
 // ── Herramientas ─────────────────────────────────────────────────────────────
 
-function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSource & { calls: string[] } {
-  const calls: string[] = [];
+function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSource & { calls: unknown[] } {
+  const calls: unknown[] = [];
   return {
     calls,
     summary: async () => {
       calls.push('summary');
-      return { empresasActivas: 3, empresasPorEstado: { Nueva: 3 }, prospectosPorRevisar: 5, busquedasEnCurso: 1, contactos: 9 };
+      return {
+        empresasActivas: 3,
+        empresasPorEstado: { Nueva: 3 },
+        prospectosPorRevisar: 5,
+        busquedasEnCurso: 1,
+        contactos: 9,
+        enlaces: { empresas: 'e', porRevisar: 'p', busquedas: 'b' },
+      };
     },
-    searchAccounts: async (text, limit) => {
-      calls.push(`search:${text}:${limit}`);
-      return [];
+    pendingProspects: async (filters, limit) => {
+      calls.push({ tool: 'pending', filters, limit });
+      return { total: 0, mostrados: 0, enlace: 'p', prospectos: [] };
+    },
+    accounts: async (filters, limit) => {
+      calls.push({ tool: 'accounts', filters, limit });
+      return { total: 0, mostradas: 0, empresas: [] };
     },
     accountContacts: async (text, limit) => {
-      calls.push(`contacts:${text}:${limit}`);
-      return { empresa: null, contactos: [] };
+      calls.push({ tool: 'contacts', text, limit });
+      return { empresa: null, enlace: null, contactos: [] };
     },
-    recentSearches: async (limit) => {
-      calls.push(`searches:${limit}`);
+    searches: async (filters, limit) => {
+      calls.push({ tool: 'searches', filters, limit });
       return [];
     },
     aiUsage: async (period) => {
-      calls.push(`usage:${period}`);
+      calls.push({ tool: 'usage', period });
       return { periodo: period, desde: '2026-11-01', consultas: 0, errores: 0, costoUsd: 0, porProveedor: [] };
     },
     ...overrides,
@@ -109,21 +123,120 @@ function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSo
 }
 
 describe('herramientas de sólo lectura', () => {
-  it('recorta límites y normaliza el periodo', async () => {
+  it('prospectos por revisar: pasa país, periodo, búsqueda y recorta el límite', async () => {
     const data = fakeData();
-    await runAssistantTool(data, 'buscar_empresas', { texto: ' Acme ', limite: 999 });
-    await runAssistantTool(data, 'ultimas_busquedas', {});
-    await runAssistantTool(data, 'uso_de_ia', { periodo: 'año' });
-    assert.deepEqual(data.calls, ['search:Acme:15', 'searches:5', 'usage:mes']);
+    await runAssistantTool(data, 'prospectos_por_revisar', { pais: ' CL ', periodo: 'hoy', busqueda: 'Copec', limite: 999, otro: 'x' });
+    assert.deepEqual(data.calls[0], {
+      tool: 'pending',
+      filters: { texto: undefined, pais: 'CL', industria: undefined, responsable: undefined, periodo: 'hoy', busqueda: 'Copec' },
+      limit: 50,
+    });
   });
 
-  it('sin texto, herramienta desconocida o error de lectura: vuelve un error, no lanza', async () => {
+  it('empresas: estado desconocido se ignora; periodo inválido = todo', async () => {
+    const data = fakeData();
+    await runAssistantTool(data, 'empresas', { estado: 'borrada', periodo: 'año', responsable: 'Pedro' });
+    const call = data.calls[0] as { filters: Record<string, unknown>; limit: number };
+    assert.equal(call.filters.estado, undefined);
+    assert.equal(call.filters.periodo, 'todo');
+    assert.equal(call.filters.responsable, 'Pedro');
+    assert.equal(call.limit, 15);
+  });
+
+  it('búsquedas y uso de IA con sus valores por defecto', async () => {
+    const data = fakeData();
+    await runAssistantTool(data, 'busquedas', {});
+    await runAssistantTool(data, 'uso_de_ia', { periodo: 'año' });
+    assert.equal((data.calls[0] as { limit: number }).limit, 5);
+    assert.deepEqual(data.calls[1], { tool: 'usage', period: 'mes' });
+  });
+
+  it('sin empresa, herramienta desconocida o error de lectura: vuelve un error, no lanza', async () => {
     const data = fakeData({ summary: async () => { throw new Error('caída'); } });
-    assert.equal((await runAssistantTool(data, 'buscar_empresas', {})).isError, true);
+    assert.equal((await runAssistantTool(data, 'contactos_de_empresa', {})).isError, true);
     assert.equal((await runAssistantTool(data, 'borrar_todo', {})).isError, true);
     const failed = await runAssistantTool(data, 'mi_resumen', {});
     assert.equal(failed.isError, true);
     assert.match(failed.content, /No se pudo leer: caída/);
+  });
+
+  it('🔴 ninguna herramienta escribe: los nombres son de consulta', () => {
+    const names = ASSISTANT_TOOLS.map((t) => t.name);
+    assert.deepEqual(names, ['mi_resumen', 'prospectos_por_revisar', 'empresas', 'contactos_de_empresa', 'busquedas', 'uso_de_ia']);
+  });
+});
+
+// ── Memoria ──────────────────────────────────────────────────────────────────
+
+describe('memoria de la conversación', () => {
+  const now = '1000000.000100';
+  const at = (secondsAgo: number) => String(1_000_000 - secondsAgo);
+
+  it('arma los turnos alternados y termina en la pregunta actual', () => {
+    const turns = buildConversationTurns(
+      [
+        { ts: at(120), text: 'empresas de chile por revisar hoy', fromBot: false, hasActions: false },
+        { ts: at(110), text: 'Hay 3 por revisar.', fromBot: true, hasActions: false },
+      ],
+      'cuáles son',
+      now,
+    );
+    assert.deepEqual(turns, [
+      { role: 'user', content: 'empresas de chile por revisar hoy' },
+      { role: 'assistant', content: 'Hay 3 por revisar.' },
+      { role: 'user', content: 'cuáles son' },
+    ]);
+  });
+
+  it('descarta avisos con botones, mensajes viejos y empieza siempre por la persona', () => {
+    const turns = buildConversationTurns(
+      [
+        { ts: at(7 * 3600), text: 'muy viejo', fromBot: false, hasActions: false },
+        { ts: at(300), text: 'Elkin activó tu acceso', fromBot: true, hasActions: true },
+        { ts: at(200), text: 'respuesta suelta del bot', fromBot: true, hasActions: false },
+        { ts: at(100), text: 'hola', fromBot: false, hasActions: false },
+      ],
+      '<@UBOT> y de México?',
+      now,
+    );
+    assert.deepEqual(turns, [{ role: 'user', content: 'hola\n\ny de México?' }]);
+  });
+
+  it('sin historia: sólo la pregunta', () => {
+    assert.deepEqual(buildConversationTurns([], 'hola', now), [{ role: 'user', content: 'hola' }]);
+  });
+});
+
+// ── Enlaces y filtros ────────────────────────────────────────────────────────
+
+describe('enlaces directos y filtros', () => {
+  it('Por revisar con país, industria y texto', () => {
+    assert.equal(
+      pendingProspectsLink('https://app.example/', { pais: 'cl', industria: 'Retail', texto: 'Copec' }),
+      'https://app.example/accounts?tab=prospectos&country=CL&industry=Retail&search=Copec',
+    );
+    assert.equal(searchesLink('https://app.example', 'b1'), 'https://app.example/accounts?tab=busquedas&focus=b1');
+    assert.equal(accountLink('https://app.example', 'a 1'), 'https://app.example/accounts/a%201');
+  });
+
+  it('país: 2 letras = código exacto; si no, por nombre', () => {
+    assert.deepEqual(countryFilter('cl'), { column: 'country_code', value: 'CL' });
+    assert.deepEqual(countryFilter('Chile'), { column: 'country', value: '%Chile%' });
+    assert.equal(countryFilter('  '), null);
+  });
+
+  it('responsable Y texto viajan en un solo `or` (no dos sueltos)', () => {
+    assert.equal(combineOr('assigned_to.in.(u1)', 'name.ilike.%a%'), 'and(or(assigned_to.in.(u1)),or(name.ilike.%a%))');
+    assert.equal(combineOr(null, 'name.ilike.%a%'), 'name.ilike.%a%');
+    assert.equal(combineOr('x.eq.1', null), 'x.eq.1');
+    assert.equal(combineOr(null, null), null);
+  });
+
+  it('periodo de creación: todo = sin fecha', () => {
+    const now = new Date('2026-11-11T20:00:00Z');
+    assert.equal(createdSince('todo', now), null);
+    assert.equal(createdSince(undefined, now), null);
+    assert.equal(createdSince('hoy', now), '2026-11-11T05:00:00.000Z');
   });
 });
 
@@ -150,7 +263,7 @@ const INPUT = {
   model: 'claude-sonnet-4-5',
   apiKey: 'k',
   today: '2026-11-11',
-  loginUrl: 'https://sellup.example/login',
+  appUrl: 'https://sellup.example',
 };
 
 describe('conversación con Claude', () => {
@@ -172,6 +285,26 @@ describe('conversación con Claude', () => {
     assert.equal(toolResult.type, 'tool_result');
     assert.equal(toolResult.tool_use_id, 't1');
     assert.match(String(toolResult.content), /"prospectosPorRevisar":5/);
+  });
+
+  it('con memoria: Claude recibe la conversación anterior, no sólo la pregunta', async () => {
+    const script = scripted([
+      { content: [{ type: 'text', text: 'Son: Copec, Enex y Arcoprime.' }], stopReason: 'end_turn', usage: USAGE, requests: 1 },
+    ]);
+    await answerQuestion(
+      {
+        ...INPUT,
+        question: 'cuáles son',
+        conversation: [
+          { role: 'user', content: 'empresas de chile por revisar hoy' },
+          { role: 'assistant', content: 'Hay 3.' },
+          { role: 'user', content: 'cuáles son' },
+        ],
+      },
+      { runConversation: script.run, data: fakeData() },
+    );
+    assert.equal(script.bodies[0].messages.length, 3);
+    assert.equal(script.bodies[0].messages[0].content, 'empresas de chile por revisar hoy');
   });
 
   it('🔴 Claude sin créditos: la respuesta lo dice claro', async () => {
@@ -202,6 +335,9 @@ describe('conversación con Claude', () => {
     assert.match(prompt, /Carla \(Vendedor\)/);
     assert.match(prompt, /sólo sus propias empresas/);
     assert.match(prompt, /Sólo puedes CONSULTAR/);
+    assert.match(prompt, /Nada de saludos, emojis/);
+    assert.match(prompt, /LISTA los nombres/);
+    assert.match(prompt, /conversación anterior/);
     assert.match(prompt, /2026-11-11/);
   });
 });

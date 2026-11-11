@@ -440,6 +440,67 @@ export async function getSlackUserEmail(slackUserId: string): Promise<string | n
   }
 }
 
+/** Un mensaje anterior de la conversación (para darle memoria al asistente). */
+export interface SlackHistoryMessage {
+  ts: string;
+  text: string;
+  /** Lo escribió un bot (el asistente u otro). */
+  fromBot: boolean;
+  /** Trae botones (invitaciones y avisos de SellUp): no es parte de la charla. */
+  hasActions: boolean;
+}
+
+/**
+ * Lo que se dijo antes del mensaje `beforeTs`: el hilo entero si `threadTs`
+ * viene, si no los últimos mensajes de la conversación directa. Requiere
+ * scopes: im:history (directos) y channels:history (hilos en canales).
+ * Nunca lanza: sin historia, el asistente responde sólo con la pregunta.
+ */
+export async function getSlackConversationHistory(params: {
+  channel: string;
+  threadTs: string | null;
+  beforeTs: string;
+  limit: number;
+}): Promise<SlackHistoryMessage[]> {
+  const token = await getSlackToken();
+  if (!token) return [];
+  const query = new URLSearchParams({ channel: params.channel, limit: String(params.limit) });
+  let method = 'conversations.history';
+  if (params.threadTs) {
+    method = 'conversations.replies';
+    query.set('ts', params.threadTs);
+  } else {
+    query.set('latest', params.beforeTs);
+    query.set('inclusive', 'false');
+  }
+  try {
+    const res = await fetch(`https://slack.com/api/${method}?${query.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await res.json()) as {
+      ok: boolean;
+      error?: string;
+      messages?: Array<{ ts?: string; text?: string; bot_id?: string; subtype?: string; blocks?: Array<{ type?: string }> }>;
+    };
+    if (!body.ok) {
+      console.error(`[slack] ${method}`, body.error);
+      return [];
+    }
+    return (body.messages ?? [])
+      .filter((m) => typeof m.ts === 'string' && m.ts !== params.beforeTs && Number(m.ts) < Number(params.beforeTs))
+      .map((m) => ({
+        ts: m.ts as string,
+        text: m.text ?? '',
+        fromBot: Boolean(m.bot_id) || m.subtype === 'bot_message',
+        hasActions: (m.blocks ?? []).some((b) => b.type === 'actions'),
+      }))
+      .sort((a, b) => Number(a.ts) - Number(b.ts));
+  } catch (error) {
+    console.error(`[slack] ${method}`, error instanceof Error ? error.message : 'error');
+    return [];
+  }
+}
+
 /**
  * Publica un mensaje en un canal o mensaje directo, dentro del hilo `threadTs`
  * si viene. Requiere scope: chat:write. Nunca lanza.
