@@ -147,6 +147,11 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   // sigue intacta.
   'modules/contact-enrichment/post-approval-reveal-read.ts':
     'lectura — ¿el contacto ya tiene un número reutilizable?',
+  // Asistente de Slack (11-11) — sólo LECTURA: la herramienta «contactos_de_empresa» muestra el
+  // teléfono del contacto (`mobile_phone ?? phone`, como la UI). No escribe, no atribuye
+  // procedencia y no entra en ninguna erasure.
+  'server/slack-assistant/data-source.server.ts':
+    'lectura — el asistente de Slack muestra el teléfono del contacto',
 };
 
 function listSourceFiles(dir: string, acc: string[] = []): string[] {
