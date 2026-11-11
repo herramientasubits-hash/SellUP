@@ -61,6 +61,37 @@ export function SellUpMark({ className }: { className?: string }) {
   );
 }
 
+/**
+ * El nombre escrito con el logo (propuesta «U imán», dueña 10-11): «Sell», la U
+ * imán en el color de la marca y la «p» — se lee «Sell·U·p». El SVG y las letras
+ * escalan con el tamaño de letra del contenedor; los lectores de pantalla leen
+ * «SellUp».
+ */
+export function SellUpWordmark({ className }: { className?: string }) {
+  return (
+    <span className={cn("inline-flex items-baseline", className)} data-wordmark="sellup">
+      <span aria-hidden="true">Sell</span>
+      <svg
+        viewBox="0 0 24 30"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        aria-hidden="true"
+        className="mx-px h-[1.05em] w-[0.82em] shrink-0 translate-y-[0.12em] text-primary"
+      >
+        <path d="M5 13 V19 A7 7 0 0 0 19 19 V13" strokeWidth="4.6" />
+        <path d="M5 7.5 V10 M19 7.5 V10" strokeWidth="4.6" opacity="0.5" />
+        <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none" />
+        <circle cx="12" cy="11.5" r="2.3" fill="currentColor" stroke="none" />
+      </svg>
+      <span aria-hidden="true" className="font-bold text-primary">
+        p
+      </span>
+      <span className="sr-only">SellUp</span>
+    </span>
+  );
+}
+
 /** La marca del producto: el chip con el degradado del tema y, desplegado, el nombre. */
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -74,7 +105,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
       {!compact && (
         <span className="flex min-w-0 flex-col text-left leading-tight">
           <span className="truncate text-sm font-bold tracking-tight text-foreground">
-            Sell<span className="text-primary">Up</span>
+            <SellUpWordmark />
           </span>
           <span className="truncate text-xs text-text-muted">{PRODUCT_TAGLINE}</span>
         </span>

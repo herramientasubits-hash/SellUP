@@ -5,7 +5,7 @@
  */
 
 import type { ReactNode } from 'react';
-import { BrandTile } from '@/components/layout/app-sidebar';
+import { BrandTile, SellUpWordmark } from '@/components/layout/app-sidebar';
 import { AlertCircle } from '@/icons';
 
 interface LoginAccessCardProps {
@@ -22,7 +22,7 @@ export function LoginAccessCard({ children, errorMessage }: LoginAccessCardProps
         <BrandTile className="size-14 rounded-2xl shadow-card" />
         <div className="grid gap-1.5">
           <h1 className="text-3xl font-semibold tracking-tight">
-            Sell<span className="text-primary">Up</span>
+            <SellUpWordmark />
           </h1>
           <p className="text-sm text-muted-foreground">De la empresa correcta a la primera reunión.</p>
         </div>
