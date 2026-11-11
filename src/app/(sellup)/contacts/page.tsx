@@ -6,6 +6,7 @@ import { getAllContacts } from '@/modules/contacts/actions';
 import { getAccountsList, getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { getCommercialScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import { getHubSpotPortalId } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
 import { ContactsDataTableClient } from '@/components/contacts/contacts-data-table-client';
 import { ContactsScreenActions } from '@/components/contacts/contacts-screen-actions';
 import {
@@ -85,12 +86,15 @@ function ContactsTabPanel({ tab }: { tab?: string }) {
 }
 
 async function ApprovedContactsPanel() {
-  const [contacts, accountsList, pickerAccounts, scopeFilterOptions] = await Promise.all([
-    getAllContacts(),
-    getAccountsList(),
-    getActiveAccountsForPicker(),
-    getCommercialScopeFilterOptions(),
-  ]);
+  const [contacts, accountsList, pickerAccounts, scopeFilterOptions, hubspotPortalId] =
+    await Promise.all([
+      getAllContacts(),
+      getAccountsList(),
+      getActiveAccountsForPicker(),
+      getCommercialScopeFilterOptions(),
+      // Para abrir el contacto y la empresa en HubSpot desde la tabla (como en «Por revisar»).
+      getHubSpotPortalId(),
+    ]);
 
   const accounts = pickerAccounts;
   const accountOwners = new Map(
@@ -112,6 +116,7 @@ async function ApprovedContactsPanel() {
           accountOwners={accountOwners}
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
+          hubspotPortalId={hubspotPortalId}
         />
       </DataTablePage>
     </ListActionRailProvider>
