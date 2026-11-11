@@ -146,11 +146,14 @@ describe('waterfall — constantes de costo y rol', () => {
   test('el waterfall reutiliza la autoridad canónica del reveal, sin lista propia', () => {
     assert.deepEqual(
       [...PHONE_REVEAL_AUTHORIZED_ROLE_KEYS],
-      ['admin', 'commercial_manager'],
+      ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd'],
     );
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('admin'), true);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_manager'), true);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('commercial_lead'), true);
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('seller_bd'), true);
     // No se abre a nadie más: quien no podía revelar teléfono sigue sin poder.
+    assert.equal(isPhoneRevealWaterfallRoleAuthorized('growth'), false);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('seller'), false);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized('lead'), false);
     assert.equal(isPhoneRevealWaterfallRoleAuthorized(''), false);
@@ -270,7 +273,7 @@ describe('waterfall — arranque de la corrida', () => {
   test('un rol sin permiso de revelar: NO crea corrida', async () => {
     // (`null` no se prueba aquí: el harness lo sustituye por 'admin'. La ausencia de
     // rol la cubre la aserción pura de `isPhoneRevealWaterfallRoleAuthorized(null)`.)
-    for (const roleKey of ['seller', 'seller_bd', 'lead']) {
+    for (const roleKey of ['seller', 'growth', 'lead']) {
       const h = startHarness({ roleKey });
       const result = await startPhoneRevealWaterfall({ candidateId: 'candidate-1', acceptedMaxCredits: ACCEPTED_CEILING_NOT_UNDER_TEST }, h.deps);
       assert.deepEqual(result, { started: false, reason: 'role_not_allowed' }, `${roleKey}`);

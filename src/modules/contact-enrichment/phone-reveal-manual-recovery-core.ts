@@ -61,7 +61,7 @@ export const MANUAL_RECOVERY_IN_FLIGHT_STATUSES: readonly string[] = [
 
 /**
  * Roles autorizados a pedir la revisión manual: los MISMOS que pueden disparar un
- * reveal (Administrador + Manager comercial). No se crean permisos nuevos y no se
+ * reveal (Administrador, Manager comercial y, desde 11-11, Líder comercial y Vendedor / BD). No se crean permisos nuevos y no se
  * hereda el gate ADMIN-only del runtime de recovery batch: revisar el resultado de
  * un reveal que uno mismo pidió no es una operación de administración, no gasta
  * créditos y no escribe nada que el reveal no fuera a escribir por webhook.
@@ -70,6 +70,8 @@ export const MANUAL_RECOVERY_IN_FLIGHT_STATUSES: readonly string[] = [
 export const MANUAL_RECOVERY_AUTHORIZED_ROLE_KEYS: readonly string[] = [
   'admin',
   'commercial_manager',
+  'commercial_lead',
+  'seller_bd',
 ];
 
 /** Proveedor único del recovery. Apollo-only, sin fallback Lusha (gate legal). */

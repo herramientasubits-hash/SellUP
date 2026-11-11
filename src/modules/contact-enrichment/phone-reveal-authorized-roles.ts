@@ -25,12 +25,20 @@
 // de ellas es el botón «Revelar teléfono».
 
 /**
- * Roles autorizados a disparar un reveal de teléfono: Administrador y Manager
- * comercial. ÚNICA fuente de verdad; nadie debe volver a escribir esta pareja.
+ * Roles autorizados a disparar un reveal de teléfono. ÚNICA fuente de verdad; nadie
+ * debe volver a escribir esta lista.
+ *
+ * 11-11: se suman Líder comercial y Vendedor / BD (decisión de la dueña). Antes sólo
+ * Administrador y Manager comercial, y como no hay nadie con Manager comercial en Prod,
+ * en la práctica sólo los admins podían revelar. El gasto lo siguen controlando las
+ * reglas de presupuesto; «Buscar más números» y el resto de operaciones admin-only
+ * conservan su lista propia.
  */
 export const PHONE_REVEAL_AUTHORIZED_ROLE_KEYS: readonly string[] = [
   'admin',
   'commercial_manager',
+  'commercial_lead',
+  'seller_bd',
 ];
 
 /**

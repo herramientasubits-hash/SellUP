@@ -905,7 +905,7 @@ describe('102 ausente — el gate de rol se evalúa antes que la infraestructura
   // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: `commercial_manager` salió de esta
   // lista porque SÍ puede revelar teléfono, y por tanto sí puede autorizar el
   // waterfall. Los que quedan son los que nunca pudieron revelar.
-  for (const roleKey of ['seller_bd', 'seller', 'lead', null]) {
+  for (const roleKey of ['growth', 'seller', 'lead', null]) {
     it(`${roleKey ?? 'sin rol'}: no consulta la tabla ni crea corrida`, async () => {
       setFlags(true, true);
       waterfallTableError = TABLE_MISSING_ERRORS[0].error;
