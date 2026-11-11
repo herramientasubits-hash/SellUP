@@ -69,7 +69,7 @@ export async function notifyAgentRunFinished(runId: string, status: 'completed' 
       entity_id: runId,
       is_read: false,
     });
-    await notifySlackUsers([r.triggered_by], notification);
+    await notifySlackUsers([r.triggered_by], notification, { key: 'run_finished' });
   } catch (error) {
     console.error('[run-finished]', error instanceof Error ? error.message : 'error');
   }

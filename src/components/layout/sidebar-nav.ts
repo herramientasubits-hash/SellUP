@@ -155,7 +155,7 @@ export interface WorkspaceSettingsGroup {
 }
 
 const SETTINGS_GROUPS: readonly { id: string; label: string; icon: LucideIcon; sections: readonly string[] }[] = [
-  { id: "team", label: "Equipo", icon: Users, sections: ["users", "activity"] },
+  { id: "team", label: "Equipo", icon: Users, sections: ["users", "notifications", "activity"] },
   {
     id: "data",
     label: "Datos e IA",

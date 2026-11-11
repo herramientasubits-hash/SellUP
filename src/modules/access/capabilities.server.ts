@@ -69,7 +69,7 @@ export async function canReviewCandidateId(candidateId: string): Promise<boolean
   const enforced = isRoleCapabilitiesEnabled();
   // Sin leer nada cuando la persona ya puede revisar todo.
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return true;
-  if (!enforced || !access.userId || !candidateId) return false;
+  if (!access.userId || !candidateId) return false;
 
   try {
     const supabase = await createClient();
@@ -206,8 +206,8 @@ export async function findCandidatesNeedingAssignee(rows: readonly CandidateResp
 
 /**
  * ¿Puede quien pide APROBAR esta candidata? Dos preguntas, en orden:
- *  1. ¿le toca? Admin, siempre. Su dueño (con las reglas encendidas), solo si
- *     está limpia: un posible duplicado o una coincidencia con HubSpot pasa a admin.
+ *  1. ¿le toca? Admin, siempre. Su responsable (asignado o dueño de la búsqueda),
+ *     también si es posible duplicado o ya está en HubSpot (lo confirma en el panel).
  *  2. ¿tiene responsable? Siempre, también para admin y con las reglas apagadas:
  *     lo de una búsqueda de admin se asigna antes de aprobarse, para que la
  *     empresa no quede a nombre del administrador.
@@ -218,7 +218,6 @@ export async function checkCandidateApproval(candidateId: string): Promise<Candi
   const enforced = isRoleCapabilitiesEnabled();
   if (!access.userId || !candidateId) return { ok: false, reason: 'not_allowed' };
   const reviewsAll = hasCapability(access, 'revisarTodasLasCandidatas', { enforced });
-  if (!reviewsAll && !enforced) return { ok: false, reason: 'not_allowed' };
 
   const facts = await readCandidateReviewFacts(candidateId);
   if (!facts) return { ok: false, reason: 'not_allowed' };

@@ -337,7 +337,7 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     // ROLE-GROWTH-1 moves the ceiling to 158: the `growth` row in the roles catalog. No source-catalog object.
     // GROWTH-BULK-SEARCH-1 moves the ceiling to 159: Growth bulk searches (two service_role-only tables and their claim RPC). No source-catalog object.
     // Dueña 28-10 moves it to 160: the wizard reservation without pilot limits. No source-catalog object.
-    assert.equal(highest, 164);
+    assert.equal(highest, 165);
     assert.ok(files.includes(MIGRATION_125));
     assert.ok(files.includes(MIGRATION_126_AGENT1));
     assert.ok(files.includes(MIGRATION_127));
@@ -472,7 +472,9 @@ describe('BR-SOURCE CUT A.1 — migration chain shape', () => {
     assert.deepEqual(files.filter((f) => f.startsWith('163')), ['163_budget_approvals_top_ups_rollover.sql']);
     // Dueña 11-11 mueve el techo a la 164 (el teléfono de HubSpot/manual no se reemplaza por el de Apollo/Lusha: dos triggers, sin esquema ni datos). AUTORIZADA y NO APLICADA.
     assert.deepEqual(files.filter((f) => f.startsWith('164')), ['164_keep_crm_phone_over_provider_phone.sql']);
-    assert.equal(files.some((f) => f.startsWith('165')), false);
+    // Dueña 11-11 mueve el techo a la 165 (avisos de Slack por rol/persona, historial de boletines, enlace del aviso de pendientes). AUTORIZADA y NO APLICADA.
+    assert.deepEqual(files.filter((f) => f.startsWith('165')), ['165_slack_notification_settings_and_bulletins.sql']);
+    assert.equal(files.some((f) => f.startsWith('166')), false);
     // And the 128 plus the whole 129–132 chain are provably foreign to this milestone: none of
     // them names a single source-catalog object CUT A.1 reconciles.
     for (const foreign of [

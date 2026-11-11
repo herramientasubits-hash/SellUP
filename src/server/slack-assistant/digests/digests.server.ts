@@ -4,29 +4,25 @@
 // de «proveedor sin créditos», al momento. Sólo LEEN datos y escriben avisos
 // (campanita + Slack); nunca tocan presupuesto ni datos comerciales.
 //   · Alertas de consumo a administradores: siempre (SELLUP_SLACK_COST_ALERTS=off apaga).
-//   · Recordatorio diario de pendientes: SELLUP_SLACK_DAILY_REMINDERS=on (lun–vie).
-//   · Resumen semanal a líderes: SELLUP_SLACK_WEEKLY_SUMMARY=on (lunes).
+//   · Recordatorio diario de pendientes: según Configuración (lun–vie).
+//   · Boletines (diario/semanal/mensual/trimestral): según Configuración › Avisos de Slack.
 // Nunca lanza.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { resolveCommercialScopeForUser } from '@/modules/access/commercial-scope-core.server';
-import { displayUserName } from '@/modules/access/user-names';
 import { buildCandidateOwnershipOrClause } from '@/modules/assignment/assignment-core';
 import { notifySlackUsers, sellupAppUrl } from '@/modules/notifications/slack-notify.server';
 import { providerDisplayName } from '@/modules/usage-tracking/provider-failure';
 import { createAssistantAdminDataSource } from '../admin-data-source.server';
 import { batchScopeClause, usagePeriodStart } from '../query-helpers';
+import { isNotificationEnabled, type NotificationKey } from '@/modules/notifications/notification-catalog';
+import { loadNotificationSettingRows } from '@/modules/notifications/notification-settings.server';
 import { costAlertMessage, costAlertTitle, evaluateCostAlerts, providerBlockedTitle } from './cost-alerts';
 import {
-  digestFlagOn,
-  isBogotaMonday,
   isBogotaWeekday,
   reminderText,
-  weeklySummaryText,
   type PendingSummary,
-  type TeamWeekRow,
 } from './reminders';
 
 const PENDING_STATUSES = ['needs_review', 'generated', 'normalized'];
@@ -45,6 +41,7 @@ async function notifyOnce(
   recipients: readonly string[],
   input: { type: string; title: string; message: string; actionLabel: string; actionUrl: string },
   since: string,
+  key: NotificationKey,
 ): Promise<number> {
   let sent = 0;
   for (const recipient of recipients) {
@@ -65,7 +62,7 @@ async function notifyOnce(
       action_url: input.actionUrl,
       is_read: false,
     });
-    sent += await notifySlackUsers([recipient], input);
+    sent += await notifySlackUsers([recipient], input, { key });
   }
   return sent;
 }
@@ -106,6 +103,7 @@ export async function runCostAlerts(admin: SupabaseClient, now: Date): Promise<n
       admins,
       { type: 'budget_threshold', title: costAlertTitle(alert), message: costAlertMessage(alert), actionLabel: 'Ver proveedores', actionUrl: '/settings/providers' },
       monthStart,
+      'cost_alerts',
     );
   }
   return sent;
@@ -134,6 +132,7 @@ export async function alertProviderBlocked(providerKey: string, code: string, de
         actionUrl: '/settings/providers',
       },
       usagePeriodStart('hoy', new Date()),
+      'provider_blocked',
     );
   } catch (error) {
     console.error('[slack-digests] proveedor bloqueado', error instanceof Error ? error.message : 'error');
@@ -141,13 +140,15 @@ export async function alertProviderBlocked(providerKey: string, code: string, de
 }
 
 export async function runDailyReminders(admin: SupabaseClient, now: Date): Promise<number> {
-  if (!digestFlagOn(process.env.SELLUP_SLACK_DAILY_REMINDERS) || !isBogotaWeekday(now)) return 0;
+  // Quién lo recibe se decide en Configuración › Avisos de Slack (aviso «daily_reminder»).
+  if (!isBogotaWeekday(now)) return 0;
   const { data } = await admin
     .from('internal_users')
     .select('id, full_name, email, roles(key)')
     .eq('access_status', 'active');
+  const rows = await loadNotificationSettingRows(admin);
   const people = ((data ?? []) as unknown as Array<{ id: string; full_name: string | null; email: string | null; roles: { key: string } | null }>).filter(
-    (u) => u.roles?.key !== 'admin',
+    (u) => isNotificationEnabled('daily_reminder', { userId: u.id, roleKey: u.roles?.key ?? null }, rows),
   );
   let sent = 0;
   for (const person of people) {
@@ -159,54 +160,7 @@ export async function runDailyReminders(admin: SupabaseClient, now: Date): Promi
       actionLabel: 'Ver por revisar',
       actionUrl: `/accounts?tab=prospectos&userId=${encodeURIComponent(person.id)}`,
       footer: 'Recordatorio diario de SellUp',
-    });
-  }
-  return sent;
-}
-
-export async function runWeeklySummary(admin: SupabaseClient, now: Date): Promise<number> {
-  if (!digestFlagOn(process.env.SELLUP_SLACK_WEEKLY_SUMMARY) || !isBogotaMonday(now)) return 0;
-  const { data } = await admin
-    .from('internal_users')
-    .select('id, full_name, email, group_id, roles(key)')
-    .eq('access_status', 'active');
-  const users = (data ?? []) as unknown as Array<{ id: string; full_name: string | null; email: string | null; group_id: string | null; roles: { key: string } | null }>;
-  const names = new Map(users.map((u) => [u.id, displayUserName(u) ?? 'Sin nombre']));
-  const weekAgo = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-  let sent = 0;
-  for (const leader of users.filter((u) => u.roles?.key === 'commercial_lead' || u.roles?.key === 'commercial_manager')) {
-    const scope = await resolveCommercialScopeForUser(admin, { id: leader.id, email: leader.email, groupId: leader.group_id, roleKey: leader.roles?.key ?? null });
-    const team = scope.canViewAll ? users.map((u) => u.id) : scope.allowedUserIds;
-    if (team.length <= 1) continue;
-    const rows: TeamWeekRow[] = [];
-    for (const memberId of team) {
-      const [pending, { count: approved }, { count: discarded }] = await Promise.all([
-        pendingFor(admin, memberId, now),
-        admin.from('prospect_candidates').select('id', { count: 'exact', head: true }).eq('reviewed_by', memberId).in('status', ['approved', 'converted_to_account']).gte('reviewed_at', weekAgo),
-        admin.from('prospect_candidates').select('id', { count: 'exact', head: true }).eq('reviewed_by', memberId).eq('status', 'discarded').gte('reviewed_at', weekAgo),
-      ]);
-      rows.push({ name: names.get(memberId) ?? 'Sin nombre', approved: approved ?? 0, discarded: discarded ?? 0, pending: pending.total, oldestDays: pending.oldestDays });
-    }
-    const { data: usage } = await admin
-      .from('provider_usage_logs')
-      .select('estimated_cost_usd, credits_used')
-      .in('triggered_by', team)
-      .gte('created_at', weekAgo)
-      .limit(20000);
-    const usageRows = (usage ?? []) as Array<{ estimated_cost_usd: number | null; credits_used: number | null }>;
-    sent += await notifySlackUsers([leader.id], {
-      title: 'Resumen semanal de tu equipo',
-      message: weeklySummaryText({
-        leaderName: leader.full_name,
-        rows,
-        // Líderes y managers ven dólares (como en Uso de IA).
-        usageUsd: usageRows.reduce((s, r) => s + Number(r.estimated_cost_usd ?? 0), 0),
-        usageCredits: usageRows.reduce((s, r) => s + Number(r.credits_used ?? 0), 0),
-      }),
-      actionLabel: 'Ver uso del equipo',
-      actionUrl: '/ai-usage?tab=equipo',
-      footer: 'Resumen de los lunes de SellUp',
-    });
+    }, { key: 'daily_reminder' });
   }
   return sent;
 }
@@ -223,13 +177,20 @@ export async function runSlackDailyDigests(now: Date = new Date()): Promise<Reco
   for (const [key, run] of [
     ['costAlerts', runCostAlerts],
     ['dailyReminders', runDailyReminders],
-    ['weeklySummary', runWeeklySummary],
   ] as const) {
     try {
       result[key] = await run(admin, now);
     } catch (error) {
       result[key] = `error: ${error instanceof Error ? error.message.slice(0, 120) : 'error'}`;
     }
+  }
+  // Boletines (diario, semanal, mensual, trimestral) a quienes los tienen encendidos.
+  try {
+    const { runDueBulletins } = await import('@/modules/bulletin/bulletin-send.server');
+    const bulletins = await runDueBulletins(admin, now);
+    for (const [frequency, sent] of Object.entries(bulletins)) result[`bulletin_${frequency}`] = sent;
+  } catch (error) {
+    result.bulletins = `error: ${error instanceof Error ? error.message.slice(0, 120) : 'error'}`;
   }
   return result;
 }

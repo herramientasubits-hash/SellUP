@@ -13,7 +13,7 @@ import { ChatPanel, ChatQuestionPanel } from '@/components/chat';
 import { AgentChatTimeline } from '@/components/agent-chat/agent-chat-timeline';
 import type { AgentChatMessage } from '@/components/agent-chat/agent-chat-types';
 import { AiAnalyzingState } from '@/components/ai/ai-analyzing-state';
-import { buildResolveInput } from '@/components/contact-enrichment/contact-enrichment-chat-reducer';
+import { buildResolveInput, companyQueryDomain } from '@/components/contact-enrichment/contact-enrichment-chat-reducer';
 // Por ruta y con tiempo límite: como acción del servidor quedaba en la fila de la pestaña.
 import { resolveCompanyViaRoute } from '@/modules/contact-enrichment/resolve-company-client';
 import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
@@ -40,6 +40,12 @@ const HUBSPOT_NOTE: Readonly<Record<FirstContactCompanyHubSpot, string>> = {
   pending_review: 'En HubSpot hay una empresa parecida: quedó para revisar antes de crearla.',
   not_created: 'No se pudo dejar en HubSpot todavía; se reintenta al aprobar contactos.',
 };
+
+/** Un correo personal no dice de qué empresa es: se pide el nombre o el sitio. */
+export const PERSONAL_EMAIL_NOTICE = {
+  title: 'Ese es un correo personal',
+  description: 'No dice de qué empresa es. Escribe el nombre de la empresa, su sitio web o un correo de la empresa.',
+} as const;
 
 function candidateLabel(c: CompanyCandidate): { label: string; description: string } {
   const where = [c.domain, c.country].filter(Boolean).join(' · ');
@@ -85,6 +91,14 @@ export function FirstContactCompanyPicker({
     ]);
 
   const search = async (query: string) => {
+    // Dueña 11-11: un correo personal (gmail, hotmail…) no dice de qué empresa es. Antes
+    // se buscaba como NOMBRE, no aparecía y se ofrecía crear una empresa «ana@gmail.com».
+    if (companyQueryDomain(query)?.personal) {
+      say('¿Para qué empresa preparamos el primer contacto?', query);
+      toast.info(PERSONAL_EMAIL_NOTICE.title, { description: PERSONAL_EMAIL_NOTICE.description });
+      setStep({ id: 'ask' });
+      return;
+    }
     say('¿Para qué empresa preparamos el primer contacto?', query);
     setStep({ id: 'searching', query });
     try {

@@ -85,7 +85,11 @@ async function notify(
       await notifySlackUsers(
         [row.recipient],
         { title: row.title, message: row.message, actionLabel: 'Ver solicitud', actionUrl: CREDIT_APPROVALS_PATH },
-        row.type === 'budget_approval_requested' && row.credits ? creditDecisionButtons(row.entityId, row.credits) : undefined,
+        {
+          key: row.type === 'budget_approval_requested' ? 'credit_requests' : 'credit_decisions',
+          extraButtons:
+            row.type === 'budget_approval_requested' && row.credits ? creditDecisionButtons(row.entityId, row.credits) : undefined,
+        },
       );
     }
   }

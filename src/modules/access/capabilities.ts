@@ -71,9 +71,10 @@ export function hasCapability(
 
 /**
  * ¿Puede decidir (aprobar, descartar, marcar duplicada) sobre ESTA candidata?
- * Admin, sobre cualquiera. Con las reglas encendidas, además, quien es
- * su responsable o dueño de la búsqueda de la que salió: un BD decide sobre lo
- * suyo sin esperar a un admin.
+ * Admin, sobre cualquiera. Y SIEMPRE su responsable: el asignado o el dueño de
+ * la búsqueda de la que salió (dueña 11-11: «quien es el dueño de eso lo revisa,
+ * lo aprueba, lo descarta o le dice que es un duplicado»). Ya no depende de
+ * ENABLE_ROLE_CAPABILITIES, que sólo gobierna lo masivo.
  */
 export function canReviewCandidate(
   access: AccessSnapshot,
@@ -81,7 +82,7 @@ export function canReviewCandidate(
   { enforced }: { enforced: boolean },
 ): boolean {
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return true;
-  if (!enforced || !access.userId) return false;
+  if (!access.userId) return false;
   return [owner.assignedTo, owner.batchOwnerId, owner.batchCreatedBy].some(
     (id) => typeof id === 'string' && id.length > 0 && id === access.userId,
   );
@@ -107,10 +108,10 @@ export type CandidateReviewDecision =
   | { ok: false; reason: 'not_allowed' | 'needs_growth_review' | 'needs_assignee' };
 
 /**
- * ¿Puede APROBAR esta candidata? Igual que `canReviewCandidate`, con una regla
- * más: el dueño que no es admin solo aprueba lo limpio. Un posible duplicado o
- * una empresa que ya está en HubSpot la decide un administrador — así el mismo
- * vendedor (o Growth) no confirma «no es duplicado» sobre lo suyo.
+ * ¿Puede APROBAR esta candidata? Igual que `canReviewCandidate` (dueña 11-11):
+ * su responsable decide también un posible duplicado o una empresa que ya está
+ * en HubSpot — el panel le muestra la advertencia y le pide confirmarla. Las
+ * señales se conservan en la firma por compatibilidad.
  */
 export function decideCandidateApproval(
   access: AccessSnapshot,
@@ -120,7 +121,8 @@ export function decideCandidateApproval(
 ): CandidateReviewDecision {
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return { ok: true };
   if (!canReviewCandidate(access, owner, { enforced })) return { ok: false, reason: 'not_allowed' };
-  return hasDuplicateRisk(signals) ? { ok: false, reason: 'needs_growth_review' } : { ok: true };
+  void signals;
+  return { ok: true };
 }
 
 /** Lo que se le dice a quien intenta algo que no le toca. */

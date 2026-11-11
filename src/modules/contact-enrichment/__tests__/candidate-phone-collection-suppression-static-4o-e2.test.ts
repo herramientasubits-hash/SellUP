@@ -351,6 +351,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '163_budget_approvals_top_ups_rollover.sql',
       // Dueña 11-11 mueve el techo a la 164 (el teléfono de HubSpot/manual no se reemplaza por el de Apollo/Lusha: dos triggers BEFORE UPDATE OF phone, sin esquema ni datos). AUTORIZADA y NO APLICADA.
       '164_keep_crm_phone_over_provider_phone.sql',
+      // Dueña 11-11 mueve el techo a la 165 (avisos de Slack por rol/persona, historial de boletines y enlace del aviso de pendientes; tablas nuevas, sin tocar datos). AUTORIZADA y NO APLICADA.
+      '165_slack_notification_settings_and_bulletins.sql',
     ]);
   });
 

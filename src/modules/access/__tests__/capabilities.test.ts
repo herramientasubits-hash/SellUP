@@ -76,8 +76,8 @@ describe('decidir sobre una candidata', () => {
     assert.equal(canReviewCandidate(growth, { batchCreatedBy: 'u-growth' }, ON), true);
   });
 
-  it('apagada: solo admin, como antes (ni siquiera lo propio)', () => {
-    assert.equal(canReviewCandidate(bd, deBd, OFF), false);
+  it('apagada también: el responsable decide lo suyo (dueña 11-11); lo ajeno no', () => {
+    assert.equal(canReviewCandidate(bd, deBd, OFF), true);
     assert.equal(canReviewCandidate(growth, deOtro, OFF), false);
     assert.equal(canReviewCandidate(admin, deOtro, OFF), true);
   });
@@ -124,24 +124,24 @@ describe('aprobar: el posible duplicado de un BD o de Growth pasa a admin', () =
     assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, ON), { ok: true });
   });
 
-  it('el BD NO aprueba su posible duplicado ni lo que ya está en HubSpot: lo decide admin', () => {
-    assert.deepEqual(decideCandidateApproval(bd, deBd, posible, ON), { ok: false, reason: 'needs_growth_review' });
-    assert.deepEqual(decideCandidateApproval(bd, deBd, enHubSpot, ON), { ok: false, reason: 'needs_growth_review' });
+  it('el responsable aprueba su posible duplicado y lo que ya está en HubSpot (lo confirma en el panel; dueña 11-11)', () => {
+    assert.deepEqual(decideCandidateApproval(bd, deBd, posible, ON), { ok: true });
+    assert.deepEqual(decideCandidateApproval(bd, deBd, enHubSpot, ON), { ok: true });
   });
 
-  it('admin aprueba aunque haya riesgo (con su confirmación de siempre); Growth no', () => {
+  it('admin aprueba aunque haya riesgo; Growth decide lo suyo, no lo ajeno', () => {
     assert.deepEqual(decideCandidateApproval(admin, deBd, enHubSpot, ON), { ok: true });
     const deGrowth = { batchCreatedBy: 'u-growth' };
     assert.deepEqual(decideCandidateApproval(growth, deGrowth, limpia, ON), { ok: true });
-    assert.deepEqual(decideCandidateApproval(growth, deGrowth, posible, ON), { ok: false, reason: 'needs_growth_review' });
+    assert.deepEqual(decideCandidateApproval(growth, deGrowth, posible, ON), { ok: true });
     assert.deepEqual(decideCandidateApproval(growth, deBd, limpia, ON), { ok: false, reason: 'not_allowed' });
   });
 
-  it('lo ajeno sigue sin permiso, y apagada solo aprueba admin', () => {
+  it('lo ajeno sigue sin permiso; apagada, el responsable igual aprueba lo suyo', () => {
     assert.deepEqual(decideCandidateApproval(bd, { batchCreatedBy: 'u-otro' }, limpia, ON), {
       ok: false,
       reason: 'not_allowed',
     });
-    assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, OFF), { ok: false, reason: 'not_allowed' });
+    assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, OFF), { ok: true });
   });
 });

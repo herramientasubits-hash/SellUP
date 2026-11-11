@@ -604,8 +604,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // contactos, presupuesto ni HubSpot); no ASIGNA `mobile_phone`.
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth; sin teléfonos ni
       // contactos); no ASIGNA `mobile_phone`.
-      164,
-      'la 164 (conserva el teléfono de HubSpot ante uno de proveedor; nunca escribe `mobile_phone`) es la última',
+      165,
+      'la 165 (avisos de Slack configurables e historial de boletines; tablas nuevas) es la última',
     );
   });
 

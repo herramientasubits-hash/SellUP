@@ -113,13 +113,40 @@ Todos llegan también a la campanita, con un botón a la pantalla.
 | Tu búsqueda terminó o falló (empresas o contactos) | Quien la lanzó | Al cerrar la corrida, si duró 45 s o más; una vez | ídem |
 | Proveedor sin créditos o con la llave rechazada | Administradores | En el momento, una vez al día por proveedor | `SELLUP_SLACK_COST_ALERTS=off` |
 | Proveedor pasó el 80 % o el 100 % de la cuota del mes, con el día proyectado de agotamiento | Administradores | Proceso diario, 8:15 a. m. de Bogotá; una vez por umbral y mes | `SELLUP_SLACK_COST_ALERTS=off` |
-| Tus empresas por revisar | Cada persona no administradora con pendientes | Lunes a viernes, 8:15 a. m. | **`SELLUP_SLACK_DAILY_REMINDERS=on`** (apagado por defecto) |
-| Resumen semanal del equipo (aprobadas, descartadas, atrasados, consumo) | Líderes y managers | Lunes, 8:15 a. m. | **`SELLUP_SLACK_WEEKLY_SUMMARY=on`** (apagado por defecto) |
+| Tus empresas por revisar | Quien lo tenga encendido en Configuración | Lunes a viernes, 8:15 a. m. | Configuración › Avisos de Slack (apagado por defecto) |
+| Boletín (diario, semanal, mensual, trimestral) | Según Configuración (semanal: admin, líderes, managers) | 8:15 a. m. del día que toca | Configuración › Avisos de Slack |
 
 **Detalles técnicos:**
 - **Proceso diario:** los avisos programados corren en el cron de las 8:15 (`apollo-round-continuation`), porque los 2 crons del plan están ocupados. Sólo corren si `SLACK_SIGNING_SECRET` existe.
 - **Botones de créditos:** al pulsarlos se decide con la sesión de quien pulsa, usando `decideCreditApproval`, que comprueba que sea aprobador o administrador.
 - **Presupuesto:** las alertas **sólo leen**; nunca tocan el presupuesto.
+
+## Configuración › Avisos de Slack (migración 165)
+
+**Reglas por rol y por persona** (tabla `slack_notification_settings`):
+- Cada aviso del catálogo (`src/modules/notifications/notification-catalog.ts`) se enciende o apaga por rol, y cada persona puede tener su propia regla.
+- **Prioridad:** la regla de la persona, si no la del rol y, si no, el valor por defecto.
+- **Alcance:** un aviso que no aplica al rol (por ejemplo, las alertas de consumo para un vendedor) nunca le llega.
+- **La campanita no cambia:** estas reglas sólo deciden si el aviso también llega por Slack.
+
+**Boletín:**
+- **Frecuencias:** diario (lun–vie, cubre el día hábil anterior; el lunes cubre de viernes a domingo), semanal (lunes, semana anterior), mensual (día 1) y trimestral (1 de enero, abril, julio y octubre). Una persona puede tener varias.
+- **Por defecto:** el semanal está encendido para administradores, líderes y managers; el resto, apagado.
+- **Contenido:** el equipo de quien lo recibe y, en cascada, el de sus reportes, según el organigrama (`manager_id`). Los sub-equipos son cada reporte directo con toda su cascada.
+- **Secciones:**
+  - lectura ejecutiva con semáforo;
+  - pulso del período contra el anterior (▲▼ y 🟢🔴);
+  - tasa de aprobación antes y ahora;
+  - embudo (encontradas → aprobadas → con contactos → primer contacto preparado → usado);
+  - por equipo, con barras;
+  - a quién acompañar (pendientes de más de 7 días y personas sin actividad);
+  - cierre.
+- **Dinero:** sólo lo ven administradores y líderes; los demás ven créditos.
+- **Cuándo se envía:** cada mañana en el cron de las 8:15. Una sola vez por persona, frecuencia y período.
+- **Historial:** cada envío queda en `slack_bulletin_deliveries`, con su modelo, para volver a verlo igual.
+- **Pantalla:** `/settings/notifications` (sólo administradores), con tres pestañas: «Avisos» (matriz por rol y reglas por persona), «Boletín» (vista previa gráfica de la persona y frecuencia que elijas, y «Enviármelo por Slack») e «Historial».
+- **Sin la migración 165 aplicada,** todo sigue funcionando con los valores por defecto y la pantalla avisa que no se puede guardar.
+- **Variables que ya no se usan:** `SELLUP_SLACK_DAILY_REMINDERS` y `SELLUP_SLACK_WEEKLY_SUMMARY`. El recordatorio diario y el boletín se encienden desde la pantalla.
 
 ## Configuración (una sola vez)
 
