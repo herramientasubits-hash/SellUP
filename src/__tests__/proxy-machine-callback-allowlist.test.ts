@@ -64,6 +64,12 @@ describe('proxy — callbacks de máquina excluidos de la sesión', () => {
     assert.equal(proxyRunsFor('/api/cron/claude-rescue-continuation-otro'), true);
   });
 
+  it('los eventos de Slack NO pasan por el proxy (Slack no trae sesión; los protege la firma)', () => {
+    assert.equal(proxyRunsFor('/api/integrations/slack/events'), false);
+    assert.equal(proxyRunsFor('/api/integrations/slack/events-otro'), true);
+    assert.equal(proxyRunsFor('/api/integrations/slack/oauth/start'), true);
+  });
+
   it('las exclusiones previas siguen intactas (sin regresión)', () => {
     for (const path of [
       '/api/health',

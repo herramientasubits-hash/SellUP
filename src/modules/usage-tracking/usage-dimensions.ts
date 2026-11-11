@@ -292,9 +292,11 @@ export const AGENT_DIMENSION_LABELS: Readonly<Record<string, string>> = {
   // Agente 3 declara agent_key en cada consulta (no hay regla por proveedor + operación).
   agent3: 'Agente 3 · Primer contacto',
   accounts: 'Empresas de HubSpot',
+  slack_assistant: 'Asistente de Slack',
 };
 
 export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
+  responder_pregunta: 'Responder una pregunta por Slack (Claude)',
   clasificador: 'Clasificar sector y tamaño (Claude)',
   rescate: 'Rescate de descartadas (Claude)',
   rescate_web: 'Buscar la web de una descartada (Claude)',

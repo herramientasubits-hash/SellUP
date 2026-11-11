@@ -21,31 +21,16 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { collectGroupSubtreeIds } from './group-tree';
-import {
-  classifyRole,
-  uniqueIds,
-  type CommercialScope,
-} from './commercial-scope-logic';
+import type { CommercialScope } from './commercial-scope-logic';
+import { resolveCommercialScopeForUser, type ScopeUserRow } from './commercial-scope-core.server';
 
 const ACTIVE_USER_STATUS = 'active';
 
-function getAdminClient() {
-  return createSupabaseAdminClient();
-}
-
-type AdminClient = ReturnType<typeof getAdminClient>;
-
-interface CurrentUserRow {
-  id: string;
-  email: string | null;
-  groupId: string | null;
-  roleKey: string | null;
-}
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 async function resolveCurrentUserRow(
   admin: AdminClient,
-): Promise<CurrentUserRow | null> {
+): Promise<ScopeUserRow | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -70,37 +55,6 @@ async function resolveCurrentUserRow(
   };
 }
 
-/** All active internal_users.ids whose group_id falls inside the subtree. */
-async function getActiveUserIdsInGroups(
-  admin: AdminClient,
-  groupIds: string[],
-): Promise<string[]> {
-  if (groupIds.length === 0) return [];
-  const { data } = await admin
-    .from('internal_users')
-    .select('id')
-    .in('group_id', groupIds)
-    .eq('access_status', ACTIVE_USER_STATUS);
-  return (data ?? []).map((u) => u.id as string);
-}
-
-/** Recursive manager_id report subtree (subordinates only, not self). */
-async function getSubordinateIds(
-  admin: AdminClient,
-  managerId: string,
-): Promise<string[]> {
-  try {
-    const { data } = await admin.rpc('get_subordinate_ids', {
-      p_manager_id: managerId,
-    });
-    return (data ?? []).map((r: { user_id: string }) => r.user_id);
-  } catch {
-    // RPC missing or failed: degrade to no reports rather than throwing. The
-    // group axis still applies; worst case the user sees only their group.
-    return [];
-  }
-}
-
 /**
  * Resolve the current user's commercial scope. Returns `null` only when there is
  * no authenticated active internal user (callers treat that as "no access").
@@ -111,83 +65,8 @@ async function getSubordinateIds(
  * this resolver having to know about per-surface semantics.
  */
 export async function resolveCommercialScope(): Promise<CommercialScope | null> {
-  const admin = getAdminClient();
+  const admin = createSupabaseAdminClient();
   const current = await resolveCurrentUserRow(admin);
   if (!current) return null;
-
-  const roleClass = classifyRole(current.roleKey, false);
-
-  // Always compute the user's own group subtree (used as currentUserGroupIds and
-  // as the team group axis). Cheap single read of organization_groups.
-  let ownGroupSubtree: string[] = [];
-  if (current.groupId) {
-    const { data: groups } = await admin
-      .from('organization_groups')
-      .select('id, parent_group_id');
-    ownGroupSubtree = collectGroupSubtreeIds(
-      [current.groupId],
-      (groups ?? []).map((g) => ({
-        id: g.id as string,
-        name: '',
-        parent_group_id: (g.parent_group_id as string | null) ?? null,
-      })),
-    );
-  }
-
-  const base = {
-    currentUserId: current.id,
-    currentUserEmail: current.email,
-    currentUserRole: current.roleKey,
-    currentUserGroupIds: ownGroupSubtree,
-  } as const;
-
-  if (roleClass === 'admin') {
-    return {
-      ...base,
-      allowedUserIds: [],
-      allowedGroupIds: [],
-      canViewAll: true,
-      isRestrictedToSelf: false,
-      scopeReason: 'admin',
-    };
-  }
-
-  if (roleClass === 'self') {
-    return {
-      ...base,
-      allowedUserIds: [current.id],
-      allowedGroupIds: [],
-      canViewAll: false,
-      isRestrictedToSelf: true,
-      scopeReason: 'self',
-    };
-  }
-
-  // roleClass === 'team' (líder/manager): union of group subtree members and
-  // direct/indirect reports, plus self.
-  const [groupMemberIds, subordinateIds] = await Promise.all([
-    getActiveUserIdsInGroups(admin, ownGroupSubtree),
-    getSubordinateIds(admin, current.id),
-  ]);
-
-  const allowedUserIds = uniqueIds([
-    current.id,
-    ...groupMemberIds,
-    ...subordinateIds,
-  ]);
-
-  // A team role with neither a group nor any report resolves to self only —
-  // never to global — so a misconfigured user can't accidentally see everything.
-  const hasRealScope = ownGroupSubtree.length > 0 || subordinateIds.length > 0;
-
-  return {
-    ...base,
-    allowedUserIds,
-    allowedGroupIds: ownGroupSubtree,
-    canViewAll: false,
-    isRestrictedToSelf: !hasRealScope,
-    scopeReason: hasRealScope
-      ? 'team_group_and_reports'
-      : 'team_without_scope_fallback_self',
-  };
+  return resolveCommercialScopeForUser(admin, current);
 }
