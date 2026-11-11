@@ -256,7 +256,7 @@ export function RulesDataTable({
       noun="reglas"
       nounGender="f"
       title="Reglas de presupuesto"
-      description="Por ahora las reglas solo avisan: no detienen ninguna operación."
+      description="Cada regla avisa, bloquea o pide aprobación al llegar a su tope, según lo que diga «Al superar el límite»."
       count={rules.length}
       columns={columns}
       data={rules}
@@ -278,7 +278,7 @@ export function RulesDataTable({
           variant="plain"
           icon={ShieldAlert}
           title="Todavía no hay reglas de presupuesto"
-          description="Crea una regla con «Crear regla» para recibir un aviso cuando un proveedor, un grupo o una persona se acerque a su tope de gasto."
+          description="Crea una regla con «Crear regla» para fijar el tope de gasto de un proveedor, un rol, un grupo o una persona: al llegar, avisa, bloquea o pide aprobación."
         />
       }
     />
