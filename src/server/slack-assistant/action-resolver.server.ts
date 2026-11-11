@@ -42,12 +42,18 @@ export interface Resolution {
 export interface UserResolution {
   user: { id: string; nombre: string } | null;
   opciones: string[];
+  /** Existe, pero no está en el alcance de quien pide. */
+  fueraDeAlcance?: boolean;
 }
 
 export interface AssistantActionResolver {
   resolveProspects(selection: ItemSelection): Promise<Resolution>;
   resolveAccounts(selection: ItemSelection): Promise<Resolution>;
   resolveActiveUser(text: string): Promise<UserResolution>;
+  /** Una persona activa DENTRO del alcance (para recordatorios: tu equipo; admin, cualquiera). */
+  resolveTeamMember(text: string): Promise<UserResolution>;
+  /** Personas por nombre o correo con ese estado de acceso (administración). */
+  resolveUsersByStatus(names: string[], status: 'active' | 'suspended'): Promise<Resolution>;
 }
 
 type CandidateRow = { id: string; name: string; duplicate_status: string | null; matched_hubspot_company_id: string | null };
@@ -165,6 +171,34 @@ export function createAssistantActionResolver(
         const { data, error } = await query;
         if (error) throw new Error(error.message);
         matches.set(name, (data ?? []) as Array<{ id: string; name: string }>);
+      }
+      return collectByName(names, matches, (row) => ({ id: row.id, nombre: row.name }));
+    },
+
+    async resolveTeamMember(text): Promise<UserResolution> {
+      const found = await this.resolveActiveUser(text);
+      if (!found.user || owners === null || owners.includes(found.user.id)) return found;
+      return { user: null, opciones: [], fueraDeAlcance: true };
+    },
+
+    async resolveUsersByStatus(names, status): Promise<Resolution> {
+      const matches = new Map<string, Array<{ id: string; name: string }>>();
+      for (const name of names.slice(0, MAX_ACTION_ITEMS)) {
+        const p = ilikePattern(name);
+        const { data, error } = await admin
+          .from('internal_users')
+          .select('id, full_name, email')
+          .eq('access_status', status)
+          .or(`full_name.ilike.${p},email.ilike.${p}`)
+          .limit(6);
+        if (error) throw new Error(error.message);
+        matches.set(
+          name,
+          ((data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map((u) => ({
+            id: u.id,
+            name: displayUserName(u) ?? u.email ?? 'Sin nombre',
+          })),
+        );
       }
       return collectByName(names, matches, (row) => ({ id: row.id, nombre: row.name }));
     },

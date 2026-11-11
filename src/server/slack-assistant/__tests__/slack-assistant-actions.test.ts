@@ -13,7 +13,7 @@ import {
 } from '../action-proposal';
 import { verifyOutcomes } from '../action-verify';
 import { collectByName, type AssistantActionResolver, type Resolution } from '../action-resolver.server';
-import { runAssistantTool, toolsForRole, type AssistantDataSource, type ProposedAction } from '../tools';
+import { runAssistantTool, toolsForRole, type AssistantAdminDataSource, type AssistantDataSource, type ProposedAction } from '../tools';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ASKER = id(900);
@@ -133,6 +133,8 @@ function actionContext(overrides: Partial<AssistantActionResolver> = {}) {
     resolveProspects: async () => resolution([{ id: id(1), nombre: 'COPEC S.A.' }]),
     resolveAccounts: async () => resolution([{ id: id(5), nombre: 'Enex' }]),
     resolveActiveUser: async () => ({ user: { id: id(7), nombre: 'Pedro Tapia' }, opciones: [] }),
+    resolveTeamMember: async () => ({ user: { id: id(7), nombre: 'Pedro Tapia' }, opciones: [] }),
+    resolveUsersByStatus: async () => resolution([{ id: id(8), nombre: 'Ana Ruiz' }]),
     ...overrides,
   };
   return { proposals, context: { resolver, propose: (p: ProposedAction) => proposals.push(p) } };
@@ -184,5 +186,56 @@ describe('proponer (nunca ejecutar)', () => {
       const names: string[] = toolsForRole(isAdmin).map((t) => t.name);
       for (const name of ['proponer_aprobar', 'proponer_descartar', 'proponer_asignar']) assert.ok(names.includes(name), name);
     }
+  });
+});
+
+describe('acciones nuevas: recordatorio, etapa, nota, acceso, Rumbo y contactos', () => {
+  it('recordatorio: sólo a alguien del equipo; fuera de alcance no hay propuesta', async () => {
+    const team = actionContext();
+    await runAssistantTool(data, null, 'proponer_recordatorio', { persona: 'Pedro', nota: 'revisa las de Chile' }, team.context);
+    assert.equal(team.proposals[0].kind, 'remind');
+    assert.equal(team.proposals[0].targetUserId, id(7));
+    const outside = actionContext({ resolveTeamMember: async () => ({ user: null, opciones: [], fueraDeAlcance: true }) });
+    const result = await runAssistantTool(data, null, 'proponer_recordatorio', { persona: 'Ana' }, outside.context);
+    assert.match(result.content, /no está en tu equipo/);
+    assert.equal(outside.proposals.length, 0);
+  });
+
+  it('etapa y nota exigen 10+ caracteres; etapa válida', async () => {
+    const ctx = actionContext();
+    assert.equal((await runAssistantTool(data, null, 'proponer_etapa', { empresas: ['Enex'], etapa: 'ready_for_outreach', motivo: 'corto' }, ctx.context)).isError, true);
+    assert.equal((await runAssistantTool(data, null, 'proponer_etapa', { empresas: ['Enex'], etapa: 'cerrada', motivo: 'motivo suficientemente largo' }, ctx.context)).isError, true);
+    await runAssistantTool(data, null, 'proponer_etapa', { empresas: ['Enex'], etapa: 'ready_for_outreach', motivo: 'ya hablamos con el gerente' }, ctx.context);
+    await runAssistantTool(data, null, 'proponer_nota', { empresas: ['Enex'], nota: 'pidió propuesta para enero' }, ctx.context);
+    assert.deepEqual(ctx.proposals.map((p) => [p.kind, p.stage ?? null]), [['set_stage', 'ready_for_outreach'], ['add_note', null]]);
+  });
+
+  it('🔴 activar/desactivar acceso: sólo con isAdmin', async () => {
+    const seller = actionContext();
+    assert.equal((await runAssistantTool(data, null, 'proponer_acceso', { accion: 'activar', personas: ['Ana'] }, seller.context)).isError, true);
+    const admin = actionContext();
+    await runAssistantTool(data, {} as AssistantAdminDataSource, 'proponer_acceso', { accion: 'activar', personas: ['Ana'] }, { ...admin.context, isAdmin: true });
+    assert.equal(admin.proposals[0].kind, 'activate_users');
+  });
+
+  it('Rumbo: una empresa, canal por defecto llamada; contactos: hasta 3 empresas', async () => {
+    const ctx = actionContext();
+    await runAssistantTool(data, null, 'proponer_rumbo', { empresa: 'Enex', canales: ['whatsapp', 'fax'] }, ctx.context);
+    await runAssistantTool(data, null, 'proponer_rumbo', { empresa: 'Enex' }, ctx.context);
+    await runAssistantTool(data, null, 'proponer_buscar_contactos', { empresas: ['Enex'] }, ctx.context);
+    assert.deepEqual(ctx.proposals.map((p) => [p.kind, p.channels ?? null]), [['rumbo', ['whatsapp']], ['rumbo', ['call']], ['find_contacts', null]]);
+  });
+
+  it('🔴 los botones nuevos se validan: etapa con motivo, Rumbo con canal, recordatorio a la misma persona', () => {
+    const base = { askerId: ASKER, askerSlackId: 'U-ASKER', expiresAt: 2_000_000_000 };
+    const stage = decodeActionValue(encodeActionValue({ ...base, kind: 'set_stage', items: [{ id: id(1), nombre: 'A' }], stage: 'new', reason: 'motivo de diez o más' }));
+    assert.equal(stage?.stage, 'new');
+    const rumbo = decodeActionValue(encodeActionValue({ ...base, kind: 'rumbo', items: [{ id: id(1), nombre: 'A' }], channels: ['email'] }));
+    assert.deepEqual(rumbo?.channels, ['email']);
+    const good = JSON.parse(encodeActionValue({ ...base, kind: 'remind', items: [{ id: id(7), nombre: 'P' }], targetUserId: id(7) })) as Record<string, unknown>;
+    assert.ok(decodeActionValue(JSON.stringify(good)));
+    assert.equal(decodeActionValue(JSON.stringify({ ...good, ids: [id(8)] })), null, 'recordatorio a otra persona que la del botón');
+    assert.equal(decodeActionValue(JSON.stringify({ ...good, k: 'rumbo', ch: [] })), null, 'Rumbo sin canal');
+    assert.equal(decodeActionValue(JSON.stringify({ ...good, k: 'set_stage', st: 'cerrada', r: 'motivo de diez o más' })), null);
   });
 });
