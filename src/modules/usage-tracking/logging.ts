@@ -9,6 +9,11 @@ import type {
   LogProviderUsageInput,
   LogResultQualityEventInput,
 } from './types';
+import {
+  describeProviderFailure,
+  isBlockingProviderFailure,
+  providerFailureLogMessage,
+} from './provider-failure';
 
 // ============================================================
 // Admin client — inserts bypass RLS (service_role)
@@ -255,6 +260,31 @@ function resolveUserSnapshot(
 }
 
 /**
+ * Un error de proveedor siempre queda dicho claro en el registro (dueña 11-11):
+ * `error_message` = qué pasó en una frase + lo que respondió el proveedor, y
+ * sin créditos / llave rechazada quedan con su propio `error_code`
+ * (`credits_exhausted`, `invalid_credentials`). El resto de códigos no cambia.
+ */
+export function providerFailureColumns(
+  input: Pick<LogProviderUsageInput, 'provider_key' | 'status' | 'error_code' | 'error_message'>,
+): { error_code: string | null; error_message: string | null } {
+  const rawCode = input.error_code ?? null;
+  const rawMessage = input.error_message ?? null;
+  if (input.status !== 'error') {
+    return { error_code: rawCode, error_message: rawMessage ? rawMessage.slice(0, 500) : null };
+  }
+  const failure = describeProviderFailure({
+    providerKey: input.provider_key,
+    errorCode: rawCode,
+    rawMessage,
+  });
+  return {
+    error_code: isBlockingProviderFailure(failure.kind) ? failure.code : rawCode,
+    error_message: providerFailureLogMessage(failure),
+  };
+}
+
+/**
  * Pure payload builder for the provider_usage_logs insert (17B.4X.5).
  * Exported for direct unit testing of the estimated_cost_usd/real_cost_usd
  * null-write contract without a DB dependency:
@@ -281,8 +311,7 @@ export function buildProviderUsageLogInsertPayload(
     estimated_cost_usd: input.estimated_cost_usd === undefined ? 0 : input.estimated_cost_usd,
     real_cost_usd: input.real_cost_usd ?? null,
     status: input.status ?? 'success',
-    error_code: input.error_code ?? null,
-    error_message: input.error_message ? input.error_message.slice(0, 500) : null,
+    ...providerFailureColumns(input),
     duration_ms: input.duration_ms ?? null,
     triggered_by: input.triggered_by ?? null,
     triggered_by_role_key: userSnapshot.roleKey,

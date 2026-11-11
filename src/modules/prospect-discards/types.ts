@@ -118,6 +118,14 @@ export interface DiscardedProspectItem {
    * «Enviar a revisión» se desactiva y este texto explica por qué.
    */
   sendToReviewBlockedReason?: string | null;
+  /**
+   * Quién la descartó (dueña 11-11, para que el líder lo vea). `null` en los
+   * descartes automáticos (filtros del pipeline, rescate de Claude, importación).
+   */
+  discardedById?: string | null;
+  discardedByName?: string | null;
+  /** Cuándo la descartó esa persona. */
+  discardedAt?: string | null;
 }
 
 export interface DiscardedProspectsListFilters {

@@ -33,6 +33,7 @@ import { APPROACH_DEFINITIONS, allApplicableApproaches, recommendApproach, type 
 import { learnableCandidates, pickProvenApproach, provenApproachNote, type ApproachResultRow, type ProvenApproach } from './approach-results';
 import { CONTACT_RESEARCH_TTL_DAYS, researchContact } from './contact-research';
 import type { ContactInsight, LocalPackVersion } from './types';
+import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
 import { RECENT_SIGNAL_MAX_DAYS } from './pack-verifier';
 import { buildInternalFacts, buildRequestFacts, hubspotWarning, type DecisionMaker, type InternalContext } from './internal-facts';
 import {
@@ -237,7 +238,7 @@ export type RunFirstCallResult =
     }
   | {
       ok: false;
-      code: 'not_found' | 'contacts_not_found' | 'budget_blocked' | 'model_unavailable' | 'already_running' | 'writer_failed';
+      code: 'not_found' | 'contacts_not_found' | 'budget_blocked' | 'model_unavailable' | 'already_running' | 'writer_failed' | 'provider_failed';
       message: string;
     };
 
@@ -249,6 +250,15 @@ const MESSAGES = {
   already_running: 'Ya hay una investigación de esta empresa en curso. Espera a que termine.',
   writer_failed: 'No pudimos escribir la preparación. Vuelve a intentarlo en un momento.',
 } as const;
+
+/**
+ * Si Claude rechazó la escritura por algo que no se arregla reintentando (sin
+ * créditos, llave rechazada) o por estar caído, se le dice eso a la persona en
+ * vez de «no pudimos escribir» (dueña 11-11: Claude sin saldo daba un genérico).
+ */
+export function providerFailureOf(packs: ReadonlyArray<{ errorCode?: string | null }>): string | null {
+  return providerFailureNotice(packs.map((p) => p.errorCode));
+}
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -1328,7 +1338,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
     return { facts: found.facts, insight: hasInsight ? found.insight : null, researchedAt: new Date(startedAt).toISOString() };
   };
   // Lo que se escribe y se guarda para un decisor (aquí `context` y `models` ya están comprobados).
-  const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus }>> => {
+  const writeAndSaveForTarget = async (target: DecisionMaker | null): Promise<Array<{ id: string; status: FirstCallPackStatus; errorCode?: string | null }>> => {
     // Cada decisor es una etapa de gasto: sin presupuesto, no se empieza.
     if (!(await budgetStillAllows())) return [];
     const contact = target ? await researchAndLogContact(target) : { facts: [], insight: null, researchedAt: '' };
@@ -1406,7 +1416,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
 
     // El costo de la llamada se reparte entre las preparaciones que produjo.
     const share = costUsd / request.channels.length;
-    const inserted: Array<{ id: string; status: FirstCallPackStatus }> = [];
+    const inserted: Array<{ id: string; status: FirstCallPackStatus; errorCode?: string | null }> = [];
     for (const channel of request.channels) {
       const written = byChannel[channel];
       const spanish = contents[channel] ?? null;
@@ -1437,14 +1447,14 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         model: models.writerModel,
         errorCode: written?.errorCode ?? (status === 'failed' ? 'no_message_for_channel' : null),
       });
-      inserted.push({ id, status });
+      inserted.push({ id, status, errorCode: written?.errorCode ?? null });
     }
     return inserted;
   };
 
   // Un decisor que falla (red, base de datos) no tumba a los demás, y la ficha siempre
   // termina en «done»: si no, la investigación quedaría «escribiendo» para siempre.
-  let perTarget: Array<Array<{ id: string; status: FirstCallPackStatus }>> = [];
+  let perTarget: Array<Array<{ id: string; status: FirstCallPackStatus; errorCode?: string | null }>> = [];
   let failedTargets = 0;
   try {
     perTarget = await mapWithConcurrency(targets, WRITER_CONCURRENCY, (target) =>
@@ -1452,7 +1462,7 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
         // Antes se descartaba sin rastro: ahora queda en el log y en la corrida.
         failedTargets += 1;
         console.error(`[agent3] decision maker failed (account ${request.accountId}, contact ${target?.id ?? 'none'}):`, errorText(err));
-        return [] as Array<{ id: string; status: FirstCallPackStatus }>;
+        return [] as Array<{ id: string; status: FirstCallPackStatus; errorCode?: string | null }>;
       }),
     );
   } finally {
@@ -1463,8 +1473,10 @@ export async function runFirstCall(request: FirstCallRequest, deps: RunFirstCall
   const packs = perTarget.flat();
   const usable = packs.filter((p) => p.status !== 'failed');
   if (usable.length === 0) {
-    return budgetStopped
-      ? { ok: false, code: 'budget_blocked', message: MESSAGES.budget_blocked }
+    if (budgetStopped) return { ok: false, code: 'budget_blocked', message: MESSAGES.budget_blocked };
+    const providerFailure = providerFailureOf(packs);
+    return providerFailure
+      ? { ok: false, code: 'provider_failed', message: providerFailure }
       : { ok: false, code: 'writer_failed', message: MESSAGES.writer_failed };
   }
   await deps.advanceAccountStatus(request.accountId, 'ready_for_outreach');

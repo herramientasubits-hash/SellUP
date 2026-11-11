@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
 import { ThemaToaster } from "@/components/feedback/thema-toaster";
 
-const inter = Inter({
+// Inter va dentro del proyecto (fuente variable 400–800, subconjunto latino de
+// Google Fonts, licencia OFL): el build de Producción falló dos veces al
+// descargarla de Google (#842, #848). Así no depende de la red.
+const inter = localFont({
+  src: "./fonts/inter-latin-variable.woff2",
   variable: "--font-inter",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: "400 800",
+  style: "normal",
   display: "swap",
 });
 

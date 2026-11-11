@@ -730,6 +730,7 @@ const runClaudeCompanySearchLegLive: NonNullable<WizardExecutionDeps['runClaudeC
     proposed: summary.proposed,
     passedPreFilter: summary.passedPreFilter,
     ...(summary.withoutWebsite ? { withoutWebsite: summary.withoutWebsite } : {}),
+    ...(summary.providerFailure ? { providerFailure: summary.providerFailure } : {}),
   };
 };
 
@@ -3629,6 +3630,7 @@ export async function executeProspectWizardGeneration(
     lushaSkipReason: lushaWaterfall.executed ? null : lushaWaterfall.reason,
     lushaFailureCode: lushaWaterfall.executed ? (lushaWaterfall.failure?.code ?? null) : null,
     claudeSkipReason: claudeLeg.executed ? null : claudeLeg.reason,
+    claudeProviderFailure: claudeLeg.executed ? (claudeLeg.providerFailure ?? null) : null,
   });
 
   // ── 🔴 AGENT1-WATERFALL-LEG-DURABLE-TRACE — la traza sobrevive a la sesión ──

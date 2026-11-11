@@ -79,6 +79,8 @@ export type ClaudeSearchLegOutcome =
       passedPreFilter: number;
       /** «Competidores»: las que Claude propuso sin sitio web (sólo nombre y frase). */
       withoutWebsite?: ReadonlyArray<{ name: string; evidence: string | null; sourceUrl: string | null }>;
+      /** Claude rechazó llamadas (sin créditos, llave, caído): la frase para el vendedor. */
+      providerFailure?: string | null;
     };
 
 /** La verdad del escritor del paso de Claude, en la forma que suma la aceptación final. */

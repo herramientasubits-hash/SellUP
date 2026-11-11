@@ -9,6 +9,7 @@
  * más: la referencia sólo se guarda en el lote cuando la búsqueda se lanza.
  */
 
+import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
 import { z } from 'zod';
 import { isAgent1ClaudeCompanySearchAutoEnabled } from '@/lib/feature-flags.server';
 import { createClient } from '@/lib/supabase/server';
@@ -208,7 +209,10 @@ export async function resolveCompetitorReferenceAction(
   }
 
   if (outcome.errorCode) {
-    return { ok: false, message: 'Rumbo no respondió. Intenta de nuevo en unos segundos.' };
+    return {
+      ok: false,
+      message: providerFailureNotice([outcome.errorCode]) ?? 'Rumbo no respondió. Intenta de nuevo en unos segundos.',
+    };
   }
   if (!outcome.card) {
     return {

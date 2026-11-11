@@ -5,6 +5,8 @@
  * inyectable: los tests NUNCA salen a la red.
  */
 
+import { PROVIDER_FAILURE_CODES, describeProviderFailure } from '@/modules/usage-tracking/provider-failure';
+
 export const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 export const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -144,7 +146,12 @@ export async function runAnthropicConversation(params: {
 
       if (!response.ok) {
         const bodyText = await response.text().catch(() => '');
-        const code = response.status === 429 ? 'rate_limited' : `http_${response.status}`;
+        // Claude sin saldo responde 400: se reconoce por el texto (dueña 11-11).
+        const code = response.status === 429
+          ? 'rate_limited'
+          : describeProviderFailure({ providerKey: 'anthropic', httpStatus: response.status, rawMessage: bodyText }).kind === 'out_of_credits'
+            ? PROVIDER_FAILURE_CODES.out_of_credits
+            : `http_${response.status}`;
         throw new AnthropicApiError(response.status, code, bodyText.slice(0, 300), usage);
       }
 
