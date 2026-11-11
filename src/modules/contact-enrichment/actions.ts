@@ -1,5 +1,6 @@
 'use server';
 
+import { loadUserNames, type UserNamesClient } from '@/modules/access/user-names';
 import { redirect } from 'next/navigation';
 import { getVisibleSince } from '@/lib/visible-since';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
@@ -326,6 +327,7 @@ function candidateSelect(scoped: boolean): string {
   return `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
    phone, source, status, country,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
+   reviewed_by, reviewed_at,
    phone_reveal_status, phone_reveal_last_checked_at, phone_reveal_requested_at,
    phone_reveal_request_id, phone_reveal_provider,
    ${candidateRunEmbed(scoped)}`;
@@ -422,6 +424,8 @@ function mapPendingContactCandidate(row: unknown): PendingContactCandidate {
     company_domain: run?.company_domain ?? null,
     account_id: run?.account_id ?? null,
     hubspot_company_id: run?.hubspot_company_id ?? null,
+    reviewed_by: (record.reviewed_by as string | null) ?? null,
+    reviewed_at: (record.reviewed_at as string | null) ?? null,
   } satisfies PendingContactCandidate;
 }
 
@@ -610,7 +614,10 @@ export async function getRejectedContactCandidates(
 
   if (error) throw new Error(`getRejectedContactCandidates: ${error.message}`);
 
-  return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
+  const candidates = await withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
+  // Quién lo rechazó (dueña 11-11): el líder ve quién descartó cada contacto.
+  const names = await loadUserNames(supabase as unknown as UserNamesClient, candidates.map((c) => c.reviewed_by));
+  return candidates.map((c) => (c.reviewed_by ? { ...c, reviewed_by_name: names.get(c.reviewed_by) ?? null } : c));
 }
 
 /** 4O-H3-B-R1 — conteo de duplicados. Separado del de pendientes a propósito (§ 11). */

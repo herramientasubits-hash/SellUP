@@ -273,3 +273,15 @@ describe('Candidatos de contacto — vista «Lista»', () => {
     assert.ok(first.getByText('Relevancia alta'));
   });
 });
+
+describe('Contactos rechazados — quién lo descartó (dueña 11-11)', () => {
+  it('la columna «Descartó» sale sólo en «Rechazados», con el nombre', () => {
+    const rejected = [candidate({ id: 'r1', full_name: 'Rita Gómez', status: 'discarded', reviewed_by: 'u1', reviewed_by_name: 'Carla Pía', reviewed_at: '2026-11-11T15:00:00.000Z' })];
+    render(<ContactCandidatesDataTableClient candidates={rejected} queue="rejected" />);
+    assert.ok(screen.getByRole('columnheader', { name: /Descartó/ }));
+    assert.ok(screen.getByText('Carla Pía'));
+    cleanup();
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} />);
+    assert.equal(screen.queryByRole('columnheader', { name: /Descartó/ }), null);
+  });
+});

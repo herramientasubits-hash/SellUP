@@ -17,6 +17,8 @@
  * aceptación: sólo nombra. Con la meta cumplida devuelve `[]`.
  */
 
+import { describeProviderFailure } from '@/modules/usage-tracking/provider-failure';
+
 export type WizardShortfallReasonCode =
   | 'free_layer_failed'
   | 'tavily_failed'
@@ -27,7 +29,8 @@ export type WizardShortfallReasonCode =
   | 'industry_unmapped'
   | 'lusha_failed'
   | 'claude_no_time'
-  | 'claude_failed';
+  | 'claude_failed'
+  | 'provider_failed';
 
 export type WizardShortfallReason = {
   code: WizardShortfallReasonCode;
@@ -48,6 +51,11 @@ export type WizardShortfallInput = {
   lushaFailureCode: string | null;
   /** Claude: motivo del salto (incluye `failed`), `null` si corrió. */
   claudeSkipReason: string | null;
+  /**
+   * Claude corrió pero el proveedor rechazó las llamadas (sin créditos, llave,
+   * caído): la frase ya armada por `providerFailureNotice` (dueña 11-11).
+   */
+  claudeProviderFailure?: string | null;
 };
 
 const MESSAGES: Record<WizardShortfallReasonCode, string> = {
@@ -61,6 +69,7 @@ const MESSAGES: Record<WizardShortfallReasonCode, string> = {
   lusha_failed: 'La búsqueda en la fuente de respaldo falló.',
   claude_no_time: 'No quedó tiempo para la búsqueda con IA al final de la corrida.',
   claude_failed: 'La búsqueda con IA falló en esta corrida.',
+  provider_failed: 'Un proveedor rechazó la búsqueda en esta corrida.',
 };
 
 function reason(code: WizardShortfallReasonCode): WizardShortfallReason {
@@ -85,10 +94,20 @@ export function buildWizardShortfallReasons(input: WizardShortfallInput): Wizard
 
   if (input.lushaSkipReason === 'apollo_pending_continuation') codes.push('apollo_pending_continuation');
   if (input.lushaSkipReason === 'macro_industry_unmapped') codes.push('industry_unmapped');
-  if (input.lushaFailureCode !== null || input.lushaSkipReason === 'leg_failed') codes.push('lusha_failed');
+  // Lusha sin créditos o con la llave rechazada se dice así, no «falló».
+  const lushaProvider = input.lushaFailureCode
+    ? describeProviderFailure({ providerKey: 'lusha', errorCode: input.lushaFailureCode })
+    : null;
+  const providerMessages: string[] = [];
+  if (lushaProvider && lushaProvider.kind !== 'unknown') providerMessages.push(lushaProvider.message);
+  else if (input.lushaFailureCode !== null || input.lushaSkipReason === 'leg_failed') codes.push('lusha_failed');
 
   if (input.claudeSkipReason === 'not_enough_time') codes.push('claude_no_time');
   if (input.claudeSkipReason === 'failed') codes.push('claude_failed');
+  if (input.claudeProviderFailure) providerMessages.push(input.claudeProviderFailure);
 
-  return [...new Set(codes)].map(reason);
+  return [
+    ...[...new Set(codes)].map(reason),
+    ...[...new Set(providerMessages)].map((message) => ({ code: 'provider_failed' as const, message })),
+  ];
 }

@@ -249,3 +249,19 @@ describe('Descartadas — vista «Lista»', () => {
     await waitFor(() => assert.deepEqual(sentToReview, ['disposition:1']));
   });
 });
+
+describe('Descartadas — quién descartó (dueña 11-11)', () => {
+  it('muestra a la persona en un descarte manual y «Automático» en uno del pipeline', () => {
+    const rows = [
+      item({ itemId: 'candidate:9', name: 'Delta', disposition: 'manual_discard', discardedById: 'u1', discardedByName: 'Carla Pía', discardedAt: '2026-11-11T15:00:00.000Z' }),
+      item({ itemId: 'disposition:8', name: 'Épsilon', disposition: 'sector_rejected' }),
+    ];
+    render(<DiscardedProspectsDataTableClient items={rows} />);
+    assert.ok(screen.getByRole('columnheader', { name: /Descartó/ }));
+    const manual = screen.getByRole('button', { name: 'Delta' }).closest('tr');
+    const auto = screen.getByRole('button', { name: 'Épsilon' }).closest('tr');
+    assert.ok(manual && auto);
+    assert.ok(within(manual).getByText('Carla Pía'));
+    assert.ok(within(auto).getByText('Automático'));
+  });
+});

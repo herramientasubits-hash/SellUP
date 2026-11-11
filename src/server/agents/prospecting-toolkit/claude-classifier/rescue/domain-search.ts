@@ -117,7 +117,7 @@ const TRANSIENT_REASONS: ReadonlySet<string> = new Set(['model_error']);
  * 13:07Z: 194 llamadas seguidas con http_400 en 5 lotes; cada una gastaba un
  * intento y, tras 3, la fila quedaba «sitio no encontrado» para siempre.
  */
-const ACCOUNT_ERROR_CODES: ReadonlySet<string> = new Set(['http_400', 'http_401', 'http_402', 'http_403']);
+const ACCOUNT_ERROR_CODES: ReadonlySet<string> = new Set(['http_400', 'http_401', 'http_402', 'http_403', 'credits_exhausted']);
 
 /** ¿Falló la CUENTA de Anthropic (no la búsqueda de esta empresa)? */
 export function isAccountLevelModelError(outcome: DomainFinderOutcome): boolean {

@@ -2,7 +2,7 @@
 
 import { formatInAppZone } from '@/lib/format-date';
 import * as React from 'react';
-import { type ColumnDef } from '@tanstack/react-table';
+import { type Column, type ColumnDef, type Row } from '@tanstack/react-table';
 import { Check, ExternalLink, Link2, Building2, Globe, Mail, MapPin, Phone, PhoneCall, RotateCcw, Sparkles, UserSearch, UserX } from "@/icons";
 import { resolveCandidateCountry } from '@/modules/contact-enrichment/candidate-scope';
 
@@ -787,6 +787,34 @@ export function ContactCandidatesDataTableClient({
         enableColumnFilter: false,
         meta: { label: 'Estado', popoverTitle: 'Estado', disableFilter: true },
       },
+      // Quién lo descartó (dueña 11-11): sólo en «Rechazados», para que el líder lo vea.
+      ...(isRejectedQueue
+        ? [
+            {
+              id: 'reviewed_by',
+              accessorFn: (c: PendingContactCandidate) => c.reviewed_by_name ?? '',
+              header: ({ column }: { column: Column<PendingContactCandidate, unknown> }) => (
+                <DataTableColumnHeader column={column} title="Descartó" />
+              ),
+              cell: ({ row }: { row: Row<PendingContactCandidate> }) =>
+                row.original.reviewed_by_name ? (
+                  <div className="grid gap-0.5">
+                    <span className="truncate text-sm">{row.original.reviewed_by_name}</span>
+                    {row.original.reviewed_at && (
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(row.original.reviewed_at)}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <EmptyCell label="Sin dato" />
+                ),
+              size: 160,
+              minSize: 130,
+              meta: { label: 'Descartó', popoverTitle: 'Quién lo descartó' },
+            } satisfies ColumnDef<PendingContactCandidate>,
+          ]
+        : []),
       {
         id: 'created_at',
         accessorKey: 'created_at',
@@ -900,7 +928,7 @@ export function ContactCandidatesDataTableClient({
         },
       },
     ],
-    [openDetail, canRevealPhone, phoneRevealAuthorized, hubspotPortalId],
+    [openDetail, canRevealPhone, phoneRevealAuthorized, hubspotPortalId, isRejectedQueue],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

@@ -106,6 +106,13 @@ const DISCARDED_QUICK_FILTERS: readonly QuickFilterDefinition<DiscardedProspectI
   },
 ];
 
+/** Quién la descartó: la persona, o «Automático» si fue un filtro del sistema. */
+export function discardedByLabel(item: DiscardedProspectItem): string {
+  if (item.discardedByName) return item.discardedByName;
+  if (item.disposition === 'manual_discard') return 'Sin dato';
+  return 'Automático';
+}
+
 function getStatusBadge(item: DiscardedProspectItem): {
   label: string;
   variant: 'brand' | 'warning' | 'neutral';
@@ -405,6 +412,28 @@ export function DiscardedProspectsDataTableClient({
           popoverTitle: 'Motivo del descarte',
           filterOptions: DISPOSITION_FILTER_OPTIONS,
         },
+      },
+      {
+        // Quién la descartó (dueña 11-11): el líder ve si fue una persona o el sistema.
+        id: 'discardedBy',
+        accessorFn: (item) => discardedByLabel(item),
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Descartó" />,
+        cell: ({ row }) => {
+          const item = row.original;
+          return (
+            <div className="grid gap-0.5">
+              <span className="truncate text-sm" title={discardedByLabel(item)}>
+                {discardedByLabel(item)}
+              </span>
+              {item.discardedAt && (
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{formatProspectDate(item.discardedAt)}</span>
+              )}
+            </div>
+          );
+        },
+        size: 160,
+        minSize: 130,
+        meta: { label: 'Descartó', popoverTitle: 'Quién la descartó' },
       },
       {
         id: 'actions',

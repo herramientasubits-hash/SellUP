@@ -404,4 +404,9 @@ export interface PendingContactCandidate {
   contact_country?: string | null;
   /** País de la empresa asociada (cuenta SellUp). Respaldo cuando el contacto no trae país. */
   account_country?: string | null;
+  /** Quién lo revisó (en «Rechazados»: quién lo descartó) — id de `internal_users`. */
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  /** Nombre de quien lo descartó, resuelto en la lectura de «Rechazados». */
+  reviewed_by_name?: string | null;
 }

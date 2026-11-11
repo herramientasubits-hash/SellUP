@@ -13,6 +13,7 @@
 // No provider calls, no writes — this file only reads already-persisted data.
 
 import { createClient } from '@/lib/supabase/server';
+import { loadUserNames, type UserNamesClient } from '@/modules/access/user-names';
 import {
   importDuplicateToItem,
   isImportDuplicateCandidate,
@@ -124,6 +125,8 @@ function candidateToItem(candidate: {
   created_at: string;
   updated_at: string;
   metadata?: Record<string, unknown> | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
 }): DiscardedProspectItem {
   // AGENT1-CLAUDE-RESCUE-1 — un descarte hecho por el rescate de Claude es un
   // descarte AUTOMÁTICO por filtro (sector o tamaño), no una decisión manual.
@@ -149,6 +152,10 @@ function candidateToItem(candidate: {
     resultingCandidateId: null,
     createdAt: candidate.created_at,
     updatedAt: candidate.updated_at,
+    // Descarte manual: quién y cuándo (el nombre se completa en la lectura).
+    ...(!claudeDiscard && candidate.reviewed_by
+      ? { discardedById: candidate.reviewed_by, discardedAt: candidate.reviewed_at ?? null }
+      : {}),
     // Competidora pequeña (decisión de la dueña 21-10): se ve, pero no vuelve a revisión.
     ...(isCompetitorSmallCompany(candidate.metadata)
       ? { sendToReviewBlockedReason: COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED }
@@ -273,7 +280,7 @@ export async function getDiscardedProspectsList(
   );
 
   const offset = filters.offset ?? 0;
-  const page = merged.slice(offset, offset + limit);
+  const page = await withDiscardedByNames(merged.slice(offset, offset + limit));
 
   return { items: page, total: merged.length };
 }
@@ -325,5 +332,16 @@ export async function getDiscardedProspectDetail(
     return importDuplicateToItem(data as unknown as ImportDuplicateCandidateRow);
   }
   if (data.status !== 'discarded') return null;
-  return candidateToItem(data as unknown as Parameters<typeof candidateToItem>[0]);
+  const [item] = await withDiscardedByNames([candidateToItem(data as unknown as Parameters<typeof candidateToItem>[0])]);
+  return item;
+}
+
+/** Completa el nombre de quien descartó (una sola lectura por página). */
+async function withDiscardedByNames(items: DiscardedProspectItem[]): Promise<DiscardedProspectItem[]> {
+  const ids = items.map((item) => item.discardedById ?? null);
+  if (!ids.some(Boolean)) return items;
+  const names = await loadUserNames((await createClient()) as unknown as UserNamesClient, ids);
+  return items.map((item) =>
+    item.discardedById ? { ...item, discardedByName: names.get(item.discardedById) ?? null } : item,
+  );
 }

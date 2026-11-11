@@ -13,6 +13,7 @@ import type { CompetitorReference } from '@/modules/prospect-batches/competitor-
 import { buildSupplierBatchName } from '@/modules/prospect-batches/chat-wizard-execution/supplier-batch-name';
 import { buildCompetitorBatchName } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import type { LogProviderUsageInput } from '@/modules/usage-tracking/types';
+import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
 import type { ActiveAnthropicModel } from './classify-batch-candidates';
 import {
   MAX_PROPOSED_WITHOUT_WEBSITE,
@@ -140,6 +141,8 @@ export type ClaudeCompanySearchSummary =
       estimatedCostUsd: number;
       /** «Competidores»: propuestas sin sitio web. Ausente ⇒ ninguna. */
       withoutWebsite?: ProposedWithoutWebsite[];
+      /** Claude rechazó llamadas (sin créditos, llave, caído): la frase para la persona. */
+      providerFailure?: string | null;
     }
   | {
       ok: false;
@@ -476,6 +479,8 @@ export async function runClaudeCompanySearch(
     rejected,
     estimatedCostUsd,
     ...(withoutWebsite.length > 0 ? { withoutWebsite } : {}),
+    // Claude rechazó llamadas (sin créditos, llave, caído): se dice por qué faltan.
+    providerFailure: providerFailureNotice(search.calls.map((c) => c.errorCode)),
   };
 }
 

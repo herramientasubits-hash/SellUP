@@ -20,6 +20,7 @@
  * referencia (antes, «Descartadas» y rescate pagado).
  */
 
+import { providerFailureNotice } from '@/modules/usage-tracking/provider-failure';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   CORPORATE_TREE_BRANCHES,
@@ -938,7 +939,8 @@ async function runAfterReservation(
       code: 'nothing_found',
       message: claude.skipped === 'quota_exhausted'
         ? `No encontramos a ${root.name} en los registros gratuitos y se agotó la cuota de Claude de este mes.`
-        : `No encontramos empresas relacionadas con ${root.name} con una fuente que lo pruebe.`,
+        : providerFailureNotice(claude.outcomes.map((o) => o.errorCode))
+          ?? `No encontramos empresas relacionadas con ${root.name} con una fuente que lo pruebe.`,
       batchId,
       estimatedCostUsd,
     };
