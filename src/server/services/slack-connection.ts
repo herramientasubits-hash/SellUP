@@ -352,6 +352,68 @@ export async function openSlackDMForUser(email: string): Promise<string | null> 
 }
 
 // ============================================================
+// Mensaje directo por correo — lookupByEmail + conversations.open + chat.postMessage
+// ============================================================
+
+export type SlackDirectMessageOutcome = 'sent' | 'not_in_slack' | 'slack_not_connected' | 'failed';
+
+/**
+ * Le escribe por mensaje directo (desde la app de SellUp) a la persona de Slack
+ * con ese correo. Nunca lanza: dice qué pasó para que quien la llamó lo cuente.
+ * Requiere scopes: users:read.email, im:write, chat:write.
+ */
+export async function sendSlackDirectMessageByEmail(
+  email: string,
+  message: { text: string; blocks?: ReadonlyArray<Record<string, unknown>> },
+): Promise<SlackDirectMessageOutcome> {
+  const token = await getSlackToken();
+  if (!token) return 'slack_not_connected';
+
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  try {
+    const lookupRes = await fetch(
+      `https://slack.com/api/users.lookupByEmail?email=${encodeURIComponent(email)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const lookup = (await lookupRes.json()) as { ok: boolean; user?: { id: string }; error?: string };
+    if (!lookup.ok || !lookup.user) {
+      if (lookup.error === 'users_not_found') return 'not_in_slack';
+      if (lookup.error === 'invalid_auth' || lookup.error === 'token_revoked' || lookup.error === 'account_inactive') {
+        return 'slack_not_connected';
+      }
+      console.error('[slack] lookupByEmail', lookup.error);
+      return 'failed';
+    }
+
+    const openRes = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ users: lookup.user.id }),
+    });
+    const opened = (await openRes.json()) as { ok: boolean; channel?: { id: string }; error?: string };
+    if (!opened.ok || !opened.channel) {
+      console.error('[slack] conversations.open', opened.error);
+      return 'failed';
+    }
+
+    const postRes = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ channel: opened.channel.id, text: message.text, blocks: message.blocks }),
+    });
+    const posted = (await postRes.json()) as { ok: boolean; error?: string };
+    if (!posted.ok) {
+      console.error('[slack] chat.postMessage', posted.error);
+      return 'failed';
+    }
+    return 'sent';
+  } catch (error) {
+    console.error('[slack] mensaje directo', error instanceof Error ? error.message : 'error');
+    return 'failed';
+  }
+}
+
+// ============================================================
 // Prueba de conexión — auth.test
 // ============================================================
 

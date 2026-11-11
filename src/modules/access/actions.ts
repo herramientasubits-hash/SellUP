@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server';
 import type { Role, InternalUser, AccessAuditEntry, UsersSummary, UserPreapproval, OrganizationGroup } from './types';
+import { sendSlackInvitation } from './slack-invitation.server';
+import type { SlackInviteOutcome } from './slack-invitation-message';
 
 export async function getCurrentUser(): Promise<InternalUser | null> {
   const supabase = await createClient();
@@ -646,14 +648,14 @@ export async function createPreapproval(data: {
   manager_id: string | null;
   group_id: string | null;
   notes: string | null;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; slackInvite?: SlackInviteOutcome }> {
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
 
   const { data: adminUser } = await supabase
     .from('internal_users')
-    .select('id')
+    .select('id, full_name, email')
     .eq('auth_user_id', currentUser.id)
     .eq('access_status', 'active')
     .single();
@@ -690,7 +692,46 @@ export async function createPreapproval(data: {
     p_metadata: { email: data.email },
   });
 
-  return { success: true };
+  // Dueña 11-11: la persona se entera por Slack. Si no llega, la preautorización sigue en pie.
+  const { data: role } = await supabase.from('roles').select('key, name').eq('id', data.role_id).maybeSingle();
+  const slackInvite = await sendSlackInvitation({
+    email: data.email.toLowerCase(),
+    fullName: data.full_name,
+    roleKey: role?.key ?? null,
+    roleName: role?.name ?? null,
+    inviterName: adminUser.full_name ?? adminUser.email ?? null,
+  });
+
+  return { success: true, slackInvite };
+}
+
+/** Vuelve a mandar por Slack la invitación de una persona que todavía no ha entrado. */
+export async function resendSlackInvitation(
+  preapprovalId: string,
+): Promise<{ success: boolean; error?: string; slackInvite?: SlackInviteOutcome }> {
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
+  const supabase = await createClient();
+  const me = await getCurrentUser();
+
+  const { data: preapproval } = await supabase
+    .from('user_preapprovals')
+    .select('email, full_name, role_id')
+    .eq('id', preapprovalId)
+    .eq('status', 'pending_claim')
+    .maybeSingle();
+  if (!preapproval) return { success: false, error: 'Esa invitación ya no está pendiente.' };
+
+  const { data: role } = preapproval.role_id
+    ? await supabase.from('roles').select('key, name').eq('id', preapproval.role_id).maybeSingle()
+    : { data: null };
+  const slackInvite = await sendSlackInvitation({
+    email: preapproval.email,
+    fullName: preapproval.full_name,
+    roleKey: role?.key ?? null,
+    roleName: role?.name ?? null,
+    inviterName: me?.full_name ?? me?.email ?? null,
+  });
+  return { success: true, slackInvite };
 }
 
 export async function cancelPreapproval(

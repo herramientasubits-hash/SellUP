@@ -15,6 +15,7 @@ import { GroupsView } from './groups-view';
 import { SelectableUsersList } from './selectable-users-list';
 import { GroupManagementPanel } from './group-management-panel';
 import { PreapprovalCancelButton } from './preapproval-cancel-button';
+import { PreapprovalSlackResendButton } from './preapproval-slack-resend-button';
 import type { InternalUser, Role, UserPreapproval, OrganizationGroup } from '@/modules/access/types';
 import type { SelectableListMode } from './selectable-users-list';
 
@@ -143,7 +144,10 @@ function PreapprovalRow({ preapproval, isAdmin }: PreapprovalRowProps) {
       }
       actions={
         isAdmin ? (
-          <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
+          <>
+            <PreapprovalSlackResendButton preapprovalId={preapproval.id} email={preapproval.email} />
+            <PreapprovalCancelButton preapprovalId={preapproval.id} email={preapproval.email} />
+          </>
         ) : undefined
       }
     />
