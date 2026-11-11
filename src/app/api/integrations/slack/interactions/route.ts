@@ -9,9 +9,11 @@
 import { after, NextResponse } from 'next/server';
 import { isValidSlackSignature } from '@/server/slack-assistant/signature';
 import { handleSlackActionClick, type SlackBlockActionPayload } from '@/server/slack-assistant/execute-action.server';
+import { handleCreditDecisionClick } from '@/server/slack-assistant/credit-decision.server';
+import { CREDIT_APPROVE_ACTION_ID, CREDIT_REJECT_ACTION_ID } from '@/modules/notifications/credit-approval-slack';
 
 /** Aprobar varias empresas (con HubSpot) puede tardar: corre dentro de `after`. */
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request): Promise<Response> {
   const rawBody = await request.text();
@@ -32,7 +34,20 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (payload?.type === 'block_actions') {
-    after(() => handleSlackActionClick(payload));
+    const clicked = payload.actions?.[0];
+    if (clicked?.action_id === CREDIT_APPROVE_ACTION_ID || clicked?.action_id === CREDIT_REJECT_ACTION_ID) {
+      // Solicitud de créditos: decide quien pulsa (si es aprobador), con su sesión.
+      after(() =>
+        handleCreditDecisionClick({
+          actionId: clicked.action_id,
+          value: clicked.value,
+          clickerSlackId: payload.user?.id ?? '',
+          responseUrl: payload.response_url ?? '',
+        }),
+      );
+    } else {
+      after(() => handleSlackActionClick(payload));
+    }
   }
   // Cuerpo vacío: Slack no cambia el mensaje por esta respuesta (lo hace la response_url).
   return new Response(null, { status: 200 });

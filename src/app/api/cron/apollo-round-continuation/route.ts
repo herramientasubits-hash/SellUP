@@ -76,10 +76,21 @@ async function handleCronRequest(request: NextRequest) {
       ? await runCompetitorWatchDigest().catch(() => null)
       : null;
 
+    // Avisos de SellUp por Slack (dueña 11-11): alertas de consumo a administradores y,
+    // con sus interruptores, recordatorios de pendientes y resumen de los lunes. Comparte
+    // este cron porque los 2 del plan están ocupados. Sólo lee y avisa; nunca lanza.
+    // Sólo con Slack configurado (SLACK_SIGNING_SECRET, como en Producción): sin Slack no
+    // hay a quién avisar y este cron sigue respondiendo sin tocar la base.
+    const slackDigests = process.env.SLACK_SIGNING_SECRET?.trim()
+      ? await import('@/server/slack-assistant/digests/digests.server')
+          .then((m) => m.runSlackDailyDigests())
+          .catch(() => null)
+      : null;
+
     // AGENT1-AUDIT-WS1 — bandera fail-closed: abrir el proxy no enciende el gasto.
     // Apagada, se responde sin tocar la base.
     if (!isAgent1ApolloCronContinuationEnabled()) {
-      return NextResponse.json({ success: true, skipped: 'flag_off', ...(competitorWatch ? { competitorWatch } : {}) });
+      return NextResponse.json({ success: true, skipped: 'flag_off', ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}) });
     }
 
     const client = createSupabaseAdminClient();
@@ -108,7 +119,7 @@ async function handleCronRequest(request: NextRequest) {
         { status: 500 },
       );
     }
-    return NextResponse.json({ success: true, stats, stuck, ...(competitorWatch ? { competitorWatch } : {}) });
+    return NextResponse.json({ success: true, stats, stuck, ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}) });
   } catch (err) {
     console.error('[CronApolloContinuation] Exception during worker execution:', err);
     return NextResponse.json(
