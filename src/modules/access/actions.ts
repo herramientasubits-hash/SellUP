@@ -204,6 +204,9 @@ export async function approveUser(
   managerId?: string | null,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -269,6 +272,9 @@ export async function rejectUser(
   userId: string,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -330,6 +336,9 @@ export async function suspendUser(
   userId: string,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -391,6 +400,9 @@ export async function reactivateUser(
   userId: string,
   reason?: string
 ): Promise<{ success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -460,6 +472,9 @@ export async function changeUserRole(
   newRoleId: string,
   reason?: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -519,6 +534,9 @@ export async function changeUserManager(
   userId: string,
   newManagerId: string | null,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
 
   const {
@@ -568,6 +586,9 @@ export async function changeUserGroup(
   userId: string,
   newGroupId: string | null,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -656,6 +677,9 @@ export async function createPreapproval(data: {
   group_id: string | null;
   notes: string | null;
 }): Promise<{ success: boolean; error?: string; slackInvite?: SlackInviteOutcome }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -744,6 +768,9 @@ export async function resendSlackInvitation(
 export async function cancelPreapproval(
   preapprovalId: string,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -793,6 +820,9 @@ export async function createOrganizationGroup(data: {
   description: string | null;
   parent_group_id: string | null;
 }): Promise<{ success: boolean; error?: string; id?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -825,6 +855,9 @@ export async function archiveUser(
   userId: string,
   reason?: string,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -869,6 +902,9 @@ export async function activateFromRejected(
   managerId?: string | null,
   groupId?: string | null,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   if (!currentUser) return { success: false, error: 'No autenticado' };
@@ -928,6 +964,9 @@ async function getAdminUserId(): Promise<string | null> {
 export async function bulkSuspend(
   userIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -948,6 +987,9 @@ export async function bulkSuspend(
 export async function bulkReactivate(
   userIds: string[],
 ): Promise<{ success: boolean; error?: string; slackNotices?: SlackInviteOutcome[] }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -979,6 +1021,9 @@ export async function bulkReactivate(
 export async function bulkArchive(
   userIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -1003,6 +1048,9 @@ export async function bulkArchive(
 export async function bulkReject(
   userIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -1023,6 +1071,9 @@ export async function bulkReject(
 export async function bulkCancelPreapprovals(
   preapprovalIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!preapprovalIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -1048,6 +1099,9 @@ export async function bulkAssignGroup(
   userIds: string[],
   groupId: string | null,
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const adminId = await getAdminUserId();
@@ -1071,6 +1125,9 @@ export async function assignUsersToGroup(
   groupId: string,
   userIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
+  // Gestión de usuarios: sólo administradores (11-11). La base ya lo exige (RLS), pero sin esta
+  // puerta un no-admin recibía «listo» sin cambiar nada (y se avisaba por Slack «ya puedes entrar»).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   if (!userIds.length) return { success: true };
   const supabase = await createClient();
   const { data: { user: currentUser } } = await supabase.auth.getUser();

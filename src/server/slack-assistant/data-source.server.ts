@@ -107,7 +107,7 @@ export function createAssistantDataSource(
   admin: SupabaseClient,
   scope: Pick<CommercialScope, 'canViewAll' | 'allowedUserIds' | 'isRestrictedToSelf'>,
   options: AssistantDataSourceOptions,
-): AssistantDataSource {
+): Omit<AssistantDataSource, 'help'> {
   const owners = scopeOwnerIds(scope);
   const now = options.now ?? new Date();
   // Corte de visibilidad de la plataforma (SELLUP_VISIBLE_SINCE): lo de antes de

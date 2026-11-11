@@ -45,10 +45,14 @@ export async function requestReaccess(): Promise<void> {
   const plural = (pendingCount ?? 0) > 1 ? 'n' : '';
   const count = pendingCount ?? 0;
 
-  const { data: admins } = await admin
+  // Sólo administradores activos (11-11): antes se avisaba a TODOS los usuarios activos.
+  const { data: activeUsers } = await admin
     .from('internal_users')
-    .select('id')
+    .select('id, roles(key)')
     .eq('access_status', 'active');
+  const admins = ((activeUsers ?? []) as unknown as Array<{ id: string; roles: { key: string } | null }>).filter(
+    (u) => u.roles?.key === 'admin',
+  );
 
   if (admins && admins.length > 0) {
     const adminIds = admins.map(a => a.id);

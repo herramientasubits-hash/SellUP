@@ -5,6 +5,8 @@
 // solicitud y se avisa a sus aprobadores. Ellos entran a /credit-approvals,
 // eligen cuántos créditos le dan y eso suma sólo a esa persona, sólo este mes.
 
+import { notifySlackUsers } from '@/modules/notifications/slack-notify.server';
+import { creditDecisionButtons } from '@/modules/notifications/credit-approval-slack';
 import type { BudgetRule } from './types';
 import { getAdminClient } from './queries';
 
@@ -59,7 +61,7 @@ export async function resolveRuleApprovers(
 
 async function notify(
   admin: AdminClient,
-  rows: Array<{ recipient: string; type: string; title: string; message: string; entityId: string }>,
+  rows: Array<{ recipient: string; type: string; title: string; message: string; entityId: string; credits?: number }>,
 ): Promise<void> {
   // Una por una: el índice que evita duplicados es parcial (031) y PostgREST no
   // lo acepta como `onConflict`; un 23505 sólo significa «ya se avisó».
@@ -76,6 +78,15 @@ async function notify(
     });
     if (error && error.code !== '23505') {
       console.error('[budget-approvals] notification failed:', error.message.slice(0, 200));
+    }
+    // También por Slack (dueña 11-11), salvo si ya se había avisado (23505). A quien
+    // aprueba le llegan los botones para decidir ahí mismo.
+    if (!error) {
+      await notifySlackUsers(
+        [row.recipient],
+        { title: row.title, message: row.message, actionLabel: 'Ver solicitud', actionUrl: CREDIT_APPROVALS_PATH },
+        row.type === 'budget_approval_requested' && row.credits ? creditDecisionButtons(row.entityId, row.credits) : undefined,
+      );
     }
   }
 }
@@ -141,6 +152,7 @@ export async function requestBudgetApproval(input: {
           title: `${requesterName} pide créditos de ${provider}`,
           message: `Llegó al límite de su regla y pide unos ${requested.toLocaleString('es-CO')} créditos más este mes. Tú decides cuántos le das.`,
           entityId: created.id as string,
+          credits: requested,
         })),
       {
         recipient: input.requesterUserId,
