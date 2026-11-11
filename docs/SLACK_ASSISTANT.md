@@ -73,6 +73,54 @@ Cualquier otra acción (cambiar estados, buscar empresas, pedir teléfonos, Rumb
 
 Cada pregunta queda en **Uso de IA** como «Asistente de Slack · Responder una pregunta por Slack (Claude)».
 
+### Más acciones con confirmación
+
+| Acción | Quién | Qué hace al confirmar |
+|---|---|---|
+| `proponer_recordatorio` | Cualquiera, a su equipo (administrador: a cualquiera) | Le manda a la persona, de tu parte, lo que tiene por revisar (con datos del momento) y tu nota |
+| `proponer_etapa` | Responsable (alcance) | Mueve empresas de etapa con motivo (`moveAccountStage`, como el Flujo de prospección) |
+| `proponer_nota` | Responsable (alcance) | Deja una nota en la ficha (`moveAccountStage` con nota, misma etapa) |
+| `proponer_acceso` | Sólo administradores | Activa o desactiva accesos (`bulkReactivate` / `bulkSuspend`; al activar llega el Slack de «ya puedes entrar») |
+| `proponer_rumbo` | Responsable (alcance) | Rumbo prepara el primer contacto de UNA empresa: canales elegidos (llamada por defecto), objetivo «conseguir reunión», sus 2 contactos principales. Gasta IA |
+| `proponer_buscar_contactos` | Responsable (alcance) | Busca contactos de hasta 3 empresas (Apollo → Lusha). Gasta créditos |
+
+**Quedan fuera de Slack, a propósito:**
+- **Lanzar búsquedas de empresas nuevas.** Necesita los criterios del catálogo y la reserva de presupuesto del asistente; el bot explica cómo hacerlo en SellUp.
+- **Pedir teléfonos.** Las guardas del código sólo permiten revelar teléfonos desde sus archivos dedicados.
+
+## Guía de uso (`ayuda_sellup`)
+
+Son 20 fichas escritas desde el código, en `src/server/slack-assistant/help/topics/`:
+- importar, buscar y sus modos, búsqueda masiva, competidores, proveedores, árbol, búsquedas y lotes por ID;
+- revisar, descartadas, contactos, LinkedIn o correo, teléfonos;
+- Rumbo, Flujo de prospección, Uso de IA, presupuesto, solicitudes de créditos, usuarios, ROI y el propio asistente.
+
+**Cómo se usan:**
+- El bot responde **sólo** con estas fichas. Si no hay ficha, dice que no está documentado y no inventa.
+- **Por rol:** a quien no puede usar la función le dice quién la usa, sin darle los pasos.
+- **Por interruptores:** cada ficha declara sus flags (`requiere`). Si alguno está apagado en Prod, el bot responde que la función no está activa.
+- **Guarda:** `slack-assistant-help.test.ts` exige que toda «etiqueta» citada exista tal cual en su archivo. Si se renombra un botón, la prueba falla.
+
+## Avisos por Slack
+
+Todos llegan también a la campanita, con un botón a la pantalla.
+
+| Aviso | A quién | Cuándo | Interruptor |
+|---|---|---|---|
+| Te asignaron empresas o prospectos | Quien recibe | Al asignar (en la plataforma o desde Slack) | `SELLUP_SLACK_NOTIFICATIONS=off` apaga todos |
+| Solicitud de créditos, con botones **Dar N créditos** y **Rechazar** | Aprobadores | Al abrirse la solicitud | ídem |
+| Respuesta a tu solicitud | Quien pidió | Al decidirse | ídem |
+| Tu búsqueda terminó o falló (empresas o contactos) | Quien la lanzó | Al cerrar la corrida, si duró 45 s o más; una vez | ídem |
+| Proveedor sin créditos o con la llave rechazada | Administradores | En el momento, una vez al día por proveedor | `SELLUP_SLACK_COST_ALERTS=off` |
+| Proveedor pasó el 80 % o el 100 % de la cuota del mes, con el día proyectado de agotamiento | Administradores | Proceso diario, 8:15 a. m. de Bogotá; una vez por umbral y mes | `SELLUP_SLACK_COST_ALERTS=off` |
+| Tus empresas por revisar | Cada persona no administradora con pendientes | Lunes a viernes, 8:15 a. m. | **`SELLUP_SLACK_DAILY_REMINDERS=on`** (apagado por defecto) |
+| Resumen semanal del equipo (aprobadas, descartadas, atrasados, consumo) | Líderes y managers | Lunes, 8:15 a. m. | **`SELLUP_SLACK_WEEKLY_SUMMARY=on`** (apagado por defecto) |
+
+**Detalles técnicos:**
+- **Proceso diario:** los avisos programados corren en el cron de las 8:15 (`apollo-round-continuation`), porque los 2 crons del plan están ocupados. Sólo corren si `SLACK_SIGNING_SECRET` existe.
+- **Botones de créditos:** al pulsarlos se decide con la sesión de quien pulsa, usando `decideCreditApproval`, que comprueba que sea aprobador o administrador.
+- **Presupuesto:** las alertas **sólo leen**; nunca tocan el presupuesto.
+
 ## Configuración (una sola vez)
 
 1. **Vercel:** agrega `SLACK_SIGNING_SECRET` en Production. El valor está en api.slack.com/apps › SellUp › Basic Information › Signing Secret.
@@ -80,7 +128,7 @@ Cada pregunta queda en **Uso de IA** como «Asistente de Slack · Responder una 
 3. **Slack › Event Subscriptions:**
    - Request URL: `https://sell-up-sage.vercel.app/api/integrations/slack/events`
    - Eventos del bot: `message.im` y `app_mention`.
-4. **Slack › Interactivity & Shortcuts** (para los botones de confirmar):
+4. **Slack › Interactivity & Shortcuts** (para los botones de confirmar y de créditos):
    - Interactivity: **On**.
    - Request URL: `https://sell-up-sage.vercel.app/api/integrations/slack/interactions`
    - Save Changes.

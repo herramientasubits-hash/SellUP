@@ -595,6 +595,8 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '162_storage_usage_report.sql',
       // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
       '163_budget_approvals_top_ups_rollover.sql',
+      // Dueña 11-11 mueve el techo a la 164 (el teléfono de HubSpot/manual no se reemplaza por el de Apollo/Lusha: dos triggers BEFORE UPDATE OF phone, sin esquema ni datos). AUTORIZADA y NO APLICADA.
+      '164_keep_crm_phone_over_provider_phone.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -720,7 +722,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 163);
+    assert.equal(numbered[numbered.length - 1], 164);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

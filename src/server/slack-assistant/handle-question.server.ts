@@ -23,6 +23,8 @@ import { answerQuestion } from './run';
 import { buildConversationTurns, HISTORY_MAX_MESSAGES } from './conversation';
 import { scopeLabelFor, SLACK_ASSISTANT_COPY } from './copy';
 import { createAssistantActionResolver } from './action-resolver.server';
+import { lookupHelp } from './help/lookup';
+import { HELP_TOPICS } from './help/topics';
 import { ACTION_TTL_SECONDS, proposalBlocks } from './action-proposal';
 import type { ProposedAction } from './tools';
 
@@ -121,14 +123,19 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
       },
       {
         runConversation: (body, apiKey) => runAnthropicConversation({ apiKey, body, deadlineAtMs, timeoutMs: 40_000 }),
-        data: createAssistantDataSource(admin, scope, {
-          appUrl,
-          now,
-          moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
-        }),
+        data: {
+          ...createAssistantDataSource(admin, scope, {
+            appUrl,
+            now,
+            moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
+          }),
+          // Guía de uso: fichas escritas desde el código, filtradas por el rol.
+          help: (query) => lookupHelp(HELP_TOPICS, query, { roleKey, isAdmin: scope.canViewAll, appUrl, env: process.env }),
+        },
         // Aprobar, descartar y asignar: sólo se PROPONEN; la persona confirma con un botón.
         actions: {
           resolver: createAssistantActionResolver(admin, scope),
+          isAdmin: scope.canViewAll,
           propose: (proposal) => {
             proposed = proposal;
           },

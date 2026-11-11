@@ -466,10 +466,10 @@ describe('CACHE-1b fast path — tombstone / supresión', () => {
 // ── 5. Gates previos: rol y base de tratamiento ────────────────
 
 describe('CACHE-1b fast path — gates heredados del reveal', () => {
-  it('seller_bd NO puede usar el cache hit (mismo gate de rol)', async () => {
+  it('growth NO puede usar el cache hit (mismo gate de rol)', async () => {
     const result = await runRevealCandidatePhone(
       VALID_INPUT,
-      deps({ actor: { internalUserId: 'user-bd', roleKey: 'seller_bd' } }),
+      deps({ actor: { internalUserId: 'user-growth', roleKey: 'growth' } }),
     );
     assert.equal(result.status, 'unauthorized_role');
     assert.equal(captured.cacheLookups.length, 0);
@@ -870,7 +870,7 @@ describe('CACHE-1b supresión — FIX 2 independiente del flag de caché', () =>
       VALID_INPUT,
       deps({
         cacheEnabled: false,
-        actor: { internalUserId: 'user-bd', roleKey: 'seller_bd' },
+        actor: { internalUserId: 'user-growth', roleKey: 'growth' },
       }),
     );
     assert.equal(result.status, 'unauthorized_role');

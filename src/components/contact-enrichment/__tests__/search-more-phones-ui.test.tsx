@@ -559,8 +559,8 @@ describe('SEARCH-MORE UI — cuándo existe «Buscar más números»', () => {
   // «Buscar más números» sigue siendo admin-only por decisión PROPIA
   // (AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: dejó de heredar la lista del
   // waterfall, así que ensanchar el waterfall no ensancha esta compra).
-  it('§20.7 un rol NO admin ⇒ el CTA NO se ofrece', async () => {
-    await renderSheetWith({ actorRoleKey: 'commercial_manager' });
+  it('§20.7 un rol sin permiso (growth) ⇒ el CTA NO se ofrece', async () => {
+    await renderSheetWith({ actorRoleKey: 'growth' });
     assert.equal(searchMoreCta(), null);
     assertNoProviderCalls('para un rol sin autorización');
   });

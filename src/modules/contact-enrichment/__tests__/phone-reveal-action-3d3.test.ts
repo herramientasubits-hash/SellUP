@@ -292,7 +292,7 @@ describe('ASYNC-1 — gate de rol', () => {
   it('rol no autorizado → unauthorized_role, sin Apollo', async () => {
     const res = await runRevealCandidatePhone(
       validInput(),
-      makeDeps(cap, { actor: { internalUserId: 'u2', roleKey: 'seller_bd' } }),
+      makeDeps(cap, { actor: { internalUserId: 'u2', roleKey: 'growth' } }),
     );
     assert.equal(res.status, 'unauthorized_role');
     assert.equal(cap.apolloCalls.length, 0);

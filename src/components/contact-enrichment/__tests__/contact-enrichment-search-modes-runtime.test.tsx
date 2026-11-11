@@ -178,7 +178,7 @@ describe('Panel del agente · modos de búsqueda (F1)', () => {
     rtl.fireEvent.click(button);
     assert.equal(button.getAttribute('aria-pressed'), 'true');
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID de tus empresas/);
-    assert.equal(textbox().getAttribute('placeholder'), 'Company IDs separados por coma');
+    assert.equal(textbox().getAttribute('placeholder'), 'Company IDs (con coma o uno por fila)');
   });
 
   it('LinkedIn: estado activo, caja propia y tocarlo de nuevo vuelve a «Por empresa»', async () => {

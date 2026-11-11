@@ -14,12 +14,14 @@ export interface VerifiedState {
   /** Responsable: `assigned_to` (prospecto) u `owner_id` (empresa). */
   owner: string | null;
   convertedAccountId: string | null;
+  /** Notas de la empresa (para comprobar que la nota quedó). */
+  notes?: string | null;
 }
 
 const APPROVED = new Set(['approved', 'converted_to_account']);
 
 export function verifyOutcomes(
-  action: Pick<DecodedAction, 'kind' | 'ids' | 'targetUserId'>,
+  action: Pick<DecodedAction, 'kind' | 'ids' | 'targetUserId'> & Partial<Pick<DecodedAction, 'stage' | 'reason'>>,
   state: ReadonlyMap<string, VerifiedState>,
   failures: ReadonlyMap<string, string>,
 ): ItemOutcome[] {
@@ -36,6 +38,21 @@ export function verifyOutcomes(
         return row.status === 'discarded'
           ? { nombre: row.name, ok: true, detalle: '' }
           : { nombre: row.name, ok: false, detalle: failure ?? 'no quedó descartado' };
+      case 'set_stage':
+        return row.status === action.stage
+          ? { nombre: row.name, ok: true, detalle: '' }
+          : { nombre: row.name, ok: false, detalle: failure ?? 'no cambió de etapa' };
+      case 'add_note':
+        return !failure && (row.notes ?? '').includes((action.reason ?? '').slice(0, 40))
+          ? { nombre: row.name, ok: true, detalle: '' }
+          : { nombre: row.name, ok: false, detalle: failure ?? 'la nota no quedó guardada' };
+      case 'activate_users':
+      case 'deactivate_users': {
+        const expected = action.kind === 'activate_users' ? 'active' : 'suspended';
+        return row.status === expected
+          ? { nombre: row.name, ok: true, detalle: '' }
+          : { nombre: row.name, ok: false, detalle: failure ?? 'no cambió su acceso' };
+      }
       default:
         return row.owner && row.owner === action.targetUserId
           ? { nombre: row.name, ok: true, detalle: '' }

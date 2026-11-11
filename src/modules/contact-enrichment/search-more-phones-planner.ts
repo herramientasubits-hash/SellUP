@@ -87,7 +87,10 @@ import {
 import { isCandidateEditableForPhoneCollection } from './lusha-phone-fallback-eligibility';
 
 /**
- * Roles autorizados a disparar «Buscar más números»: SOLO admin.
+ * Roles autorizados a disparar «Buscar más números». 11-11 (decisión de la dueña): los
+ * mismos que pueden revelar — Administrador, Manager comercial, Líder comercial y
+ * Vendedor / BD —; el gasto lo controlan las reglas de presupuesto y el techo propio de
+ * esta operación. Sigue siendo una lista PROPIA (no importada), por lo de abajo.
  *
  * Es una lista PROPIA y explícita desde
  * AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1. Antes se importaba
@@ -100,7 +103,12 @@ import { isCandidateEditableForPhoneCollection } from './lusha-phone-fallback-el
  * teléfonos para un candidato que YA tiene uno, con su propio techo y su propio pozo.
  * Su alcance no cambia en este hito; ensancharlo es una decisión de Product aparte.
  */
-export const SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
+export const SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = [
+  'admin',
+  'commercial_manager',
+  'commercial_lead',
+  'seller_bd',
+];
 
 // ═══════════════════════════════════════════════════════════════════
 // 1. Vocabulario

@@ -103,7 +103,23 @@ export interface DuplicateCheckResult {
 // Búsqueda de empresas por dominio (identificador recomendado por HubSpot)
 // ============================================================
 
-const COMPANY_PROPERTIES = ['name', 'domain', 'website', 'country', 'city'];
+/**
+ * `pais` es la propiedad propia de UBITS («País»), la que llena el equipo comercial. La
+ * estándar `country` a veces la completa HubSpot solo y se equivoca (feedback 11-11: Banco
+ * Unión, País = República Dominicana y country = United States ⇒ Apollo buscó personas en
+ * EE. UU.). Si `pais` viene, manda; si no, `country`. Una propiedad inexistente en el portal
+ * simplemente no vuelve: no rompe la búsqueda.
+ */
+const COMPANY_PROPERTIES = ['name', 'domain', 'website', 'country', 'pais', 'city'];
+
+export function preferredHubSpotCompanyCountry(
+  properties: Record<string, string | null | undefined> | null | undefined,
+): string | null {
+  const pais = properties?.pais?.trim();
+  if (pais) return pais;
+  const country = properties?.country?.trim();
+  return country || null;
+}
 
 async function searchCompaniesByDomain(
   token: string,
@@ -136,7 +152,7 @@ async function searchCompaniesByDomain(
       name: r.properties.name ?? null,
       domain: r.properties.domain ?? null,
       website: r.properties.website ?? null,
-      country: r.properties.country ?? null,
+      country: preferredHubSpotCompanyCountry(r.properties),
       city: r.properties.city ?? null,
     })
   );
@@ -167,7 +183,7 @@ async function searchCompaniesByName(
       name: r.properties.name ?? null,
       domain: r.properties.domain ?? null,
       website: r.properties.website ?? null,
-      country: r.properties.country ?? null,
+      country: preferredHubSpotCompanyCountry(r.properties),
       city: r.properties.city ?? null,
     })
   );
@@ -355,7 +371,7 @@ export async function getHubSpotCompanyByIdForResolver(
         name: r.properties?.name ?? null,
         domain: r.properties?.domain ?? null,
         website: r.properties?.website ?? null,
-        country: r.properties?.country ?? null,
+        country: preferredHubSpotCompanyCountry(r.properties),
         city: r.properties?.city ?? null,
       },
       skipped: false,

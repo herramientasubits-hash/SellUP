@@ -267,10 +267,10 @@ describe('4O-G — autorización de servidor, no de UI', () => {
     assert.equal(gateCount, 2, 'las DOS acciones deben pasar por el gate');
   });
 
-  it('el rol autorizado es el mismo `admin` de la revisión del candidato', () => {
+  it('los roles autorizados son los que pueden revelar (11-11: + líder y vendedor)', () => {
     assert.match(
       sources[ROLES],
-      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \['admin'\]/,
+      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \[\s*'admin',\s*'commercial_manager',\s*'commercial_lead',\s*'seller_bd',\s*\]/,
     );
     // Y la acción lo consume de ahí, en vez de declarar una segunda lista propia.
     assert.match(
@@ -611,7 +611,7 @@ describe('4O-G — alcance', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
     // Dueña 28-10: la 160 (reserva del asistente sin topes del piloto; sin teléfonos, contactos ni HubSpot) sube el techo.
-    assert.equal(numbered[numbered.length - 1], 163);
+    assert.equal(numbered[numbered.length - 1], 164);
     // El CONTEO, no el techo: 121 archivos para los números 001–121, es decir SIN un solo
     // hueco. Valía 118 mientras la 117 —aplicada en Producción desde el 2026-08-12— no
     // estaba en el repo: el hueco no era histórico, era el drift. Reconciliada la
@@ -649,7 +649,7 @@ describe('4O-G — alcance', () => {
     // 155 archivos para los números 001-155: la 154 y la 155 tampoco dejan hueco.
     // 156 archivos para los números 001-156: la 156 tampoco deja hueco.
     // 157 archivos para los números 001-157: la 157 tampoco deja hueco.
-    assert.equal(numbered.length, 163);
+    assert.equal(numbered.length, 164);
   });
 
   it('ninguna migración menciona 4O-G: el hito no tocó SQL existente tampoco', () => {

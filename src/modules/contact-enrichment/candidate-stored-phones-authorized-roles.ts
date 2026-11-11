@@ -20,4 +20,11 @@
 // fija que ambas listas coincidan hoy.
 
 /** Roles que pueden ver los teléfonos almacenados de un candidato. */
-export const CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = ['admin'];
+// 11-11 (decisión de la dueña): quien puede revelar y «Buscar más números» tiene que poder
+// VER lo que compró; si no, pagaría créditos por números que no ve. Mismos cuatro roles.
+export const CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = [
+  'admin',
+  'commercial_manager',
+  'commercial_lead',
+  'seller_bd',
+];

@@ -7,6 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { buildAssignmentNotification, type AssignmentKind } from './assignment-core';
+import { notifySlackUsers } from '@/modules/notifications/slack-notify.server';
 
 export interface AssignmentUser {
   id: string;
@@ -69,6 +70,13 @@ export async function notifyAssignment(input: {
     if (error) {
       console.error('[assignment] notification insert failed:', input.kind, error.message);
     }
+    // También por Slack (dueña 11-11): el mismo aviso, con el botón a la pantalla.
+    await notifySlackUsers([input.target.id], {
+      title: notification.title,
+      message: notification.message,
+      actionLabel: notification.actionLabel,
+      actionUrl: notification.actionUrl,
+    });
   } catch (err) {
     console.error(
       '[assignment] notification failed:',

@@ -43,16 +43,17 @@ export type HubSpotIdBatchParseResult =
 /**
  * Convierte lo que el usuario pegó en la lista de Company IDs.
  *
- * - Se eliminan TODOS los espacios (también saltos de línea y tabulaciones), así
- *   «65498491, 65498497 ,984654» queda «65498491,65498497,984654».
- * - Se separa por comas y se ignoran los tramos vacíos («1,,2,» → 1 y 2).
+ * - Separan los IDs: comas, punto y coma, espacios, tabulaciones y saltos de línea, así
+ *   «65498491, 65498497 ,984654» y una columna pegada de Excel (un ID por fila) dan lo
+ *   mismo. Antes se borraban los saltos de línea y dos IDs en filas distintas se pegaban
+ *   en un solo número (feedback líder 11-11: «debo poner coma al frente de cada id»).
+ * - Se ignoran los tramos vacíos («1,,2,» → 1 y 2).
  * - Los repetidos se buscan una sola vez (se conserva el primer orden).
  * - Todo lo que no sea solo dígitos se rechaza: no se busca nada hasta corregirlo.
  * - Mínimo 1 y máximo 10 IDs distintos.
  */
 export function parseHubSpotIdBatchInput(raw: string): HubSpotIdBatchParseResult {
-  const compact = (raw ?? '').replace(/\s+/g, '');
-  const tokens = compact.split(',').filter((token) => token.length > 0);
+  const tokens = (raw ?? '').split(/[\s,;]+/).filter((token) => token.length > 0);
 
   if (tokens.length < HUBSPOT_ID_BATCH_MIN_IDS) {
     return { ok: false, reason: 'empty' };
