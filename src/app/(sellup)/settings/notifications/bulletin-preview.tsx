@@ -114,7 +114,7 @@ function Teams({ teams }: { teams: BulletinModel['teams'] }) {
           <Bar value={team.approved} max={max} label={`${team.name}: ${team.approved} aprobadas`} />
           <p className="text-xs text-muted-foreground">
             {team.active} de {team.people} activos · {team.discarded} descartadas · {team.pending} por revisar
-            {team.oldestDays ? ` · la más antigua, ${team.oldestDays} días` : ''}
+            {team.oldestDays ? ` · la más antigua, ${team.oldestDays === 1 ? '1 día' : `${team.oldestDays} días`}` : ''}
           </p>
         </div>
       ))}
@@ -132,7 +132,7 @@ function Behind({ behind, inactive }: { behind: BulletinModel['behind']; inactiv
           <li key={person.name} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
             <span className="truncate text-foreground">{person.name}</span>
             <span className={cn('shrink-0 text-xs tabular-nums', (person.oldestDays ?? 0) > 7 ? 'text-destructive' : 'text-muted-foreground')}>
-              {person.pending} por revisar{person.oldestDays ? ` · ${person.oldestDays} días` : ''}
+              {person.pending} por revisar{person.oldestDays ? ` · ${person.oldestDays === 1 ? '1 día' : `${person.oldestDays} días`}` : ''}
             </span>
           </li>
         ))}

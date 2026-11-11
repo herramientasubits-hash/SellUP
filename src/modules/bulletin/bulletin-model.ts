@@ -102,6 +102,10 @@ export function bulletinPeriod(frequency: BulletinFrequency, now: Date): Bulleti
   return { frequency, start: iso(start), end: iso(end), previousStart: iso(prevStart), previousEnd: iso(prevEnd), label, previousLabel };
 }
 
+function daysText(days: number): string {
+  return days === 1 ? '1 día' : `${days} días`;
+}
+
 /** ¿Toca enviar este boletín hoy? (el proceso corre a las 8:15 de Bogotá todos los días). */
 export function isBulletinDue(frequency: BulletinFrequency, now: Date): boolean {
   const today = bogotaDate(now);
@@ -390,9 +394,9 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
             .slice(0, 8)
             .map(
               (t) =>
-                `\`${bar(t.approved, teamMax)}\` *${t.name}* · ${t.people} ${t.people === 1 ? 'persona' : 'personas'} (${t.active} activas)\n` +
+                `\`${bar(t.approved, teamMax)}\` *${t.name}* · ${t.people} ${t.people === 1 ? 'persona' : 'personas'} (${t.active} ${t.active === 1 ? 'activa' : 'activas'})\n` +
                 `↳ ${t.approved} aprobadas · ${t.discarded} descartadas · ${t.pending} por revisar` +
-                (t.oldestDays ? ` · la más antigua de ${t.oldestDays} días` : ''),
+                (t.oldestDays ? ` · la más antigua de ${daysText(t.oldestDays)}` : ''),
             )
             .join('\n'),
       ),
@@ -401,7 +405,7 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
 
   if (model.behind.length > 0 || model.inactive.length > 0) {
     const lines = model.behind.map(
-      (p) => `${(p.oldestDays ?? 0) > 7 ? '🔴' : '🟠'} *${p.name}* · ${p.pending} por revisar${p.oldestDays ? ` · la más antigua de ${p.oldestDays} días` : ''}`,
+      (p) => `${(p.oldestDays ?? 0) > 7 ? '🔴' : '🟠'} *${p.name}* · ${p.pending} por revisar${p.oldestDays ? ` · la más antigua de ${daysText(p.oldestDays)}` : ''}`,
     );
     if (model.inactive.length) lines.push(`⚪ Sin actividad: ${model.inactive.slice(0, 8).join(', ')}${model.inactive.length > 8 ? '…' : ''}`);
     blocks.push(DIVIDER, section('⚠️ *A QUIÉN ACOMPAÑAR*\n' + lines.join('\n')));
