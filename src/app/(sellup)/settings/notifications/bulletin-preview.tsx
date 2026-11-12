@@ -174,7 +174,9 @@ function Teams({ teams, moneyVisible }: { teams: BulletinModel['teams']; moneyVi
 }
 
 function Behind({ behind, inactive }: { behind: BulletinModel['behind']; inactive: string[] }) {
-  if (behind.length === 0 && inactive.length === 0) return null;
+  const listed = new Set(behind.map((p) => p.name));
+  const idle = inactive.filter((name) => !listed.has(name));
+  if (behind.length === 0 && idle.length === 0) return null;
   return (
     <div className="space-y-2">
       <SectionTitle>A quién acompañar</SectionTitle>
@@ -187,9 +189,7 @@ function Behind({ behind, inactive }: { behind: BulletinModel['behind']; inactiv
             </span>
           </li>
         ))}
-        {inactive.length > 0 && (
-          <li className="px-3 py-2 text-xs text-muted-foreground">Sin actividad: {inactive.join(', ')}</li>
-        )}
+        {idle.length > 0 && <li className="px-3 py-2 text-xs text-muted-foreground">Sin actividad: {idle.join(', ')}</li>}
       </ul>
     </div>
   );
