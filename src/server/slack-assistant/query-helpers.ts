@@ -102,3 +102,57 @@ export function clip(text: string | null | undefined, max: number): string | nul
   if (!t) return null;
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
+
+/** Minúsculas y sin tildes, para comparar nombres como los escribe la gente. */
+export function normalizeText(value: string | null | undefined): string {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface PersonRow {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+/**
+ * Personas que coinciden con lo que escribió alguien: «elkin garcia» encuentra a
+ * «Elkin Alexis García Salazar» (cada palabra debe empezar alguna palabra del
+ * nombre o del correo, sin importar tildes ni mayúsculas). Si el nombre completo
+ * o el correo coinciden exactos, gana esa persona.
+ */
+export function matchPeople<T extends PersonRow>(rows: readonly T[], query: string): T[] {
+  const wanted = normalizeText(query);
+  if (!wanted) return [];
+  const exact = rows.filter((r) => normalizeText(r.full_name) === wanted || normalizeText(r.email) === wanted);
+  if (exact.length > 0) return exact;
+  const tokens = wanted.split(/[\s@._-]+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  return rows.filter((r) => {
+    const words = `${normalizeText(r.full_name)} ${normalizeText(r.email)}`.split(/[\s@._-]+/).filter(Boolean);
+    return tokens.every((t) => words.some((w) => w.startsWith(t)));
+  });
+}
+
+/** La persona y toda su gente a cargo en cascada (por `manager_id`). */
+export function cascadeIds(rootId: string, rows: ReadonlyArray<{ id: string; manager_id: string | null }>): string[] {
+  const childrenOf = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.manager_id) childrenOf.set(r.manager_id, [...(childrenOf.get(r.manager_id) ?? []), r.id]);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    stack.push(...(childrenOf.get(id) ?? []));
+  }
+  return out;
+}

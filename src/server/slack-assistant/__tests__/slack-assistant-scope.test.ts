@@ -146,3 +146,91 @@ describe('permisos por rol — resumen', () => {
     );
   });
 });
+
+// ── Feedback 11-11: «mío» vs «mi equipo», nombres parciales y ficha más amplia ──
+import { cascadeIds, matchPeople } from '../query-helpers';
+import { createAssistantActionResolver } from '../action-resolver.server';
+
+const PEOPLE = [
+  { id: 'elkin', full_name: 'Elkin Alexis García Salazar', email: 'egarcia@ubits.co', manager_id: null },
+  { id: 'carla', full_name: 'Carla Pía Rojas', email: 'carla.rojas@ubits.co', manager_id: 'elkin' },
+  { id: 'luis', full_name: 'Luis Mejía', email: 'luis.mejia@ubits.co', manager_id: 'carla' },
+  { id: 'juan', full_name: 'Juan Rey', email: 'juan.rey@ubits.co', manager_id: 'elkin' },
+];
+
+describe('nombres de personas — como los escribe la gente', () => {
+  it('«elkin garcia» encuentra a «Elkin Alexis García Salazar» (sin tildes, con nombre intermedio)', () => {
+    assert.deepEqual(matchPeople(PEOPLE, 'elkin garcia').map((p) => p.id), ['elkin']);
+    assert.deepEqual(matchPeople(PEOPLE, 'GARCÍA').map((p) => p.id), ['elkin']);
+    assert.deepEqual(matchPeople(PEOPLE, 'egarcia@ubits.co').map((p) => p.id), ['elkin']);
+    assert.deepEqual(matchPeople(PEOPLE, 'luis mejia').map((p) => p.id), ['luis']);
+  });
+
+  it('un nombre que no existe no coincide con nadie; uno ambiguo devuelve varios', () => {
+    assert.deepEqual(matchPeople(PEOPLE, 'pedro'), []);
+    assert.equal(matchPeople(PEOPLE, 'ubits').length, 4);
+  });
+
+  it('cascada: la persona y toda su gente a cargo', () => {
+    assert.deepEqual(cascadeIds('carla', PEOPLE).sort(), ['carla', 'luis']);
+    assert.deepEqual(cascadeIds('elkin', PEOPLE).sort(), ['carla', 'elkin', 'juan', 'luis']);
+  });
+
+  it('recordatorio/asignar: «elkin garcia» resuelve a una sola persona', async () => {
+    const { client } = fakeSupabase({ internal_users: PEOPLE });
+    const found = await createAssistantActionResolver(client, ADMIN).resolveActiveUser('elkin garcia');
+    assert.equal(found.user?.id, 'elkin');
+  });
+});
+
+describe('de quién: mío, mi equipo, de otra persona o todo', () => {
+  const asAdmin = { ...OPTIONS, askerId: 'elkin' };
+
+  it('admin «mi resumen» (de=mio): sólo lo suyo, no toda la plataforma', async () => {
+    const { client, calls } = fakeSupabase({ internal_users: PEOPLE });
+    const summary = await createAssistantDataSource(client, ADMIN, asAdmin).summary({ de: 'mio' });
+    assert.equal(summary.alcance, 'sólo lo tuyo');
+    assert.deepEqual(ors(calls, 'accounts'), [{ clause: 'owner_id.in.(elkin),created_by.in.(elkin)', options: undefined }]);
+  });
+
+  it('admin sin decir de quién: toda la plataforma (sin filtro)', async () => {
+    const { client, calls } = fakeSupabase({ internal_users: PEOPLE });
+    const summary = await createAssistantDataSource(client, ADMIN, asAdmin).summary({});
+    assert.equal(summary.alcance, 'toda la plataforma');
+    assert.deepEqual(ors(calls, 'accounts'), []);
+  });
+
+  it('«mi equipo»: quien pregunta y su gente en cascada', async () => {
+    const { client, calls } = fakeSupabase({ internal_users: PEOPLE });
+    await createAssistantDataSource(client, ADMIN, { ...OPTIONS, askerId: 'carla' }).accounts({ de: 'mi_equipo', periodo: 'todo' }, 10);
+    assert.match(ors(calls, 'accounts')[0].clause, /^owner_id\.in\.\((carla,luis|luis,carla)\)/);
+  });
+
+  it('«el equipo de Carla» (responsable + equipo)', async () => {
+    const { client, calls } = fakeSupabase({ internal_users: PEOPLE });
+    await createAssistantDataSource(client, ADMIN, asAdmin).accounts({ responsable: 'carla', equipo: true, periodo: 'todo' }, 10);
+    assert.match(ors(calls, 'accounts')[0].clause, /^owner_id\.in\.\((carla,luis|luis,carla)\)/);
+  });
+
+  it('🔴 vendedor pidiendo «mi equipo» o a otra persona: nunca sale de lo suyo', async () => {
+    const team = fakeSupabase({ internal_users: PEOPLE });
+    await createAssistantDataSource(team.client, SELLER, { ...OPTIONS, askerId: 'me' }).accounts({ de: 'mi_equipo', periodo: 'todo' }, 10);
+    assert.deepEqual(ors(team.calls, 'accounts'), [{ clause: 'owner_id.in.(me),created_by.in.(me)', options: undefined }]);
+    const other = fakeSupabase({ internal_users: PEOPLE });
+    const result = await createAssistantDataSource(other.client, SELLER, { ...OPTIONS, askerId: 'me' }).accounts({ responsable: 'carla', periodo: 'todo' }, 10);
+    assert.equal(result.total, 0);
+    assert.equal(other.calls.some((c) => c.table === 'accounts'), false);
+  });
+});
+
+describe('ficha: también por revisar y por contacto (sólo SellUp)', () => {
+  it('si no está en Empresas, busca en prospectos y contactos', async () => {
+    const { client, calls } = fakeSupabase({
+      prospect_candidates: [{ name: 'Copec', status: 'pending_review', created_at: '2026-11-10T00:00:00Z', batch: { name: 'Chile energía', owner_id: 'me' } }],
+    });
+    const detail = await createAssistantDataSource(client, ADMIN, OPTIONS).accountDetail('Copec');
+    assert.equal(detail.encontrada, false);
+    assert.equal(detail.enProspectos?.[0]?.nombre, 'Copec');
+    assert.ok(calls.some((c) => c.table === 'contacts'));
+  });
+});

@@ -30,8 +30,11 @@ import {
   countryFilter,
   createdSince,
   day,
+  cascadeIds,
   ilikePattern,
+  matchPeople,
   PROSPECT_STATE_STATUSES,
+  type PersonRow,
   round2,
   scopeOwnerIds,
   usagePeriodStart,
@@ -47,6 +50,7 @@ import type {
   AssistantSummary,
   AssistantUsage,
   UsagePeriod,
+  WhoseFilter,
 } from './tools';
 
 /** Estados de una búsqueda que todavía no termina. */
@@ -101,7 +105,11 @@ export interface AssistantDataSourceOptions {
   /** Ve dólares (admin y líderes/managers, como en Uso de IA). */
   moneyVisible: boolean;
   now?: Date;
+  /** Quien pregunta: para «mío» y «mi equipo». */
+  askerId?: string;
 }
+
+type UserLite = PersonRow & { manager_id: string | null };
 
 export function createAssistantDataSource(
   admin: SupabaseClient,
@@ -140,20 +148,43 @@ export function createAssistantDataSource(
     return names;
   }
 
+  /** Personas de la organización (para nombres parciales y cascadas); se lee una vez. */
+  let usersCache: Promise<UserLite[]> | null = null;
+  function allUsers(): Promise<UserLite[]> {
+    usersCache ??= (async () => {
+      const { data, error } = await admin.from('internal_users').select('id, full_name, email, manager_id').limit(2000);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as UserLite[];
+    })();
+    return usersCache;
+  }
+
   /**
-   * Personas a filtrar: el alcance ∩ la persona pedida. `null` = sin
-   * restricción (admin sin filtro); `[]` = nada visible.
+   * De quién se leen los datos, SIEMPRE dentro del alcance del rol:
+   * otra persona (por nombre parcial o correo, con o sin su equipo), lo propio,
+   * el equipo de quien pregunta o todo su alcance. `null` = sin restricción.
    */
-  async function ownerIds(responsable: string | undefined): Promise<string[] | null> {
-    if (!responsable) return owners;
-    const pattern = ilikePattern(responsable);
-    const { data, error } = await admin
-      .from('internal_users')
-      .select('id')
-      .or(`full_name.ilike.${pattern},email.ilike.${pattern}`)
-      .limit(50);
-    if (error) throw new Error(error.message);
-    return intersectOptionalUserIds(owners, (data ?? []).map((u) => u.id as string)) ?? [];
+  async function peopleIds(who: WhoseFilter = {}): Promise<string[] | null> {
+    const askerId = options.askerId;
+    if (who.responsable) {
+      const users = await allUsers();
+      const found = matchPeople(users, who.responsable);
+      const ids = who.equipo ? found.flatMap((u) => cascadeIds(u.id, users)) : found.map((u) => u.id);
+      return intersectOptionalUserIds(owners, ids) ?? [];
+    }
+    if (who.de === 'mio' && askerId) return intersectOptionalUserIds(owners, [askerId]) ?? [];
+    if (who.de === 'mi_equipo' && askerId) {
+      return intersectOptionalUserIds(owners, cascadeIds(askerId, await allUsers())) ?? [];
+    }
+    return owners;
+  }
+
+  /** En palabras, de quién son los datos que se devuelven. */
+  function whoseLabel(who: WhoseFilter = {}): string {
+    if (who.responsable) return who.equipo ? `${who.responsable} y su equipo` : who.responsable;
+    if (who.de === 'mio' || (scope.isRestrictedToSelf && !scope.canViewAll)) return 'sólo lo tuyo';
+    if (who.de === 'mi_equipo') return 'tú y tu equipo (en cascada por el organigrama)';
+    return scope.canViewAll ? 'toda la plataforma' : 'tu equipo (en cascada por el organigrama)';
   }
 
   /** Lotes cuyo dueño o creador está entre `users` (como la pantalla). */
@@ -171,8 +202,8 @@ export function createAssistantDataSource(
     return buildCandidateOwnershipOrClause(users, await batchesOwnedBy(users)) ?? '';
   }
 
-  async function countPending(): Promise<number> {
-    const ownership = await candidateOwnership(owners);
+  async function countPending(users: string[] | null): Promise<number> {
+    const ownership = await candidateOwnership(users);
     if (ownership === '') return 0;
     let query = admin
       .from('prospect_candidates')
@@ -184,22 +215,24 @@ export function createAssistantDataSource(
     return count ?? 0;
   }
 
-  return {
-    async summary(): Promise<AssistantSummary> {
+  const source: Omit<AssistantDataSource, 'help'> = {
+    async summary(who): Promise<AssistantSummary> {
       const enlaces = { empresas: accountsLink(appUrl), porRevisar: pendingProspectsLink(appUrl), busquedas: searchesLink(appUrl) };
-      if (owners !== null && owners.length === 0) {
-        return { empresasActivas: 0, empresasPorEstado: {}, prospectosPorRevisar: 0, busquedasEnCurso: 0, contactos: 0, enlaces };
+      const alcance = whoseLabel(who);
+      const users = await peopleIds(who);
+      if (users !== null && users.length === 0) {
+        return { alcance, empresasActivas: 0, empresasPorEstado: {}, prospectosPorRevisar: 0, busquedasEnCurso: 0, contactos: 0, enlaces };
       }
 
       let accounts = admin.from('accounts').select('pipeline_status').is('archived_at', null).limit(20000);
-      if (owners) accounts = accounts.or(accountScopeClause(owners));
+      if (users) accounts = accounts.or(accountScopeClause(users));
 
       let openBatches = admin
         .from('prospect_batches')
         .select('id', { count: 'exact', head: true })
         .is('archived_at', null)
         .in('status', OPEN_BATCH_STATUSES);
-      if (owners) openBatches = openBatches.or(batchScopeClause(owners));
+      if (users) openBatches = openBatches.or(batchScopeClause(users));
 
       let contacts = admin
         .from('contacts')
@@ -207,9 +240,9 @@ export function createAssistantDataSource(
         .is('archived_at', null)
         .is('accounts.archived_at', null);
       if (visibleSince) contacts = contacts.gte('created_at', visibleSince);
-      if (owners) contacts = contacts.or(accountScopeClause(owners), { referencedTable: 'accounts' });
+      if (users) contacts = contacts.or(accountScopeClause(users), { referencedTable: 'accounts' });
 
-      const [acc, open, cont, pending] = await Promise.all([accounts, openBatches, contacts, countPending()]);
+      const [acc, open, cont, pending] = await Promise.all([accounts, openBatches, contacts, countPending(users)]);
       for (const res of [acc, open, cont]) if (res.error) throw new Error(res.error.message);
 
       const byStatus: Record<string, number> = {};
@@ -218,6 +251,7 @@ export function createAssistantDataSource(
         byStatus[label] = (byStatus[label] ?? 0) + 1;
       }
       return {
+        alcance,
         empresasActivas: (acc.data ?? []).length,
         empresasPorEstado: byStatus,
         prospectosPorRevisar: pending,
@@ -230,7 +264,7 @@ export function createAssistantDataSource(
     async prospects(filters, limit): Promise<AssistantProspectList> {
       const enlace = prospectsLink(appUrl, filters.estado, filters);
       const empty: AssistantProspectList = { estado: filters.estado, total: 0, mostrados: 0, enlace, prospectos: [] };
-      const ownership = await candidateOwnership(await ownerIds(filters.responsable));
+      const ownership = await candidateOwnership(await peopleIds(filters));
       if (ownership === '') return empty;
 
       let batchIds: string[] | null = null;
@@ -323,7 +357,7 @@ export function createAssistantDataSource(
     },
 
     async accounts(filters, limit): Promise<AssistantAccountList> {
-      const users = await ownerIds(filters.responsable);
+      const users = await peopleIds(filters);
       if (users !== null && users.length === 0) return { total: 0, mostradas: 0, empresas: [] };
 
       let query = admin
@@ -378,6 +412,20 @@ export function createAssistantDataSource(
     },
 
     async accountDetail(queryText): Promise<AssistantAccountDetail> {
+      /** No está en Empresas: puede estar por revisar (o descartada) o ser el nombre de un contacto. */
+      const notApprovedYet = async (text: string): Promise<AssistantAccountDetail> => {
+        const [prospects, people] = await Promise.all([
+          source.prospects({ texto: text, estado: 'todos', periodo: 'todo' }, 5),
+          source.contacts({ texto: text }, 5),
+        ]);
+        return {
+          encontrada: false,
+          otrasCoincidencias: [],
+          ...(prospects.prospectos.length > 0 ? { enProspectos: prospects.prospectos, enlaceProspectos: prospects.enlace } : {}),
+          ...(people.contactos.length > 0 ? { contactosConEseNombre: people.contactos } : {}),
+        };
+      };
+
       const notFound: AssistantAccountDetail = { encontrada: false, otrasCoincidencias: [] };
       if (owners !== null && owners.length === 0) return notFound;
       const lookup = accountLookup(queryText);
@@ -396,7 +444,7 @@ export function createAssistantDataSource(
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       const rows = (data ?? []) as Array<Record<string, string | null>>;
-      if (rows.length === 0) return notFound;
+      if (rows.length === 0) return lookup.kind === 'text' ? notApprovedYet(queryText) : notFound;
 
       const a = rows[0];
       const accountId = a.id as string;
@@ -515,7 +563,7 @@ export function createAssistantDataSource(
     },
 
     async searches(filters, limit): Promise<AssistantSearch[]> {
-      const users = await ownerIds(filters.responsable);
+      const users = await peopleIds(filters);
       if (users !== null && users.length === 0) return [];
       let query = admin
         .from('prospect_batches')
@@ -570,18 +618,12 @@ export function createAssistantDataSource(
       }));
     },
 
-    async aiUsage(period: UsagePeriod, responsable?: string): Promise<AssistantUsage> {
+    async aiUsage(period: UsagePeriod, who: WhoseFilter = {}): Promise<AssistantUsage> {
       const periodStart = usagePeriodStart(period, now);
       const since = visibleSince && visibleSince > periodStart ? visibleSince : periodStart;
       const money = options.moneyVisible;
-      const users = await ownerIds(responsable);
-      const alcance = responsable
-        ? `de ${responsable}`
-        : scope.canViewAll
-          ? 'toda la plataforma'
-          : scope.isRestrictedToSelf
-            ? 'sólo lo tuyo'
-            : 'tu equipo (en cascada por el organigrama)';
+      const users = await peopleIds(who);
+      const alcance = whoseLabel(who);
       const empty: AssistantUsage = {
         periodo: period,
         desde: day(since),
@@ -648,4 +690,5 @@ export function createAssistantDataSource(
       };
     },
   };
+  return source;
 }
