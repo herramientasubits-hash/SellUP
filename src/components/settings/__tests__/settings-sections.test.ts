@@ -14,17 +14,17 @@ import {
 } from '../settings-sections';
 
 describe('getVisibleSettingsSections — permisos', () => {
-  it('un administrador ve las cinco secciones', () => {
+  it('un administrador ve las siete secciones', () => {
     const sections = getVisibleSettingsSections({ isAdmin: true, isActive: true });
 
-    assert.equal(sections.length, 6);
+    assert.equal(sections.length, 7);
     assert.deepEqual(sections, [...SETTINGS_SECTIONS]);
   });
 
   it('🔴 quien no es administrador solo ve las secciones personales', () => {
     const ids = getVisibleSettingsSections({ isAdmin: false, isActive: true }).map((s) => s.id);
 
-    assert.deepEqual(ids, ['activity', 'my-drive']);
+    assert.deepEqual(ids, ['activity', 'my-drive', 'my-notifications']);
   });
 
   it('🔴 sin acceso activo no se lista ninguna sección', () => {
@@ -68,6 +68,11 @@ describe('resolveSettingsSectionId — en qué sección está una ruta', () => {
     assert.equal(SETTINGS_SECTIONS.some((s) => s.href.includes('source-catalog')), false);
     // La ruta antigua solo redirige: no marca ninguna sección.
     assert.equal(resolveSettingsSectionId('/settings/source-catalog'), null);
+  });
+
+  it('«Mis avisos de Slack» es personal y no se confunde con «Avisos de Slack»', () => {
+    assert.equal(resolveSettingsSectionId('/settings/my-notifications'), 'my-notifications');
+    assert.equal(resolveSettingsSectionId('/settings/notifications'), 'notifications');
   });
 
   it('un prefijo parecido no cuenta como la sección', () => {

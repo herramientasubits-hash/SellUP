@@ -3,12 +3,13 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTable, DataTableColumnHeader } from '@/components/data-table';
-import { StatusBadge, type StatusType } from '@/components/data-display/status-badge';
+import { StatusBadge } from '@/components/data-display/status-badge';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { EmptyState } from '@/components/ui/empty-state';
 import { formatAppDateTime } from '@/lib/format-date';
 import type { BulletinModel } from '@/modules/bulletin/bulletin-model';
 import { BulletinPreview } from './bulletin-preview';
+import { deliveryStatus } from './bulletin-sent-list';
 import {
   formatPeriod,
   frequencyLabel,
@@ -20,16 +21,6 @@ import {
 // «Historial»: los boletines enviados. Al abrir uno se pinta igual que la
 // vista previa, con el modelo guardado en el envío.
 // ============================================================
-
-const DELIVERY_STATUS: Record<string, { status: StatusType; label: string }> = {
-  sent: { status: 'completed', label: 'Enviado' },
-  failed: { status: 'error', label: 'Falló' },
-  not_in_slack: { status: 'warning', label: 'No está en Slack' },
-};
-
-function deliveryStatus(status: string): { status: StatusType; label: string } {
-  return DELIVERY_STATUS[status] ?? { status: 'neutral', label: status };
-}
 
 interface BulletinHistoryProps {
   history: BulletinDeliveryRow[];

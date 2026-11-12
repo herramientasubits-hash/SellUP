@@ -106,6 +106,29 @@ function daysText(days: number): string {
   return days === 1 ? '1 día' : `${days} días`;
 }
 
+/**
+ * El período de esa frecuencia que contiene el día `day` (AAAA-MM-DD): la
+ * semana, el mes o el trimestre de esa fecha, o ese día. Sirve para ver el
+ * boletín de cualquier fecha pasada.
+ */
+export function bulletinPeriodContaining(frequency: BulletinFrequency, day: string): BulletinPeriod {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) throw new Error('Fecha inválida');
+  const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  let send: Date;
+  if (frequency === 'daily') {
+    // Ese día (un domingo trae el bloque de viernes a domingo, como el boletín del lunes).
+    send = addDays(d, 1);
+  } else if (frequency === 'weekly') {
+    send = addDays(d, 7 - ((d.getUTCDay() + 6) % 7));
+  } else {
+    const months = frequency === 'monthly' ? 1 : 3;
+    const startMonth = frequency === 'monthly' ? d.getUTCMonth() : d.getUTCMonth() - (d.getUTCMonth() % 3);
+    send = new Date(Date.UTC(d.getUTCFullYear(), startMonth + months, 1));
+  }
+  return bulletinPeriod(frequency, new Date(send.getTime() + 13 * 3_600_000));
+}
+
 /** ¿Toca enviar este boletín hoy? (el proceso corre a las 8:15 de Bogotá todos los días). */
 export function isBulletinDue(frequency: BulletinFrequency, now: Date): boolean {
   const today = bogotaDate(now);

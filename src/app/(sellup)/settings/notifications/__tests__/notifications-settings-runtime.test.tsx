@@ -6,7 +6,10 @@
  *   - 🔴 mover un interruptor llama a `setNotificationSetting` con el rol, el aviso y el valor;
  *   - «Restablecer» manda `enabled: null` (vuelve al valor heredado);
  *   - si el servidor no guarda, el interruptor vuelve a su estado;
- *   - la vista previa del boletín pinta titular, alerta y cifras del pulso.
+ *   - la vista previa del boletín pinta titular, alerta y cifras del pulso;
+ *   - «Boletín»: la lista de personas se filtra por rol y por frecuencia activa;
+ *     el interruptor semanal de una persona guarda una regla `user` con su id;
+ *     el visor con fecha pide ese día; pulsar un enviado lo abre en el visor.
  *
  * Sin red ni base de datos: las acciones llegan por props como espías.
  */
@@ -39,7 +42,14 @@ const ROLES = [
   { key: 'growth', label: 'Growth' },
 ];
 
+const BEA = '11111111-1111-1111-1111-111111111111';
+const LEO = '22222222-2222-2222-2222-222222222222';
+const GUS = '33333333-3333-3333-3333-333333333333';
+
 const calls: RuleInput[] = [];
+const previewCalls: Array<{ userId: string; frequency: string; day?: string | null }> = [];
+const historyCalls: Array<string | null | undefined> = [];
+const deliveryCalls: string[] = [];
 let nextResult: { success: true; data: undefined } | { success: false; error: string } = { success: true, data: undefined };
 
 function actions(): NotificationSettingsActions {
@@ -48,18 +58,37 @@ function actions(): NotificationSettingsActions {
       calls.push(input);
       return nextResult;
     },
-    previewBulletin: async () => ({ success: false, error: 'no usado' }),
+    previewBulletin: async (input) => {
+      previewCalls.push(input);
+      return { success: true, data: MODEL };
+    },
     sendBulletinPreviewToMe: async () => ({ success: false, error: 'no usado' }),
-    getBulletinDelivery: async () => ({ success: false, error: 'no usado' }),
+    getBulletinHistory: async (userId) => {
+      historyCalls.push(userId);
+      return { success: true, data: userId === LEO ? SENT : [] };
+    },
+    getBulletinDelivery: async (id) => {
+      deliveryCalls.push(id);
+      return { success: true, data: MODEL };
+    },
   };
 }
+
+const SENT = [
+  { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', recipientId: LEO, recipientName: 'Leo Ruiz', frequency: 'weekly' as const, periodStart: '2026-11-02', periodEnd: '2026-11-08', status: 'sent', manual: false, createdAt: '2026-11-09T13:16:00Z' },
+  { id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', recipientId: LEO, recipientName: 'Leo Ruiz', frequency: 'monthly' as const, periodStart: '2026-10-01', periodEnd: '2026-10-31', status: 'failed', manual: false, createdAt: '2026-11-01T13:16:00Z' },
+];
 
 function data(rows: NotificationSettingRow[] = []): NotificationSettingsData {
   return {
     catalog: [...NOTIFICATION_CATALOG],
     roles: ROLES,
     rows,
-    users: [{ id: '11111111-1111-1111-1111-111111111111', name: 'Bea Soto', email: 'bea@ubits.co', roleKey: 'seller_bd', roleLabel: 'Vendedor' }],
+    users: [
+      { id: BEA, name: 'Bea Soto', email: 'bea@ubits.co', roleKey: 'seller_bd', roleLabel: 'Vendedor' },
+      { id: LEO, name: 'Leo Ruiz', email: 'leo@ubits.co', roleKey: 'commercial_lead', roleLabel: 'Líder comercial' },
+      { id: GUS, name: 'Gus Paz', email: 'gus@ubits.co', roleKey: 'growth', roleLabel: 'Growth' },
+    ],
     ready: true,
   };
 }
@@ -114,6 +143,9 @@ before(async () => {
 
 beforeEach(() => {
   calls.length = 0;
+  previewCalls.length = 0;
+  historyCalls.length = 0;
+  deliveryCalls.length = 0;
   nextResult = { success: true, data: undefined };
 });
 
@@ -171,5 +203,102 @@ describe('Vista previa del boletín', () => {
     assert.ok(screen.getByText('Equipo Carla'));
     assert.ok(screen.getByText('Ana Gómez'));
     assert.ok(screen.getByText(MODEL.closing));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Boletín»: personas a la izquierda, sus boletines y el visor a la derecha.
+// ---------------------------------------------------------------------------
+
+async function chooseOption(comboboxName: string, optionName: string) {
+  const trigger = screen.getByRole('combobox', { name: comboboxName });
+  fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' });
+  fireEvent.mouseDown(trigger, { button: 0 });
+  fireEvent.click(trigger, { button: 0 });
+  const option = await waitFor(() => screen.getByRole('option', { name: optionName }));
+  fireEvent.pointerDown(option, { button: 0, pointerType: 'mouse' });
+  fireEvent.mouseUp(option, { button: 0 });
+  fireEvent.click(option, { button: 0 });
+}
+
+function openBulletinTab(rows: NotificationSettingRow[] = []) {
+  renderClient(rows);
+  const tab = screen.getByRole('tab', { name: 'Boletín' });
+  fireEvent.pointerDown(tab, { button: 0, pointerType: 'mouse' });
+  fireEvent.mouseDown(tab, { button: 0 });
+  fireEvent.click(tab);
+}
+
+const peopleNames = () =>
+  Array.from(screen.getByRole('list', { name: 'Lista de personas' }).querySelectorAll('li button')).map((b) => b.getAttribute('aria-label'));
+
+describe('Boletín — personas y filtros', () => {
+  it('sin elegir a nadie muestra el vacío y la lista con chips de lo que le llega', async () => {
+    openBulletinTab();
+    await waitFor(() => assert.ok(screen.getByText('Elige una persona')));
+    assert.deepEqual(peopleNames(), ['Bea Soto', 'Leo Ruiz', 'Gus Paz']);
+    // El semanal está encendido por defecto para líderes.
+    assert.match(screen.getByTestId(`chips-${LEO}`).textContent ?? '', /Semanal/);
+    assert.match(screen.getByTestId(`chips-${BEA}`).textContent ?? '', /Sin boletín/);
+  });
+
+  it('filtra por rol', async () => {
+    openBulletinTab();
+    await waitFor(() => assert.ok(screen.getByRole('combobox', { name: 'Rol' })));
+    await chooseOption('Rol', 'Growth');
+    await waitFor(() => assert.deepEqual(peopleNames(), ['Gus Paz']));
+    assert.ok(screen.getByText('1 persona'));
+  });
+
+  it('filtra por frecuencia activa (incluida una regla personal) y por «Sin boletín»', async () => {
+    openBulletinTab([{ scope_type: 'user', scope_id: GUS, notification_key: 'bulletin_daily', enabled: true }]);
+    await waitFor(() => assert.ok(screen.getByRole('combobox', { name: 'Frecuencia activa' })));
+    await chooseOption('Frecuencia activa', 'Diario');
+    await waitFor(() => assert.deepEqual(peopleNames(), ['Gus Paz']));
+    await chooseOption('Frecuencia activa', 'Sin boletín');
+    await waitFor(() => assert.deepEqual(peopleNames(), ['Bea Soto']));
+  });
+});
+
+describe('Boletín — una persona', () => {
+  it('🔴 encender su semanal guarda una regla de ESA persona (scope user)', async () => {
+    openBulletinTab();
+    await waitFor(() => assert.ok(screen.getByRole('button', { name: 'Bea Soto' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Bea Soto' }));
+    const sw = await waitFor(() => screen.getByRole('switch', { name: 'Boletín semanal de Bea Soto' }));
+    assert.equal(isChecked(sw), false);
+    fireEvent.click(sw);
+    await waitFor(() => assert.equal(calls.length, 1));
+    assert.deepEqual(calls[0], { scopeType: 'user', scopeId: BEA, notificationKey: 'bulletin_weekly', enabled: true });
+    await waitFor(() => assert.equal(isChecked(screen.getByRole('switch', { name: 'Boletín semanal de Bea Soto' })), true));
+    // Ahora es personal: aparece «Volver a lo de su rol» y manda null.
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a lo de su rol: Boletín semanal de Bea Soto' }));
+    await waitFor(() => assert.equal(calls.length, 2));
+    assert.equal(calls[1].enabled, null);
+  });
+
+  it('el visor con fecha pide el boletín de ese día', async () => {
+    openBulletinTab();
+    await waitFor(() => assert.ok(screen.getByRole('button', { name: 'Leo Ruiz' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Leo Ruiz' }));
+    await waitFor(() => assert.deepEqual(historyCalls, [LEO]));
+    fireEvent.change(screen.getByLabelText('Fecha del boletín'), { target: { value: '2026-10-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
+    await waitFor(() => assert.equal(previewCalls.length, 1));
+    assert.deepEqual(previewCalls[0], { userId: LEO, frequency: 'weekly', day: '2026-10-15' });
+    await waitFor(() => assert.ok(screen.getByRole('heading', { name: 'Boletín semanal' })));
+  });
+
+  it('pulsar un enviado lo abre en el visor (getBulletinDelivery) y el filtro de frecuencia lo acota', async () => {
+    openBulletinTab();
+    await waitFor(() => assert.ok(screen.getByRole('button', { name: 'Leo Ruiz' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Leo Ruiz' }));
+    const sent = await waitFor(() => screen.getByRole('list', { name: 'Boletines enviados' }));
+    assert.equal(sent.querySelectorAll('li').length, 2);
+    fireEvent.click(screen.getByRole('button', { name: /^Ver Boletín mensual/ }));
+    await waitFor(() => assert.deepEqual(deliveryCalls, [SENT[1].id]));
+    await waitFor(() => assert.ok(screen.getByRole('region', { name: 'Boletín en pantalla' })));
+    await chooseOption('Filtrar enviados por frecuencia', 'Semanal');
+    await waitFor(() => assert.equal(screen.getByRole('list', { name: 'Boletines enviados' }).querySelectorAll('li').length, 1));
   });
 });
