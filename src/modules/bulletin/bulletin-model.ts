@@ -296,7 +296,7 @@ export function buildBulletinModel(input: {
 
   const pendingNow = sum(current, 'pending');
   const behind = [...current]
-    .filter((p) => p.pending > 0)
+    .filter((p) => p.pending > 0 && (p.oldestPendingDays ?? 0) > 7)
     .sort((a, b) => (b.oldestPendingDays ?? 0) - (a.oldestPendingDays ?? 0) || b.pending - a.pending)
     .slice(0, 5)
     .map((p) => ({ name: p.name, pending: p.pending, oldestDays: p.oldestPendingDays }));
@@ -511,11 +511,12 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
 
   if (model.teams.length > 0) {
     const teamMax = Math.max(1, ...model.teams.map((t) => t.approved));
-    blocks.push(DIVIDER, section('🧩 *POR EQUIPO Y POR PERSONA*'));
+    const single = model.teams.length === 1;
+    blocks.push(DIVIDER, section(single ? '🧩 *POR PERSONA*' : '🧩 *POR EQUIPO Y POR PERSONA*'));
     let cut = false;
     for (const t of model.teams.slice(0, 8)) {
       const header =
-        `\`${bar(t.approved, teamMax)}\` *${t.name}* · ${plural(t.people, 'persona', 'personas')} (${t.active} ${t.active === 1 ? 'activa' : 'activas'})\n` +
+        `${single ? '' : `\`${bar(t.approved, teamMax)}\` `}*${t.name}* · ${plural(t.people, 'persona', 'personas')} (${t.active} ${t.active === 1 ? 'activa' : 'activas'})\n` +
         `↳ ${t.approved} aprobadas · ${t.discarded} descartadas · ${t.pending} por revisar` +
         (t.oldestDays ? ` · la más antigua de ${daysText(t.oldestDays)}` : '');
       const chunks = chunkLines([header, ...(t.members ?? []).map((m) => memberLine(m, model.moneyVisible))], SECTION_MAX_CHARS);

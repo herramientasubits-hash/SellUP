@@ -115,7 +115,7 @@ describe('modelo del boletín', () => {
     assert.deepEqual(model.approvalRate, { before: 92.9, now: 58.3 });
     assert.deepEqual(model.funnel.map((f) => f.value), [20, 7, 4, 2, 1]);
     assert.deepEqual(model.teams.map((t) => [t.name, t.approved, t.pending, t.oldestDays]), [['Carla', 7, 12, 12], ['Pedro', 0, 0, null]]);
-    assert.deepEqual(model.behind[0], { name: 'LUIS', pending: 9, oldestDays: 12 });
+    assert.deepEqual(model.behind, [{ name: 'LUIS', pending: 9, oldestDays: 12 }], 'sólo pendientes de más de 7 días (Ana, 2 días, no)');
   });
 
   it('🔴 sin dólares para quien no los ve: el pulso usa créditos', () => {
@@ -187,6 +187,16 @@ describe('sub-equipos en cascada por el organigrama', () => {
       ['pedro', ['eva', 'pedro']],
       ['Otros del equipo', ['leo', 'suelto']],
     ]);
+  });
+
+  it('🔴 líder con vendedores: un solo «Tu equipo» con todos (no un equipo por vendedor)', () => {
+    const teams = buildTeams('carla', [u('carla', 'leo'), u('ana', 'carla'), u('luis', 'carla'), u('sofia', 'carla')], new Map());
+    assert.deepEqual(teams.map((t) => [t.name, [...t.memberIds].sort()]), [['Tu equipo', ['ana', 'carla', 'luis', 'sofia']]]);
+  });
+
+  it('directos con y sin gente a cargo: sub-equipos + «Tu equipo directo»', () => {
+    const teams = buildTeams('leo', [u('leo', null), u('carla', 'leo'), u('ana', 'carla'), u('rosa', 'leo')], new Map());
+    assert.deepEqual(teams.map((t) => [t.name, [...t.memberIds].sort()]), [['carla', ['ana', 'carla']], ['Tu equipo directo', ['leo', 'rosa']]]);
   });
 
   it('sin reportes directos: por grupo de la organización', () => {
