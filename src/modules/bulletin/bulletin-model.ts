@@ -581,7 +581,7 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
         { type: 'button', text: { type: 'plain_text', text: 'Ver uso del equipo' }, url: `${base}/ai-usage?tab=equipo`, action_id: 'sellup_bulletin_usage' },
       ],
     },
-    { type: 'context', elements: [{ type: 'mrkdwn', text: 'Boletín de SellUp · cámbialo en Configuración › Avisos de Slack' }] },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: 'Boletín de SellUp · elige qué te llega en Configuración › Mis avisos de Slack' }] },
   );
 
   return {
