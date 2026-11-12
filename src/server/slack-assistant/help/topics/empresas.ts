@@ -26,7 +26,7 @@ export const EMPRESAS_TOPICS: readonly HelpTopic[] = [
       '*Qué hace SellUp:* busca duplicados en el archivo, en SellUp y en HubSpot; en Colombia busca el NIT gratis; descarta solas las de menos de 200 empleados (con dato oficial o del archivo); completa con IA las que les faltan datos (hasta 100). No crea empresas ni toca HubSpot hasta que apruebes.',
       '*Dónde quedan:* las válidas en «Por revisar»; las pequeñas y los duplicados en «Descartadas»; el lote aparece en «Búsquedas» como archivo importado.',
     ].join('\n'),
-    limites: 'Si un administrador activó las reglas por rol, importar es sólo de Growth y administradores. No importa contactos (las columnas de contacto sólo se guardan como nota). Un archivo de más de 500 filas se corta en 500.',
+    limites: 'Cualquier persona activa puede cargar un archivo de empresas. No importa contactos (las columnas de contacto sólo se guardan como nota). Un archivo de más de 500 filas se corta en 500.',
     etiquetas: [
       { texto: 'Por revisar', archivo: SIDEBAR },
       { texto: 'Búsquedas', archivo: SIDEBAR },
@@ -157,7 +157,7 @@ export const EMPRESAS_TOPICS: readonly HelpTopic[] = [
       '*Dónde:* Empresas › «Búsquedas». Cada fila es una búsqueda o importación: forma, estado, encontradas, por revisar y aprobadas. El número de “por revisar” abre esa lista ya filtrada.',
       '*Menú de la fila:* «Ver detalle», «Ver por revisar» y, si es tuya, «Asignar a…» para repartir sus pendientes.',
       '*Por ID:* no hay un buscador de ID; se abre por enlace: `/prospect-batches/<id>` (detalle), `/accounts?tab=prospectos&sourceId=<id>` (sus pendientes) o `/accounts?tab=busquedas&focus=<id>` (la resalta). El detalle de un prospecto muestra el ID del lote. También puedes pedírmelo aquí por nombre.',
-      'Ves completas las búsquedas que lanzaste o son tuyas; de las demás, sólo lo que te asignaron.',
+      'Ves completas las búsquedas que lanzaste o son tuyas (managers y líderes, también las de su equipo en cascada); de las demás, sólo lo que te asignaron.',
     ].join('\n'),
     etiquetas: [
       { texto: 'Búsquedas', archivo: SIDEBAR },
@@ -177,8 +177,8 @@ export const EMPRESAS_TOPICS: readonly HelpTopic[] = [
       '*Aprobar:* «Aprobar» → «Confirmar aprobación». SellUp crea la empresa y la crea o enlaza en HubSpot, y te lleva a su ficha. Si es posible duplicado o ya está en HubSpot, lo avisa antes.',
       '*Descartar:* «Descartar» → elige el «Motivo de descarte» (obligatorio; con «Otro motivo» escribes cuál) → «Confirmar descarte». Va a «Descartadas».',
       '*Duplicado:* «Más acciones» › «Marcar duplicado».',
-      '*Asignar:* «Asignar a…» (uno o varios); quien recibe se entera en la campanita y por Slack.',
-      '*Quién aprueba:* un administrador, cualquiera; si están activas las reglas por rol, cada persona aprueba lo suyo (asignado o de sus búsquedas) siempre que esté limpio. Toda empresa necesita un responsable activo para aprobarse.',
+      '*Asignar:* «Asignar a…» (uno o varios); quien recibe se entera en la campanita y por Slack. Administradores, managers, líderes y Growth asignan a cualquier persona activa; un vendedor, sólo a sí mismo.',
+      '*Quién aprueba:* un administrador, cualquiera; cada persona, lo suyo (asignado o de sus búsquedas); managers y líderes, también lo de su equipo en cascada. Toda empresa necesita un responsable activo para aprobarse.',
       'También puedes pedírmelo por Slack: “aprueba X”, “descarta Y por muy pequeña”, “asígnale Z a Pedro” (con botón de confirmar).',
     ].join('\n'),
     etiquetas: [

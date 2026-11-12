@@ -1,5 +1,12 @@
 'use server';
 
+import {
+  canActOnAccount,
+  OUT_OF_SCOPE_MESSAGE,
+  requireAccountInScope,
+  requireEnrichmentRequestInScope,
+  requireEnrichmentRunInScope,
+} from '@/modules/access/record-scope.server';
 import { loadUserNames, type UserNamesClient } from '@/modules/access/user-names';
 import { redirect } from 'next/navigation';
 import { getVisibleSince } from '@/lib/visible-since';
@@ -184,6 +191,8 @@ export async function startContactEnrichmentRunAction(
     if (!confirmedCompany.name?.trim()) {
       throw new Error('La empresa confirmada no tiene nombre');
     }
+    // Una empresa de SellUp: sólo si es suya o de su equipo (en cascada).
+    if (confirmedCompany.sellupAccountId) await requireAccountInScope(confirmedCompany.sellupAccountId);
 
     const result = await startContactEnrichmentRun({
       confirmedCompany,
@@ -266,6 +275,7 @@ export async function runContactEnrichmentApolloAction(
     if (typeof runId !== 'string' || !runId.trim()) {
       throw new Error('runId inválido');
     }
+    await requireEnrichmentRunInScope(runId.trim());
 
     const result = await executeContactEnrichmentApolloRun(runId.trim(), internalUserId);
 
@@ -1295,7 +1305,11 @@ export async function createBulkContactEnrichmentRunAction(
       throw new Error(BULK_AUTOMATIC_ROUTING_DISABLED_COPY);
     }
 
-    const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    const requestedIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    // Sólo empresas suyas o de su equipo (en cascada): lo demás se ignora.
+    const scopeChecks = await Promise.all(requestedIds.map((id) => canActOnAccount(id)));
+    const uniqueIds = requestedIds.filter((_, i) => scopeChecks[i]);
+    if (uniqueIds.length === 0) throw new Error(OUT_OF_SCOPE_MESSAGE);
     const eligibility = await checkBulkContactEnrichmentEligibility(uniqueIds);
     const origin = parseBulkEnrichmentOrigin(options.origin);
     const metadata = { hito: '17A.10C', source: 'bulk_enrichment_action', ...(origin ? { origin } : {}) };
@@ -1633,6 +1647,7 @@ export async function runContactEnrichmentLushaAction(
     if (typeof runId !== 'string' || !runId.trim()) {
       throw new Error('runId inválido');
     }
+    await requireEnrichmentRunInScope(runId.trim());
 
     const result = await executeContactEnrichmentLushaRun(runId.trim(), internalUserId);
     const outcome = classifyLushaRunOutcome(result);
@@ -1763,6 +1778,7 @@ export async function createContactEnrichmentRequestAction(
     if (!confirmedCompany?.name?.trim()) {
       throw new Error('La empresa confirmada no tiene nombre');
     }
+    if (confirmedCompany.sellupAccountId) await requireAccountInScope(confirmedCompany.sellupAccountId);
 
     // AGENT2A-HUBSPOT-ID-RESOLUTION — si la empresa viene de HubSpot (tiene Company ID)
     // y aún no tiene cuenta SellUp, se resuelve/crea AQUÍ, antes de buscar contactos:
@@ -1827,6 +1843,7 @@ export async function runContactEnrichmentApolloForRequestAction(
     if (typeof requestId !== 'string' || !requestId.trim()) {
       throw new Error('requestId inválido');
     }
+    await requireEnrichmentRequestInScope(requestId.trim());
 
     const resolved = await resolveAttemptIdForRequestProvider(
       requestId.trim(),
@@ -1881,6 +1898,7 @@ export async function runContactEnrichmentLushaForRequestAction(
     if (typeof requestId !== 'string' || !requestId.trim()) {
       throw new Error('requestId inválido');
     }
+    await requireEnrichmentRequestInScope(requestId.trim());
 
     const resolved = await resolveAttemptIdForRequestProvider(
       requestId.trim(),

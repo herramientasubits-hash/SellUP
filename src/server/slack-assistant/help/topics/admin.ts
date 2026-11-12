@@ -7,12 +7,12 @@ export const ADMIN_TOPICS: readonly HelpTopic[] = [
     key: 'uso-de-ia',
     titulo: 'Uso de IA y costos',
     palabrasClave: ['uso de ia', 'costos', 'consumo', 'cuanto gastamos', 'creditos usados', 'mapa de uso', 'gasto'],
-    roles: 'todos',
+    roles: ['admin', 'commercial_manager', 'commercial_lead'],
     ruta: '/ai-usage',
     contenido: [
       '*Dónde:* «Uso de IA y costos». Pestañas: Resumen, Por agente, Por país, Proveedores, Equipo, Por rol y grupo, Por búsqueda, Detalle y «Mapa de uso» (quién usa qué, cuándo y con qué resultado).',
       '*Filtros:* periodo arriba y «Filtros» (proveedor, agente, rol, grupo, persona, país, industria…).',
-      '*Quién ve qué:* administradores todo; líderes y managers su equipo en cascada por el organigrama; vendedores lo suyo. Dólares sólo administradores y líderes; los vendedores ven créditos.',
+      '*Quién ve qué:* administradores todo; managers y líderes su equipo en cascada por el organigrama, en dólares. Vendedores y Growth no tienen este módulo.',
       'También puedes preguntármelo aquí: “¿cuánto hemos gastado este mes?”.',
     ].join('\n'),
     etiquetas: [

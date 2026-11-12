@@ -23,6 +23,9 @@ import {
 import {
   assignmentUserName,
   loadActiveAssignmentUser,
+  loadAssignmentActor,
+  loadAssignmentTarget,
+  listAssignableUsers,
   notifyAssignment,
 } from '@/modules/assignment/assignment.server';
 import type {
@@ -504,6 +507,11 @@ export async function updateAccount(
   if (input.metadata !== undefined) payload.metadata = input.metadata;
 
   const ownerChanged = input.owner_id !== undefined && input.owner_id !== current.owner_id;
+  if (ownerChanged && input.owner_id) {
+    const assigner = await loadAssignmentActor();
+    const check = assigner ? await loadAssignmentTarget(assigner, input.owner_id) : null;
+    if (!check?.ok) return { success: false, error: check?.error ?? 'Tu sesión no está activa. Vuelve a entrar.' };
+  }
   const statusChanged =
     input.pipeline_status !== undefined && input.pipeline_status !== current.pipeline_status;
 
@@ -638,9 +646,10 @@ export async function archiveAccounts(
 // ============================================================
 
 /**
- * Cambia el responsable de una o varias empresas. Decisión de la dueña 08-10:
- * cualquier usuario activo puede asignar, a cualquier usuario activo. Con el
- * alcance comercial encendido, solo se asigna lo que quien asigna puede ver.
+ * Cambia el responsable de una o varias empresas. Dueña 12-11: admin, manager,
+ * líder y Growth asignan a cualquier usuario activo; el vendedor, sólo a sí
+ * mismo (`loadAssignmentTarget`). Con el alcance comercial encendido, solo se
+ * asigna lo que quien asigna puede ver (en cascada).
  * Cada empresa que cambia queda en auditoría y quien recibe tiene un aviso en la
  * campanita. No escribe en HubSpot.
  */
@@ -654,11 +663,14 @@ export async function assignAccountsToUser(
   if (!request.ok) return { success: false, error: request.error };
 
   const supabase = await createClient();
-  const [target, actor] = await Promise.all([
-    loadActiveAssignmentUser(supabase, request.targetUserId),
-    loadActiveAssignmentUser(supabase, internalUserId),
+  const assigner = await loadAssignmentActor();
+  if (!assigner || assigner.id !== internalUserId) return { success: false, error: 'Tu sesión no está activa. Vuelve a entrar.' };
+  const [targetResult, actor] = await Promise.all([
+    loadAssignmentTarget(assigner, request.targetUserId),
+    loadActiveAssignmentUser(createSupabaseAdminClient(), internalUserId),
   ]);
-  if (!target) return { success: false, error: 'La persona elegida no es un usuario activo.' };
+  if (!targetResult.ok) return { success: false, error: targetResult.error };
+  const target = targetResult.user;
 
   const { data: rows, error: loadError } = await supabase
     .from('accounts')
@@ -765,16 +777,12 @@ export async function logAccountAudit({
 // getActiveUsers — para selector de owner
 // ============================================================
 
+/**
+ * Personas elegibles como responsable o en «Asignar a…», según el rol de quien
+ * pide (dueña 12-11): admin, manager, líder y Growth ven a todos los usuarios
+ * activos; el vendedor, sólo a sí mismo.
+ */
 export async function getActiveUsers(): Promise<InternalUserOption[]> {
   await requireActiveUser();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from('internal_users')
-    .select('id, full_name, email')
-    .eq('access_status', 'active')
-    .order('full_name', { ascending: true });
-
-  if (error) throw new Error(`getActiveUsers: ${error.message}`);
-  return (data ?? []) as InternalUserOption[];
+  return (await listAssignableUsers()) as InternalUserOption[];
 }

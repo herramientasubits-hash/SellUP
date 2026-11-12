@@ -44,6 +44,7 @@ import {
   RUMBO_CHANNELS,
   type RumboChannel,
 } from './action-proposal';
+import { ASSIGN_ONLY_SELF_MESSAGE, canAssignTo } from '@/modules/assignment/assignment-core';
 import { composeDiscardReason, validateDiscardReason } from '@/modules/prospect-review/discard-reason';
 
 export type * from './tool-types';
@@ -65,6 +66,8 @@ export interface AssistantActionContext {
   propose(proposal: ProposedAction): void;
   /** Activar o desactivar accesos es sólo de administradores. */
   isAdmin?: boolean;
+  /** Quien pide: para la regla de «Asignar a…» (vendedor, sólo a sí mismo). */
+  actor?: { id: string; roleKey: string | null };
 }
 
 /** Filtros comunes. Todos opcionales; el alcance por rol se aplica siempre aparte. */
@@ -97,7 +100,9 @@ export interface AssistantDataSource {
   accountDetail(query: string): Promise<AssistantAccountDetail>;
   contacts(filters: { texto?: string; empresa?: string; cargo?: string; pais?: string }, limit: number): Promise<AssistantContactList>;
   searches(filters: AssistantFilters, limit: number): Promise<AssistantSearch[]>;
-  /** Mismo alcance que la pantalla Uso de IA: admin todo, líder su equipo en cascada, vendedor lo suyo. */
+  /** Uso de IA: sólo admin (todo), manager y líder (su equipo en cascada). `false` = vendedor o Growth. */
+  usageVisible?: boolean;
+  /** Mismo alcance que la pantalla Uso de IA: admin todo, manager y líder su equipo en cascada. */
   aiUsage(period: UsagePeriod, who?: WhoseFilter): Promise<AssistantUsage>;
   /** Guía de uso de SellUp (fichas escritas desde el código), filtrada por rol. */
   help(query: string): HelpAnswer;
@@ -112,6 +117,7 @@ export interface AssistantAdminDataSource {
 }
 
 export const MAX_TOOL_LIMIT = 50;
+export const USAGE_NOT_VISIBLE = 'Uso de IA lo ven sólo administradores, managers y líderes (con su equipo).';
 export const PROSPECT_STATES: readonly ProspectState[] = ['por_revisar', 'descartados', 'aprobados', 'duplicados', 'todos'];
 
 const PERIOD_PROPERTY = {
@@ -430,8 +436,13 @@ export type AssistantToolName = (typeof COMMERCIAL_TOOLS)[number]['name'] | (typ
 const ADMIN_TOOL_NAMES: ReadonlySet<string> = new Set(ADMIN_TOOLS.map((t) => t.name));
 
 /** Las herramientas que se le ofrecen a Claude según el rol. */
-export function toolsForRole(isAdmin: boolean): ReadonlyArray<(typeof COMMERCIAL_TOOLS)[number] | (typeof ADMIN_TOOLS)[number]> {
-  return isAdmin ? [...COMMERCIAL_TOOLS, ...ADMIN_TOOLS] : [...COMMERCIAL_TOOLS];
+export function toolsForRole(
+  isAdmin: boolean,
+  usageVisible = true,
+): ReadonlyArray<(typeof COMMERCIAL_TOOLS)[number] | (typeof ADMIN_TOOLS)[number]> {
+  // Uso de IA no es de vendedores ni Growth (dueña 12-11): ni se les ofrece.
+  const commercial = usageVisible ? [...COMMERCIAL_TOOLS] : COMMERCIAL_TOOLS.filter((t) => t.name !== 'uso_de_ia');
+  return isAdmin ? [...commercial, ...ADMIN_TOOLS] : commercial;
 }
 
 const ACCOUNT_STATES = new Set(['new', 'ready_for_research', 'research_in_progress', 'ready_for_outreach']);
@@ -527,6 +538,7 @@ export async function runAssistantTool(
       case 'busquedas':
         return ok(await data.searches(readFilters(args), clampLimit(args.limite, 5)));
       case 'uso_de_ia': {
+        if (data.usageVisible === false) return fail(USAGE_NOT_VISIBLE);
         const period = args.periodo === 'hoy' || args.periodo === 'semana' ? args.periodo : 'mes';
         return ok(await data.aiUsage(period, readWhose(args)));
       }
@@ -628,6 +640,9 @@ async function proposeAction(actions: AssistantActionContext, name: string, args
   const target = await actions.resolver.resolveActiveUser(persona);
   if (!target.user) {
     return ok({ propuesta: 'ninguna', nota: `No hay una única persona activa que coincida con «${persona}».`, opciones: target.opciones });
+  }
+  if (actions.actor && !canAssignTo(actions.actor, target.user.id)) {
+    return ok({ propuesta: 'ninguna', nota: ASSIGN_ONLY_SELF_MESSAGE });
   }
   if (tipo === 'empresas' && selection.nombres.length === 0) return fail('Di qué empresas asignar (por nombre, dominio o NIT).');
   if (tipo === 'prospectos' && selection.nombres.length === 0 && !selection.busqueda && !selection.pais) {

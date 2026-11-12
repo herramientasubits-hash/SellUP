@@ -9,7 +9,6 @@ import {
   testHubSpotConnection,
 } from '@/server/services/hubspot-connection';
 import {
-  storeSlackCredential,
   removeSlackCredential,
   hasSlackCredential,
   testSlackConnection,
@@ -431,87 +430,10 @@ export async function getSlackIntegration(): Promise<IntegrationWithConnection |
 }
 
 // ============================================================
-// Slack: Completar OAuth (llamado desde el callback route handler)
-// ============================================================
-
-/**
- * Persiste el bot token recibido del OAuth callback de Slack.
- * Solo debe ser llamado desde el route handler del callback — nunca desde UI directamente.
- */
-export async function completeSlackOAuth(
-  botToken: string,
-  metadata: SlackMetadata,
-  actorId: string
-): Promise<{ success: boolean; error?: string; message?: string }> {
-  const storeResult = await storeSlackCredential(botToken);
-  if (!storeResult.success) return storeResult;
-
-  const admin = createSupabaseAdminClient();
-
-  const { data: integration } = await admin
-    .from('external_integrations')
-    .select('id')
-    .eq('integration_key', 'slack')
-    .single();
-
-  if (integration) {
-    const now = new Date().toISOString();
-    const safeMetadata: SlackMetadata = {
-      team_id: metadata.team_id,
-      team_name: metadata.team_name,
-      bot_user_id: metadata.bot_user_id,
-      app_id: metadata.app_id,
-      scopes: metadata.scopes,
-    };
-
-    const { data: existing } = await admin
-      .from('external_integration_connections')
-      .select('id')
-      .eq('integration_id', integration.id)
-      .single();
-
-    if (existing) {
-      await admin
-        .from('external_integration_connections')
-        .update({
-          auth_type: 'oauth2',
-          credentials_status: 'stored',
-          connection_status: 'connected',
-          last_connection_error: null,
-          connected_at: now,
-          connected_by: actorId,
-          disconnected_at: null,
-          disconnected_by: null,
-          metadata: safeMetadata,
-          updated_at: now,
-        })
-        .eq('id', existing.id);
-    } else {
-      await admin.from('external_integration_connections').insert({
-        integration_id: integration.id,
-        auth_type: 'oauth2',
-        credentials_status: 'stored',
-        connection_status: 'connected',
-        connected_at: now,
-        connected_by: actorId,
-        metadata: safeMetadata,
-      });
-    }
-  }
-
-  await logAuditEvent('slack', 'oauth_connected', actorId, {
-    team_id: metadata.team_id,
-    team_name: metadata.team_name,
-  });
-
-  return {
-    success: true,
-    message: 'Slack conectado correctamente.',
-  };
-}
-
-// ============================================================
 // Slack: Probar conexión
+// (El OAuth lo completa sólo la ruta /api/integrations/slack/oauth/callback,
+// que exige admin. Aquí no hay ninguna acción que guarde el token: una acción
+// 'use server' se puede llamar desde cualquier sesión.)
 // ============================================================
 
 export async function testSlackConnectionAction(): Promise<{

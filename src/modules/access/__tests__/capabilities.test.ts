@@ -145,3 +145,37 @@ describe('aprobar: el posible duplicado de un BD o de Growth pasa a admin', () =
     assert.deepEqual(decideCandidateApproval(bd, deBd, limpia, OFF), { ok: true });
   });
 });
+
+describe('cascada hacia abajo al decidir (dueña 12-11)', () => {
+  const lider: AccessSnapshot = { userId: 'u-lider', roleKey: 'commercial_lead', isAdmin: false };
+  const vendedor: AccessSnapshot = { userId: 'u-v1', roleKey: 'seller_bd', isAdmin: false };
+  const deV1 = { assignedTo: null, batchOwnerId: 'u-v1', batchCreatedBy: 'u-v1' };
+  const deOtroEquipo = { assignedTo: 'u-x', batchOwnerId: 'u-x', batchCreatedBy: 'u-x' };
+
+  it('el líder decide lo de su gente (asignado o dueño de la búsqueda)', () => {
+    const team = ['u-lider', 'u-v1', 'u-v2'];
+    assert.equal(canReviewCandidate(lider, deV1, { enforced: true, team }), true);
+    assert.equal(canReviewCandidate(lider, { assignedTo: 'u-v2' }, { enforced: false, team }), true);
+    assert.equal(decideCandidateApproval(lider, deV1, {}, { enforced: true, team }).ok, true);
+  });
+
+  it('🔴 nunca lo de otro equipo', () => {
+    const team = ['u-lider', 'u-v1'];
+    assert.equal(canReviewCandidate(lider, deOtroEquipo, { enforced: true, team }), false);
+  });
+
+  it('sin equipo (bandera de alcance apagada) sólo lo propio, como antes', () => {
+    assert.equal(canReviewCandidate(lider, deV1, { enforced: true }), false);
+    assert.equal(canReviewCandidate(vendedor, deV1, { enforced: true }), true);
+  });
+});
+
+describe('cargar archivos de empresas (dueña 12-11)', () => {
+  it('de cualquier usuario activo, con las reglas encendidas o apagadas', () => {
+    for (const who of [admin, growth, manager, lead, bd]) {
+      assert.equal(hasCapability(who, 'importarArchivos', ON), true, who.roleKey ?? '');
+      assert.equal(hasCapability(who, 'importarArchivos', OFF), true, who.roleKey ?? '');
+    }
+    assert.equal(hasCapability(anon, 'importarArchivos', ON), false);
+  });
+});
