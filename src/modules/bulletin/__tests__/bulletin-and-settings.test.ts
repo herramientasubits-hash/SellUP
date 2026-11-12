@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   bar,
   buildBulletinModel,
+  memberLine,
+  namesText,
   bulletinPeriod,
   isBulletinDue,
   periodBounds,
@@ -102,7 +104,7 @@ describe('modelo del boletín', () => {
   it('semáforo, titular y alerta principal', () => {
     assert.equal(model.status, 'rojo', 'aprobadas cayeron más del 30 %');
     assert.match(model.headline, /^2 de 3 personas trabajaron en SellUp · 7 empresas aprobadas \(-46\.2% vs\. la semana anterior\)$/);
-    assert.match(model.mainAlert ?? '', /1 persona tiene empresas por revisar con más de 7 días/);
+    assert.equal(model.mainAlert, 'LUIS tiene empresas por revisar con más de 7 días.', 'dice quién es');
     assert.deepEqual(model.inactive, ['EVA']);
   });
 
@@ -125,11 +127,45 @@ describe('modelo del boletín', () => {
     const { text, blocks } = renderBulletinBlocks(model, 'https://app.example/');
     assert.match(text, /^BOLETÍN SEMANAL de SellUp/);
     const all = JSON.stringify(blocks);
-    for (const section of ['LECTURA EJECUTIVA', 'PULSO DEL PERÍODO', 'EMBUDO DEL PERÍODO', 'POR EQUIPO', 'A QUIÉN ACOMPAÑAR', 'CIERRE']) assert.ok(all.includes(section), section);
+    for (const section of ['LECTURA EJECUTIVA', 'PULSO DEL PERÍODO', 'EMBUDO DEL PERÍODO', 'POR EQUIPO Y POR PERSONA', 'A QUIÉN ACOMPAÑAR', 'CIERRE']) assert.ok(all.includes(section), section);
     assert.ok(all.includes('https://app.example/accounts?tab=prospectos'));
     assert.ok(blocks.length <= 50);
     assert.equal(bar(5, 10), '█████░░░░░');
     assert.equal(trendText({ value: 7, previous: 13, higherIsBetter: true, format: 'count' }), '🔴 ▼ -46.2% · vs. 13');
+  });
+
+  it('🔴 por persona: cada miembro con sus cifras y qué le pasa, lo urgente primero', () => {
+    const carla = model.teams.find((t) => t.name === 'Carla');
+    assert.deepEqual(carla?.members?.map((m) => [m.name, m.signal]), [['LUIS', 'rojo'], ['ANA', 'naranja']]);
+    const luis = carla?.members?.[0];
+    assert.equal(luis?.note, 'Tiene 9 empresas por revisar; la más antigua lleva 12 días.');
+    assert.equal(carla?.members?.[1].note, 'Aprobó menos que en el período anterior (6 frente a 10).');
+    const eva = model.teams.find((t) => t.name === 'Pedro')?.members?.[0];
+    assert.deepEqual([eva?.signal, eva?.note, eva?.approvedPrevious], ['gris', 'Sin actividad en el período.', 1]);
+    assert.equal(
+      memberLine(luis!, true),
+      '🔴 *LUIS* — 1 aprobada (antes 2) · 3 descartadas · 9 por revisar (12 días)\n      ↳ _Tiene 9 empresas por revisar; la más antigua lleva 12 días._',
+    );
+    const all = JSON.stringify(renderBulletinBlocks(model, 'https://app.example').blocks);
+    for (const name of ['*LUIS*', '*ANA*', '*EVA*']) assert.ok(all.includes(name), name);
+  });
+
+  it('nombres en las alertas', () => {
+    assert.equal(namesText(['Ana']), 'Ana');
+    assert.equal(namesText(['Ana', 'Luis']), 'Ana y Luis');
+    assert.equal(namesText(['Ana', 'Luis', 'Eva']), 'Ana, Luis y Eva');
+    assert.equal(namesText(['A', 'B', 'C', 'D', 'E']), 'A, B, C y 2 más');
+  });
+
+  it('🔴 un equipo grande no rompe el límite de 50 bloques de Slack', () => {
+    const people = Array.from({ length: 120 }, (_, i) => person(`p${i}`, { approved: i % 5, found: 10, pending: i % 3, oldestPendingDays: i % 3 ? 9 : null }));
+    const big = buildBulletinModel({
+      period, recipientName: 'X', scopeLabel: 'Todo', moneyVisible: true, current: people, previous: people,
+      teams: Array.from({ length: 8 }, (_, t) => ({ name: `Equipo ${t}`, memberIds: people.filter((_, i) => i % 8 === t).map((p) => p.id) })),
+    });
+    const { blocks } = renderBulletinBlocks(big, 'https://app.example');
+    assert.ok(blocks.length <= 50, `bloques: ${blocks.length}`);
+    for (const b of blocks as Array<{ text?: { text: string } }>) assert.ok((b.text?.text.length ?? 0) <= 3000);
   });
 });
 

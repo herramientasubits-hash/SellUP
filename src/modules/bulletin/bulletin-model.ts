@@ -8,7 +8,7 @@
 
 import type { BulletinFrequency } from '@/modules/notifications/notification-catalog';
 
-export const BULLETIN_VERSION = 1;
+export const BULLETIN_VERSION = 2;
 const DAY_MS = 86_400_000;
 const BOGOTA_OFFSET_MS = -5 * 3_600_000;
 
@@ -149,6 +149,26 @@ export interface BulletinTeam {
   memberIds: string[];
 }
 
+/** Una persona del equipo en el boletín: sus cifras y qué le está pasando. */
+export interface BulletinMember {
+  name: string;
+  /** rojo = urge acompañar · naranja = algo que mirar · verde = en ritmo · gris = sin actividad. */
+  signal: 'rojo' | 'naranja' | 'verde' | 'gris';
+  searches: number;
+  found: number;
+  approved: number;
+  approvedPrevious: number;
+  discarded: number;
+  contactsApproved: number;
+  firstContacts: number;
+  /** Dólares (si quien recibe los ve) o créditos. */
+  usage: number;
+  pending: number;
+  oldestDays: number | null;
+  /** Qué está pasando con esa persona, en una frase (o null si va bien). */
+  note: string | null;
+}
+
 export interface PulseMetric {
   key: string;
   label: string;
@@ -174,7 +194,17 @@ export interface BulletinModel {
   pulse: PulseMetric[];
   approvalRate: { before: number | null; now: number | null };
   funnel: Array<{ label: string; value: number }>;
-  teams: Array<{ name: string; people: number; approved: number; discarded: number; pending: number; oldestDays: number | null; active: number }>;
+  teams: Array<{
+    name: string;
+    people: number;
+    approved: number;
+    discarded: number;
+    pending: number;
+    oldestDays: number | null;
+    active: number;
+    /** Desde la versión 2 (los boletines viejos del historial no lo tienen). */
+    members?: BulletinMember[];
+  }>;
   behind: Array<{ name: string; pending: number; oldestDays: number | null }>;
   inactive: string[];
   closing: string;
@@ -199,6 +229,39 @@ export function deltaPct(value: number, previous: number): number | null {
 
 function isActive(p: PersonActivity): boolean {
   return p.searches + p.approved + p.discarded + p.contactsApproved + p.firstContacts > 0;
+}
+
+const SIGNAL_ORDER: Record<BulletinMember['signal'], number> = { rojo: 0, naranja: 1, gris: 2, verde: 3 };
+
+/** «Ana», «Ana y Luis», «Ana, Luis y Eva», «Ana, Luis, Eva y 2 más». */
+export function namesText(names: readonly string[], max = 3): string {
+  if (names.length <= 1) return names[0] ?? '';
+  if (names.length <= max) return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`;
+  return `${names.slice(0, max).join(', ')} y ${names.length - max} más`;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Lo que le está pasando a una persona, en orden de urgencia. */
+function memberNote(p: PersonActivity, approvedPrevious: number): { signal: BulletinMember['signal']; note: string | null } {
+  const active = isActive(p);
+  const oldest = p.oldestPendingDays ?? 0;
+  if (!active && p.pending > 0)
+    return { signal: 'rojo', note: `Sin actividad en el período y con ${plural(p.pending, 'empresa', 'empresas')} por revisar.` };
+  if (oldest > 7)
+    return { signal: 'rojo', note: `Tiene ${plural(p.pending, 'empresa', 'empresas')} por revisar; la más antigua lleva ${plural(oldest, 'día', 'días')}.` };
+  if (!active) return { signal: 'gris', note: 'Sin actividad en el período.' };
+  if (approvedPrevious > 0 && p.approved < approvedPrevious * 0.7)
+    return { signal: 'naranja', note: `Aprobó menos que en el período anterior (${p.approved} frente a ${approvedPrevious}).` };
+  if (p.found > 0 && p.approved + p.discarded === 0)
+    return { signal: 'naranja', note: `Encontró ${plural(p.found, 'empresa', 'empresas')} pero todavía no revisó ninguna.` };
+  if (p.approved > 0 && p.contactsApproved === 0)
+    return { signal: 'naranja', note: 'Aprobó empresas pero aún no tiene contactos aprobados.' };
+  if (p.contactsApproved > 0 && p.firstContacts === 0)
+    return { signal: 'naranja', note: 'Tiene contactos aprobados pero no preparó ningún primer contacto.' };
+  return { signal: 'verde', note: null };
 }
 
 /** Arma el boletín con lo de este período, lo del anterior y los sub-equipos. */
@@ -237,7 +300,8 @@ export function buildBulletinModel(input: {
     .sort((a, b) => (b.oldestPendingDays ?? 0) - (a.oldestPendingDays ?? 0) || b.pending - a.pending)
     .slice(0, 5)
     .map((p) => ({ name: p.name, pending: p.pending, oldestDays: p.oldestPendingDays }));
-  const stale = current.filter((p) => (p.oldestPendingDays ?? 0) > 7).length;
+  const staleNames = current.filter((p) => (p.oldestPendingDays ?? 0) > 7).map((p) => p.name);
+  const stale = staleNames.length;
   const inactive = current.filter((p) => !isActive(p)).map((p) => p.name);
 
   const approvedNow = sum(current, 'approved');
@@ -257,16 +321,39 @@ export function buildBulletinModel(input: {
     (approvedDelta !== null && approvedBefore > 0 ? ` (${approvedDelta >= 0 ? '+' : ''}${approvedDelta}% vs. ${input.period.previousLabel})` : '');
   const mainAlert =
     stale > 0
-      ? `${stale} ${stale === 1 ? 'persona tiene' : 'personas tienen'} empresas por revisar con más de 7 días.`
+      ? `${namesText(staleNames)} ${stale === 1 ? 'tiene' : 'tienen'} empresas por revisar con más de 7 días.`
       : inactive.length > 0
-        ? `${inactive.length} ${inactive.length === 1 ? 'persona no tuvo' : 'personas no tuvieron'} actividad en el período.`
+        ? `${namesText(inactive)} no ${inactive.length === 1 ? 'tuvo' : 'tuvieron'} actividad en el período.`
         : approvedDelta !== null && approvedDelta < 0
           ? `Bajaron las aprobaciones ${Math.abs(approvedDelta)}% frente a ${input.period.previousLabel}.`
           : null;
 
+  const previousById = new Map(previous.map((p) => [p.id, p]));
+  const usageKey: keyof PersonActivity = input.moneyVisible ? 'usageUsd' : 'usageCredits';
+  const toMember = (p: PersonActivity): BulletinMember => {
+    const approvedPrevious = previousById.get(p.id)?.approved ?? 0;
+    return {
+      name: p.name,
+      ...memberNote(p, approvedPrevious),
+      searches: p.searches,
+      found: p.found,
+      approved: p.approved,
+      approvedPrevious,
+      discarded: p.discarded,
+      contactsApproved: p.contactsApproved,
+      firstContacts: p.firstContacts,
+      usage: Math.round(Number(p[usageKey]) * 100) / 100,
+      pending: p.pending,
+      oldestDays: p.oldestPendingDays,
+    };
+  };
+
   const teams = input.teams
     .map((team) => {
       const members = current.filter((p) => team.memberIds.includes(p.id));
+      const memberRows = members
+        .map(toMember)
+        .sort((a, b) => SIGNAL_ORDER[a.signal] - SIGNAL_ORDER[b.signal] || b.approved - a.approved || a.name.localeCompare(b.name));
       const oldest = members.map((p) => p.oldestPendingDays ?? 0);
       return {
         name: team.name,
@@ -276,6 +363,7 @@ export function buildBulletinModel(input: {
         pending: sum(members, 'pending'),
         oldestDays: oldest.length && Math.max(...oldest) > 0 ? Math.max(...oldest) : null,
         active: members.filter(isActive).length,
+        members: memberRows,
       };
     })
     .filter((t) => t.people > 0)
@@ -345,6 +433,43 @@ export function trendText(metric: Pick<PulseMetric, 'value' | 'previous' | 'high
 const DIVIDER = { type: 'divider' };
 const section = (text: string) => ({ type: 'section', text: { type: 'mrkdwn', text } });
 
+const SECTION_MAX_CHARS = 2800;
+/** Deja espacio para «A quién acompañar», cierre, botones y pie (Slack admite 50 bloques). */
+const MAX_TEAM_BLOCKS = 42;
+const SIGNAL_EMOJI: Record<BulletinMember['signal'], string> = { rojo: '🔴', naranja: '🟠', verde: '🟢', gris: '⚪' };
+
+/** Una persona en una o dos líneas: sus cifras (sin ceros de relleno) y qué le pasa. */
+export function memberLine(m: BulletinMember, moneyVisible: boolean): string {
+  const parts = [
+    m.searches ? plural(m.searches, 'búsqueda', 'búsquedas') : null,
+    m.found ? plural(m.found, 'encontrada', 'encontradas') : null,
+    `${plural(m.approved, 'aprobada', 'aprobadas')}${m.approvedPrevious !== m.approved ? ` (antes ${m.approvedPrevious})` : ''}`,
+    m.discarded ? plural(m.discarded, 'descartada', 'descartadas') : null,
+    m.contactsApproved ? plural(m.contactsApproved, 'contacto', 'contactos') : null,
+    m.firstContacts ? plural(m.firstContacts, 'primer contacto', 'primeros contactos') : null,
+    m.pending ? `${m.pending} por revisar${m.oldestDays ? ` (${daysText(m.oldestDays)})` : ''}` : null,
+    m.usage ? (moneyVisible ? fmt(m.usage, 'usd') : plural(m.usage, 'crédito', 'créditos')) : null,
+  ].filter(Boolean);
+  return `${SIGNAL_EMOJI[m.signal]} *${m.name}* — ${parts.join(' · ')}` + (m.note ? `\n      ↳ _${m.note}_` : '');
+}
+
+/** Junta líneas en textos de hasta `max` caracteres (límite de una sección de Slack). */
+function chunkLines(lines: readonly string[], max: number): string[] {
+  const out: string[] = [];
+  let current = '';
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > max && current) {
+      out.push(current);
+      current = line.slice(0, max);
+    } else {
+      current = next.slice(0, max);
+    }
+  }
+  if (current) out.push(current);
+  return out;
+}
+
 /** Bloques de Slack del boletín (máx. 50 bloques; cada sección es corta). */
 export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { text: string; blocks: Array<Record<string, unknown>> } {
   const base = appUrl.replace(/\/+$/, '');
@@ -386,21 +511,24 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
 
   if (model.teams.length > 0) {
     const teamMax = Math.max(1, ...model.teams.map((t) => t.approved));
-    blocks.push(
-      DIVIDER,
-      section(
-        '🧩 *POR EQUIPO*\n' +
-          model.teams
-            .slice(0, 8)
-            .map(
-              (t) =>
-                `\`${bar(t.approved, teamMax)}\` *${t.name}* · ${t.people} ${t.people === 1 ? 'persona' : 'personas'} (${t.active} ${t.active === 1 ? 'activa' : 'activas'})\n` +
-                `↳ ${t.approved} aprobadas · ${t.discarded} descartadas · ${t.pending} por revisar` +
-                (t.oldestDays ? ` · la más antigua de ${daysText(t.oldestDays)}` : ''),
-            )
-            .join('\n'),
-      ),
-    );
+    blocks.push(DIVIDER, section('🧩 *POR EQUIPO Y POR PERSONA*'));
+    let cut = false;
+    for (const t of model.teams.slice(0, 8)) {
+      const header =
+        `\`${bar(t.approved, teamMax)}\` *${t.name}* · ${plural(t.people, 'persona', 'personas')} (${t.active} ${t.active === 1 ? 'activa' : 'activas'})\n` +
+        `↳ ${t.approved} aprobadas · ${t.discarded} descartadas · ${t.pending} por revisar` +
+        (t.oldestDays ? ` · la más antigua de ${daysText(t.oldestDays)}` : '');
+      const chunks = chunkLines([header, ...(t.members ?? []).map((m) => memberLine(m, model.moneyVisible))], SECTION_MAX_CHARS);
+      for (const chunk of chunks) {
+        if (blocks.length >= MAX_TEAM_BLOCKS) {
+          cut = true;
+          break;
+        }
+        blocks.push(section(chunk));
+      }
+      if (cut) break;
+    }
+    if (cut) blocks.push(section('_…el resto del equipo está en SellUp (Uso de IA › Equipo)._'));
   }
 
   if (model.behind.length > 0 || model.inactive.length > 0) {

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { FREQUENCY_TITLE, deltaPct, type BulletinModel, type PulseMetric } from '@/modules/bulletin/bulletin-model';
+import { FREQUENCY_TITLE, deltaPct, type BulletinMember, type BulletinModel, type PulseMetric } from '@/modules/bulletin/bulletin-model';
 
 // ============================================================
 // El boletín pintado como un reporte: el mismo modelo que va a Slack, con
@@ -99,12 +99,62 @@ function Funnel({ steps }: { steps: BulletinModel['funnel'] }) {
   );
 }
 
-function Teams({ teams }: { teams: BulletinModel['teams'] }) {
+const SIGNAL_DOT: Record<BulletinMember['signal'], { dot: string; label: string }> = {
+  rojo: { dot: 'bg-destructive', label: 'Urge acompañar' },
+  naranja: { dot: 'bg-warning', label: 'Algo que mirar' },
+  verde: { dot: 'bg-success', label: 'En ritmo' },
+  gris: { dot: 'bg-muted-foreground', label: 'Sin actividad' },
+};
+
+function daysLabel(days: number): string {
+  return days === 1 ? '1 día' : `${days} días`;
+}
+
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function memberFacts(m: BulletinMember, moneyVisible: boolean): string[] {
+  return [
+    m.searches ? count(m.searches, 'búsqueda', 'búsquedas') : null,
+    m.found ? count(m.found, 'encontrada', 'encontradas') : null,
+    `${count(m.approved, 'aprobada', 'aprobadas')}${m.approvedPrevious !== m.approved ? ` (antes ${m.approvedPrevious})` : ''}`,
+    m.discarded ? count(m.discarded, 'descartada', 'descartadas') : null,
+    m.contactsApproved ? count(m.contactsApproved, 'contacto', 'contactos') : null,
+    m.firstContacts ? count(m.firstContacts, 'primer contacto', 'primeros contactos') : null,
+    m.pending ? `${m.pending} por revisar${m.oldestDays ? ` (${daysLabel(m.oldestDays)})` : ''}` : null,
+    m.usage ? (moneyVisible ? formatValue(m.usage, 'usd') : count(m.usage, 'crédito', 'créditos')) : null,
+  ].filter((part): part is string => Boolean(part));
+}
+
+function Members({ members, moneyVisible }: { members: BulletinMember[]; moneyVisible: boolean }) {
+  if (members.length === 0) return null;
+  return (
+    <ul className="mt-2 divide-y divide-border/60 rounded-xl border border-border/60">
+      {members.map((m) => (
+        <li key={m.name} className="space-y-0.5 px-3 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <span
+              className={cn('size-2 shrink-0 rounded-full', SIGNAL_DOT[m.signal].dot)}
+              role="img"
+              aria-label={SIGNAL_DOT[m.signal].label}
+            />
+            <span className="truncate font-medium text-foreground">{m.name}</span>
+          </div>
+          <p className="pl-4 text-xs text-muted-foreground">{memberFacts(m, moneyVisible).join(' · ')}</p>
+          {m.note && <p className="pl-4 text-xs text-foreground">↳ {m.note}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Teams({ teams, moneyVisible }: { teams: BulletinModel['teams']; moneyVisible: boolean }) {
   if (teams.length === 0) return null;
   const max = Math.max(0, ...teams.map((t) => t.approved));
   return (
-    <div className="space-y-3">
-      <SectionTitle>Por equipo</SectionTitle>
+    <div className="space-y-4">
+      <SectionTitle>Por equipo y por persona</SectionTitle>
       {teams.map((team) => (
         <div key={team.name} className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -114,8 +164,9 @@ function Teams({ teams }: { teams: BulletinModel['teams'] }) {
           <Bar value={team.approved} max={max} label={`${team.name}: ${team.approved} aprobadas`} />
           <p className="text-xs text-muted-foreground">
             {team.active} de {team.people} activos · {team.discarded} descartadas · {team.pending} por revisar
-            {team.oldestDays ? ` · la más antigua, ${team.oldestDays === 1 ? '1 día' : `${team.oldestDays} días`}` : ''}
+            {team.oldestDays ? ` · la más antigua, ${daysLabel(team.oldestDays)}` : ''}
           </p>
+          <Members members={team.members ?? []} moneyVisible={moneyVisible} />
         </div>
       ))}
     </div>
@@ -194,7 +245,7 @@ export function BulletinPreview({ model, className }: BulletinPreviewProps) {
           <Funnel steps={model.funnel} />
         </div>
 
-        <Teams teams={model.teams} />
+        <Teams teams={model.teams} moneyVisible={model.moneyVisible} />
         <Behind behind={model.behind} inactive={model.inactive} />
 
         <section className="rounded-xl bg-surface-muted p-4" aria-label="Cierre">
