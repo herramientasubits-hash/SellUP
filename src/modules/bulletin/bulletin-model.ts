@@ -253,10 +253,10 @@ function memberNote(p: PersonActivity, approvedPrevious: number): { signal: Bull
   if (oldest > 7)
     return { signal: 'rojo', note: `Tiene ${plural(p.pending, 'empresa', 'empresas')} por revisar; la más antigua lleva ${plural(oldest, 'día', 'días')}.` };
   if (!active) return { signal: 'gris', note: 'Sin actividad en el período.' };
-  if (approvedPrevious > 0 && p.approved < approvedPrevious * 0.7)
-    return { signal: 'naranja', note: `Aprobó menos que en el período anterior (${p.approved} frente a ${approvedPrevious}).` };
   if (p.found > 0 && p.approved + p.discarded === 0)
     return { signal: 'naranja', note: `Encontró ${plural(p.found, 'empresa', 'empresas')} pero todavía no revisó ninguna.` };
+  if (approvedPrevious > 0 && p.approved < approvedPrevious * 0.7)
+    return { signal: 'naranja', note: `Aprobó menos que en el período anterior (${p.approved} frente a ${approvedPrevious}).` };
   if (p.approved > 0 && p.contactsApproved === 0)
     return { signal: 'naranja', note: 'Aprobó empresas pero aún no tiene contactos aprobados.' };
   if (p.contactsApproved > 0 && p.firstContacts === 0)
@@ -268,13 +268,19 @@ function memberNote(p: PersonActivity, approvedPrevious: number): { signal: Bull
 export function buildBulletinModel(input: {
   period: BulletinPeriod;
   recipientName: string;
+  /** Quien recibe: si no tuvo trabajo propio ni pendientes (p. ej. un gerente), no cuenta en las cifras. */
+  recipientId?: string;
   scopeLabel: string;
   moneyVisible: boolean;
   current: readonly PersonActivity[];
   previous: readonly PersonActivity[];
   teams: readonly BulletinTeam[];
 }): BulletinModel {
-  const { current, previous } = input;
+  const recipientRow = input.recipientId ? input.current.find((p) => p.id === input.recipientId) : undefined;
+  const dropRecipient = Boolean(recipientRow && !isActive(recipientRow) && recipientRow.pending === 0);
+  const keep = (p: PersonActivity) => !(dropRecipient && p.id === input.recipientId);
+  const current = input.current.filter(keep);
+  const previous = input.previous.filter(keep);
   const metric = (key: keyof PersonActivity, label: string, emoji: string, higherIsBetter = true, format: 'count' | 'usd' = 'count'): PulseMetric => ({
     key: String(key),
     label,
@@ -536,7 +542,9 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
     const lines = model.behind.map(
       (p) => `${(p.oldestDays ?? 0) > 7 ? '🔴' : '🟠'} *${p.name}* · ${p.pending} por revisar${p.oldestDays ? ` · la más antigua de ${daysText(p.oldestDays)}` : ''}`,
     );
-    if (model.inactive.length) lines.push(`⚪ Sin actividad: ${model.inactive.slice(0, 8).join(', ')}${model.inactive.length > 8 ? '…' : ''}`);
+    const listed = new Set(model.behind.map((p) => p.name));
+    const idle = model.inactive.filter((name) => !listed.has(name));
+    if (idle.length) lines.push(`⚪ Sin actividad: ${idle.slice(0, 8).join(', ')}${idle.length > 8 ? '…' : ''}`);
     blocks.push(DIVIDER, section('⚠️ *A QUIÉN ACOMPAÑAR*\n' + lines.join('\n')));
   }
 

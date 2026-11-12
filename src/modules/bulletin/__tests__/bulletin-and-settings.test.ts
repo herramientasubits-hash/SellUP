@@ -150,6 +150,24 @@ describe('modelo del boletín', () => {
     for (const name of ['*LUIS*', '*ANA*', '*EVA*']) assert.ok(all.includes(name), name);
   });
 
+  it('🔴 el gerente sin trabajo propio no cuenta como «sin actividad» en su propio boletín', () => {
+    const base = { period, recipientName: 'Leo', scopeLabel: 'x', moneyVisible: true };
+    const people = [person('leo'), person('ana', { approved: 3, searches: 1 })];
+    const m = buildBulletinModel({ ...base, recipientId: 'leo', current: people, previous: people, teams: [{ name: 'Tu equipo', memberIds: ['leo', 'ana'] }] });
+    assert.equal(m.teamSize, 1);
+    assert.deepEqual(m.inactive, []);
+    assert.deepEqual(m.teams[0].members?.map((x) => x.name), ['ANA']);
+    const busy = buildBulletinModel({ ...base, recipientId: 'leo', current: [person('leo', { pending: 2, oldestPendingDays: 1 }), people[1]], previous: people, teams: [] });
+    assert.equal(busy.teamSize, 2, 'si tiene pendientes, sí cuenta');
+  });
+
+  it('encontró y no revisó pesa más que «aprobó menos»', () => {
+    const m = buildBulletinModel({ period, recipientName: 'X', scopeLabel: 'x', moneyVisible: true,
+      current: [person('t', { searches: 1, found: 15, pending: 15, oldestPendingDays: 4 })], previous: [person('t', { approved: 3 })],
+      teams: [{ name: 'E', memberIds: ['t'] }] });
+    assert.equal(m.teams[0].members?.[0].note, 'Encontró 15 empresas pero todavía no revisó ninguna.');
+  });
+
   it('nombres en las alertas', () => {
     assert.equal(namesText(['Ana']), 'Ana');
     assert.equal(namesText(['Ana', 'Luis']), 'Ana y Luis');

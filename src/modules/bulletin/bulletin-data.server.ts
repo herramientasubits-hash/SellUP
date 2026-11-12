@@ -244,6 +244,7 @@ export async function buildBulletinForUser(
     model: buildBulletinModel({
       period,
       recipientName,
+      recipientId: recipient.id,
       scopeLabel,
       moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
       current,
