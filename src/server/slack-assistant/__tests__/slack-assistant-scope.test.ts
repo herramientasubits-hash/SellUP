@@ -111,18 +111,17 @@ describe('permisos por rol — prospectos', () => {
 });
 
 describe('permisos por rol — uso de IA', () => {
-  it('🔴 líder: el uso de su equipo; vendedor: el suyo y SIN dólares', async () => {
+  it('🔴 líder: el uso de su equipo; vendedor/Growth: no tienen Uso de IA (dueña 12-11)', async () => {
     const leader = fakeSupabase();
     await createAssistantDataSource(leader.client, LEADER, OPTIONS).aiUsage('mes');
     const leaderIn = leader.calls.find((c) => c.table === 'provider_usage_logs' && c.method === 'in');
     assert.deepEqual(leaderIn?.args, ['triggered_by', ['lead', 'v1', 'v2']]);
 
     const seller = fakeSupabase({ provider_usage_logs: [{ provider_key: 'apollo', status: 'success', estimated_cost_usd: 0.5, credits_used: 2, triggered_by: 'me' }] });
-    const usage = await createAssistantDataSource(seller.client, SELLER, { ...OPTIONS, moneyVisible: false }).aiUsage('mes');
-    assert.equal(usage.costoUsd, null);
-    assert.equal(usage.porProveedor[0].costoUsd, null);
-    assert.equal(usage.creditos, 2);
-    assert.deepEqual(usage.porPersona, []);
+    const source = createAssistantDataSource(seller.client, SELLER, { ...OPTIONS, moneyVisible: false });
+    assert.equal(source.usageVisible, false);
+    await assert.rejects(() => source.aiUsage('mes'));
+    assert.equal(seller.calls.some((c) => c.table === 'provider_usage_logs'), false);
   });
 
   it('admin: todo, con dólares', async () => {

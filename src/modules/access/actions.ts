@@ -68,6 +68,8 @@ export async function getAllRoles(): Promise<Role[]> {
 }
 
 export async function getAllUsers(): Promise<InternalUser[]> {
+  // Pantalla de Usuarios: sólo administradores (no depender sólo de la RLS).
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
   
   const [usersResult, rolesResult] = await Promise.all([
@@ -110,6 +112,8 @@ export async function getAllUsers(): Promise<InternalUser[]> {
 }
 
 export async function getUsersByStatus(status: string): Promise<InternalUser[]> {
+  // Pantalla de Usuarios: sólo administradores (no depender sólo de la RLS).
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('internal_users')
@@ -185,6 +189,8 @@ export async function getUsersSummary(): Promise<UsersSummary> {
 export async function getUserAccessHistory(
   userId: string
 ): Promise<AccessAuditEntry[]> {
+  // Pantalla de Usuarios: sólo administradores (no depender sólo de la RLS).
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('get_user_access_history', {
     p_target_user_id: userId,
@@ -639,6 +645,8 @@ export async function changeUserGroup(
 // ─── Preapprovals ─────────────────────────────────────────────────────────────
 
 export async function getPreapprovals(): Promise<UserPreapproval[]> {
+  // Pantalla de Usuarios: sólo administradores (no depender sólo de la RLS).
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
 
   const [preResult, rolesResult, usersResult, groupsResult] = await Promise.all([

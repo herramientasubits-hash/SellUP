@@ -331,3 +331,24 @@ describe('presentCandidateResponsible — la columna «Responsable» dice lo mis
     );
   });
 });
+
+import { canAssignTo, canAssignToAnyone } from '../assignment-core';
+
+describe('a quién puede asignar cada rol (dueña 12-11)', () => {
+  it('admin, manager, líder y Growth: a cualquiera', () => {
+    for (const roleKey of ['admin', 'commercial_manager', 'commercial_lead', 'growth']) {
+      assert.equal(canAssignToAnyone(roleKey), true, roleKey);
+      assert.equal(canAssignTo({ id: 'yo', roleKey }, 'otra-persona'), true, roleKey);
+    }
+  });
+
+  it('vendedor: sólo a sí mismo', () => {
+    assert.equal(canAssignTo({ id: 'yo', roleKey: 'seller_bd' }, 'yo'), true);
+    assert.equal(canAssignTo({ id: 'yo', roleKey: 'seller_bd' }, 'otra-persona'), false);
+  });
+
+  it('rol desconocido o vacío: lo más restrictivo', () => {
+    assert.equal(canAssignTo({ id: 'yo', roleKey: null }, 'otra-persona'), false);
+    assert.equal(canAssignTo({ id: 'yo', roleKey: 'raro' }, 'otra-persona'), false);
+  });
+});

@@ -1,5 +1,6 @@
 'use server';
 
+import { canActOnAccount, canActOnContact, OUT_OF_SCOPE_MESSAGE } from '@/modules/access/record-scope.server';
 import { createClient } from '@/lib/supabase/server';
 import { getVisibleSince } from '@/lib/visible-since';
 import { redirect } from 'next/navigation';
@@ -318,6 +319,7 @@ export async function createContact(
   const supabase = await createClient();
 
   if (!input.account_id) return { success: false, error: 'account_id es requerido' };
+  if (!(await canActOnAccount(input.account_id))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
 
   const { data: account } = await supabase
     .from('accounts')
@@ -669,6 +671,7 @@ export async function setPrimaryContact(
   contactId: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { internalUserId } = await requireActiveUser();
+  if (!(await canActOnAccount(accountId))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
   const supabase = await createClient();
 
   await supabase
@@ -794,6 +797,9 @@ export async function syncContactToHubSpot(
     ({ internalUserId } = await requireActiveUser());
   } catch {
     return { ok: false, errorCode: 'UNKNOWN_ERROR', message: 'Sesión no válida.' };
+  }
+  if (!(await canActOnContact(contactId))) {
+    return { ok: false, errorCode: 'UNKNOWN_ERROR', message: OUT_OF_SCOPE_MESSAGE };
   }
 
   try {

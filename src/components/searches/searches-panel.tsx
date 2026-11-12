@@ -30,7 +30,7 @@ export async function SearchesPanel({ focusSearchId = null }: { focusSearchId?: 
   const [searches, agent, canProspectBulk, enrichBulk, bulkAccess, assignmentEnabled] = await Promise.all([
     getSearchesForViewer(),
     resolveGenerateProspectsAgent(),
-    checkCapability('prospectarMasivo').then((check) => check.ok),
+    checkCapability('importarArchivos').then((check) => check.ok),
     checkCapability('enriquecerMasivo').then((check) => check.ok),
     resolveBulkSearchAccess(),
     createClient()

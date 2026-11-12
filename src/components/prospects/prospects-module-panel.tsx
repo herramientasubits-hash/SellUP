@@ -114,9 +114,8 @@ export async function ProspectsModulePanel({ params }: ProspectsModulePanelProps
   // El asistente «Generar con IA», con todo lo que el servidor resolvió para
   // él (flags, catálogo, proveedor, topes, presupuesto). Es la MISMA carga que
   // usan las otras dos pestañas del módulo para su agente de IA.
-  // Rumbo es de todos; importar archivos es de Growth, líderes y admin con las
-  // reglas por rol encendidas (apagadas, de cualquiera, como siempre).
-  const canProspectBulk = (await checkCapability('prospectarMasivo')).ok;
+  // Rumbo y cargar archivos de empresas son de todos (dueña 12-11).
+  const canProspectBulk = (await checkCapability('importarArchivos')).ok;
   const { generateDrawer, isGenerateAvailable } = await resolveGenerateProspectsAgent();
 
   const sourceId = params.sourceId ?? null;

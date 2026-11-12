@@ -14,11 +14,13 @@ export const GROWTH_ROLE_KEY = 'growth';
 
 export type Capability =
   /**
-   * Traer empresas EN MASA: importar archivos y la búsqueda masiva («Muchas empresas
-   * por criterios»). Las cuatro formas normales de Rumbo son de cualquier usuario
-   * activo (dueña 28-10).
+   * La búsqueda masiva («Muchas empresas por criterios»): admin y Growth con las
+   * reglas encendidas. Las cuatro formas normales de Rumbo son de cualquier
+   * usuario activo (dueña 28-10).
    */
   | 'prospectarMasivo'
+  /** Cargar un archivo de empresas: de cualquier usuario activo (dueña 12-11). */
+  | 'importarArchivos'
   /** Buscar contactos de muchas empresas a la vez: de cualquier usuario activo, como antes. */
   | 'enriquecerMasivo'
   /** Aprobar, descartar o marcar duplicada CUALQUIER candidata: sólo admin. */
@@ -65,26 +67,37 @@ export function hasCapability(
   if (!access.userId) return false;
   if (access.isAdmin) return true;
   if (capability === 'revisarTodasLasCandidatas') return false;
-  if (capability === 'enriquecerMasivo' || !enforced) return true;
+  if (capability === 'enriquecerMasivo' || capability === 'importarArchivos' || !enforced) return true;
   return isBulkRole(access.roleKey);
+}
+
+/** Reglas al decidir: si están encendidas las capacidades y el equipo en cascada de quien pide. */
+export interface ReviewRuleOptions {
+  enforced: boolean;
+  /**
+   * Personas de su alcance en cascada (manager/líder: su gente hacia abajo;
+   * vendedor/Growth: sólo él). `null`/ausente = sólo lo propio.
+   */
+  team?: readonly string[] | null;
 }
 
 /**
  * ¿Puede decidir (aprobar, descartar, marcar duplicada) sobre ESTA candidata?
- * Admin, sobre cualquiera. Y SIEMPRE su responsable: el asignado o el dueño de
- * la búsqueda de la que salió (dueña 11-11: «quien es el dueño de eso lo revisa,
- * lo aprueba, lo descarta o le dice que es un duplicado»). Ya no depende de
- * ENABLE_ROLE_CAPABILITIES, que sólo gobierna lo masivo.
+ * Admin, sobre cualquiera. Su responsable (el asignado o el dueño/creador de la
+ * búsqueda), siempre (dueña 11-11). Y quien tiene a ese responsable en su equipo
+ * hacia abajo: el líder y el manager deciden lo de su gente (dueña 12-11:
+ * «cascada hacia abajo»). Ya no depende de ENABLE_ROLE_CAPABILITIES.
  */
 export function canReviewCandidate(
   access: AccessSnapshot,
   owner: CandidateOwnership,
-  { enforced }: { enforced: boolean },
+  { enforced, team }: ReviewRuleOptions,
 ): boolean {
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return true;
   if (!access.userId) return false;
+  const allowed = new Set([access.userId, ...(team ?? [])]);
   return [owner.assignedTo, owner.batchOwnerId, owner.batchCreatedBy].some(
-    (id) => typeof id === 'string' && id.length > 0 && id === access.userId,
+    (id) => typeof id === 'string' && id.length > 0 && allowed.has(id),
   );
 }
 
@@ -117,10 +130,10 @@ export function decideCandidateApproval(
   access: AccessSnapshot,
   owner: CandidateOwnership,
   signals: CandidateDuplicateSignals,
-  { enforced }: { enforced: boolean },
+  { enforced, team }: ReviewRuleOptions,
 ): CandidateReviewDecision {
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return { ok: true };
-  if (!canReviewCandidate(access, owner, { enforced })) return { ok: false, reason: 'not_allowed' };
+  if (!canReviewCandidate(access, owner, { enforced, team })) return { ok: false, reason: 'not_allowed' };
   void signals;
   return { ok: true };
 }
@@ -128,9 +141,10 @@ export function decideCandidateApproval(
 /** Lo que se le dice a quien intenta algo que no le toca. */
 export const CAPABILITY_DENIED_MESSAGE: Readonly<Record<Capability, string>> = {
   prospectarMasivo:
-    'Importar archivos y la búsqueda masiva son del equipo de Growth. Puedes buscar empresas con Rumbo o agregarlas a mano.',
+    'La búsqueda masiva es del equipo de Growth. Puedes buscar empresas con Rumbo, cargar un archivo o agregarlas a mano.',
+  importarArchivos: 'Tu sesión no está activa. Vuelve a entrar.',
   enriquecerMasivo: 'Tu sesión no está activa. Vuelve a entrar.',
-  revisarTodasLasCandidatas: 'Solo puedes decidir sobre las candidatas que son tuyas.',
+  revisarTodasLasCandidatas: 'Solo puedes decidir sobre las candidatas tuyas o de tu equipo.',
 };
 
 /** Cuando un vendedor (o Growth) intenta aprobar un posible duplicado propio. */

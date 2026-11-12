@@ -166,8 +166,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 403 });
     }
 
-    // Importar en masa es de Growth (y admin) con ENABLE_ROLE_CAPABILITIES.
-    const roleGate = await checkCapability('prospectarMasivo');
+    // Cargar un archivo de empresas es de cualquier usuario activo (dueña 12-11).
+    const roleGate = await checkCapability('importarArchivos');
     if (!roleGate.ok) {
       return NextResponse.json({ error: roleGate.message }, { status: 403 });
     }

@@ -1,5 +1,7 @@
 'use server';
 
+import { listAssignableUsers } from '@/modules/assignment/assignment.server';
+import { requireBatchInScope, requireCandidateInScope } from '@/modules/access/record-scope.server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { formatInAppZone } from '@/lib/format-date';
@@ -862,6 +864,7 @@ export async function updateProspectBatch(
   input: UpdateBatchInput
 ): Promise<ProspectBatch> {
   const { internalUserId } = await requireActiveUser();
+  await requireBatchInScope(id);
   const supabase = await createClient();
 
   if (input.target_count !== undefined && input.target_count > MVP_MAX_CANDIDATES) {
@@ -1052,6 +1055,7 @@ export async function createProspectCandidate(
   input: CreateCandidateInput
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
+  if (input.batch_id) await requireBatchInScope(input.batch_id);
   const supabase = await createClient();
 
   const domain = input.website ? extractDomain(input.website) : null;
@@ -1233,6 +1237,7 @@ export async function updateProspectCandidate(
   input: UpdateCandidateInput
 ): Promise<ProspectCandidate> {
   const { internalUserId } = await requireActiveUser();
+  await requireCandidateInScope(id);
   const supabase = await createClient();
 
   const { data: existing } = await supabase
@@ -3397,17 +3402,10 @@ async function convertClaimedCandidate(ctx: {
 
 // ── Usuarios para selectores ──────────────────────────────────
 
+/** Igual que en Empresas: según el rol (admin, manager, líder y Growth: todos; vendedor: sólo él). */
 export async function getActiveUsers(): Promise<InternalUserOption[]> {
   await requireActiveUser();
-  const supabase = await createClient();
-
-  const { data } = await supabase
-    .from('internal_users')
-    .select('id, full_name, email')
-    .eq('access_status', 'active')
-    .order('full_name', { ascending: true });
-
-  return (data ?? []) as InternalUserOption[];
+  return (await listAssignableUsers()) as InternalUserOption[];
 }
 
 // ── Auditoría de un lote ──────────────────────────────────────

@@ -266,6 +266,8 @@ export async function updateAIProviderStatus(
   providerId: string,
   newStatus: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Configuración de IA: sólo administradores (la vista lo oculta; el servidor lo exige).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -296,6 +298,8 @@ export async function updateAIModelStatus(
   modelId: string,
   newStatus: string
 ): Promise<{ success: boolean; error?: string }> {
+  // Configuración de IA: sólo administradores (la vista lo oculta; el servidor lo exige).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -326,6 +330,8 @@ export async function setActiveConfig(
   providerId: string,
   modelId: string
 ): Promise<{ success: boolean; error?: string; debugLogs?: string[] }> {
+  // Configuración de IA: sólo administradores (la vista lo oculta; el servidor lo exige).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const logs: string[] = [];
   const log = (msg: string) => { logs.push(msg); console.log(msg); };
 
@@ -384,6 +390,8 @@ export async function addModelPricing(
   outputCost: number,
   currency: string = 'USD'
 ): Promise<{ success: boolean; error?: string }> {
+  // Configuración de IA: sólo administradores (la vista lo oculta; el servidor lo exige).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -457,6 +465,8 @@ export async function getProviderConnectionStatus(providerKey: string): Promise<
 export async function testAIProviderConnection(
   providerKey: string
 ): Promise<{ success: boolean; error?: string; message?: string }> {
+  // Configuración de IA: sólo administradores (la vista lo oculta; el servidor lo exige).
+  if (!(await isCurrentUserAdmin())) return { success: false, error: 'No autorizado' };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

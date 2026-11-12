@@ -2,6 +2,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
+import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
+import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { decideApprovalResponsible, type ResponsibleUserFacts } from '@/modules/assignment/assignment-core';
 import {
   CAPABILITY_DENIED_MESSAGE,
@@ -36,6 +38,21 @@ export async function getAccessSnapshot(): Promise<AccessSnapshot> {
     return { userId: user.id, roleKey: user.role_key ?? null, isAdmin };
   } catch {
     return { userId: null, roleKey: null, isAdmin: false };
+  }
+}
+
+/**
+ * Equipo en cascada de quien pide, para decidir candidatas de su gente. Con
+ * ENABLE_COMMERCIAL_SCOPE apagada, nada (sólo lo propio, como antes). Falla
+ * cerrado: ante un error, sólo lo propio.
+ */
+async function reviewTeam(): Promise<string[] | null> {
+  if (!isCommercialScopeEnabled()) return null;
+  try {
+    const scope = await resolveCommercialScope();
+    return scope && !scope.canViewAll ? [...scope.allowedUserIds] : null;
+  } catch {
+    return null;
   }
 }
 
@@ -90,7 +107,7 @@ export async function canReviewCandidateId(candidateId: string): Promise<boolean
         batchOwnerId: batch?.owner_id ?? null,
         batchCreatedBy: batch?.created_by ?? null,
       },
-      { enforced },
+      { enforced, team: await reviewTeam() },
     );
   } catch {
     return false;
@@ -222,7 +239,7 @@ export async function checkCandidateApproval(candidateId: string): Promise<Candi
   const facts = await readCandidateReviewFacts(candidateId);
   if (!facts) return { ok: false, reason: 'not_allowed' };
   if (!reviewsAll) {
-    const decision = decideCandidateApproval(access, facts.owner, facts.signals, { enforced });
+    const decision = decideCandidateApproval(access, facts.owner, facts.signals, { enforced, team: await reviewTeam() });
     if (!decision.ok) return decision;
   }
   // Ya convertida: la empresa ya tiene dueño; reintentar responde como siempre (idempotente).
