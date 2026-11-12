@@ -30,6 +30,8 @@ Establecer el mapeo entre los campos de la tabla `contacts` de SellUp y las prop
 | `email` | `email` | string | text | ✅ Confirmado | Campo primario. Grupo: `contactinformation`. |
 | `phone` | `phone` | string | phonenumber | ✅ Confirmado | Mapeo directo. Grupo: `contactinformation`. |
 | `mobile_phone` | `mobilephone` | string | phonenumber | ✅ Confirmado | Mapeo directo. Grupo: `contactinformation`. |
+| — (números adicionales) | `company_phone` | string | text | ⏸️ Leído, sin escritura | «Company phone». Tercer campo del orden de teléfonos (`HUBSPOT_PHONE_SLOT_ORDER`). Apagado en `HUBSPOT_PHONE_SLOT_WRITE_ENABLED` hasta que se apruebe su uso. |
+| — (números adicionales) | `telefono_2` | number | number | ⏸️ Leído, sin escritura | «Teléfono 2», propiedad propia de Ubits **de tipo número**: viaja sólo con dígitos. Cuarto campo del orden. Apagado hasta que se apruebe su uso. |
 | `linkedin_url` | `hs_linkedin_url` | string | text | ✅ Confirmado | HubSpot tiene `hs_linkedin_url` en grupo `socialmediainformation`. También existe `linkedinbio` (biografía, no URL). |
 | `job_title` | `jobtitle` | string | text | ✅ Confirmado | Mapeo directo. Grupo: `contactinformation`. |
 | `department` | `sellup_department` | — | — | ⚠️ Crear | HubSpot NO tiene `department` estándar para contactos. UBITS no tiene un custom equivalente claro. Crear `sellup_department`. |
@@ -155,3 +157,17 @@ HubSpot deduplica contactos por `email`. Para la sync SellUp → HubSpot:
 | `archived_at` / `archived_by` | Lógica de archivado interna SellUp |
 | `created_by` / `updated_by` | Auditoría interna — no relevante para HubSpot |
 | `contact_audit` (tabla) | Auditoría interna — no tiene equivalente en HubSpot |
+
+### Orden de los campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER, 2026-11-11)
+
+Un número que SellUp tiene y que el contacto de HubSpot no tiene (en ninguno de estos campos,
+comparando sólo dígitos y tolerando el indicativo) va al **primer campo vacío**:
+
+1. `phone` («Phone Number»)
+2. `mobilephone` («Mobile Phone Number»)
+3. `company_phone` («Company phone») — apagado
+4. `telefono_2` («Teléfono 2») — apagado
+
+Un campo en uso se salta; nunca se sobrescribe ni se borra. El orden es estricto: el tipo de
+línea que reporte el proveedor no cambia el campo. Sin campo libre, el número se queda en SellUp.
+Los campos apagados se leen (para no reenviar un número que ya está ahí) pero no se escriben.
