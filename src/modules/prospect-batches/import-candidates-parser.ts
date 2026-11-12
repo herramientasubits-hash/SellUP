@@ -981,3 +981,16 @@ export function buildImportPreview(parseResult: ParseResult): ImportPreview {
 export function getValidRows(preview: ImportPreview): ImportRow[] {
   return preview.rows.filter((r) => r.status !== 'error');
 }
+
+/**
+ * Dueña 11-11 — un archivo con más filas que el tope se cortaba sin avisar. El
+ * aviso dice cuántas se tomaron y qué hacer con el resto.
+ */
+export function importTruncationNotice(result: Pick<ParseResult, 'truncated' | 'truncatedAt'>): { title: string; description: string } | null {
+  if (!result.truncated) return null;
+  const limit = result.truncatedAt ?? MAX_IMPORT_ROWS;
+  return {
+    title: `Se tomaron sólo las primeras ${limit} filas`,
+    description: `El archivo tiene más de ${limit} empresas, el máximo por importación. Importa el resto en otro archivo.`,
+  };
+}

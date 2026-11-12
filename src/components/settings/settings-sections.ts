@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   HardDrive,
   Layers,
   Link2,
@@ -53,6 +54,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description: "Aprueba solicitudes y gestiona roles, grupos y accesos del equipo.",
     href: "/settings/users",
     icon: Users,
+    access: "admin",
+  },
+  {
+    id: "notifications",
+    title: "Avisos de Slack",
+    description: "Qué avisos manda el bot de SellUp por Slack a cada rol o persona, el boletín de cada equipo y su historial.",
+    href: "/settings/notifications",
+    icon: Bell,
     access: "admin",
   },
   {

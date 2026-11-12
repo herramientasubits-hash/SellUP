@@ -91,7 +91,7 @@ export const BLOCK_COPY: Record<ApproveRejectReason, string> = {
 export const APPROVE_ERROR_MESSAGES: Record<string, string> = {
   not_allowed: 'Solo puedes aprobar las candidatas que son tuyas.',
   needs_growth_review:
-    'Esta empresa puede estar duplicada o ya existe en HubSpot: la decide el equipo de Growth.',
+    'Esta empresa puede estar duplicada o ya existe en HubSpot: confírmalo en el panel antes de aprobar.',
   needs_assignee: NEEDS_ASSIGNEE_MESSAGE,
   not_found: 'El prospecto ya no está disponible. Actualiza la lista.',
   not_clean_production: 'Este prospecto no pertenece a la cola de producción limpia.',

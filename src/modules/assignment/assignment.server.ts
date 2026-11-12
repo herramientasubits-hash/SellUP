@@ -76,7 +76,7 @@ export async function notifyAssignment(input: {
       message: notification.message,
       actionLabel: notification.actionLabel,
       actionUrl: notification.actionUrl,
-    });
+    }, { key: 'assignments' });
   } catch (err) {
     console.error(
       '[assignment] notification failed:',

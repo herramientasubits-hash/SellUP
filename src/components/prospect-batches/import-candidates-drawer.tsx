@@ -17,6 +17,7 @@ import {
   buildParseResultFromParsedRows,
   type ImportPreview,
   type ParseResult,
+  importTruncationNotice,
   type ParsedImportRow,
   type ImportMethod,
   type ImportDefaults,
@@ -440,6 +441,10 @@ export function ImportCandidatesDrawer({
         toast.error('No encontramos empresas', { description: 'Pega una tabla, una lista o un texto con nombres.' });
         return;
       }
+
+      // Dueña 11-11: un archivo de más de 500 filas se cortaba sin avisar.
+      const truncation = importTruncationNotice(parseResult);
+      if (truncation) toast.warning(truncation.title, { description: truncation.description, duration: 12000 });
 
       setDetectedMethod(effectiveMethod);
       const built = buildImportPreview(parseResult);
