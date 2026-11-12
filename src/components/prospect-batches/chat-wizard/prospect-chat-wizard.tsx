@@ -1,5 +1,6 @@
 'use client';
 
+import { useProgressiveReveal } from './use-progressive-reveal';
 import * as React from 'react';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
@@ -264,12 +265,6 @@ export function ProspectChatWizard({
   const [criteriaText, setCriteriaText] = React.useState('');
 
 
-  // ── Progressive message reveal ─────────────────────────────────────────────
-  const [visibleCount, setVisibleCount] = React.useState(0);
-  const [isTyping, setIsTyping] = React.useState(false);
-  const prevMsgCountRef = React.useRef(0);
-  const typingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // ── Derived context for messages ──────────────────────────────────────────
 
   const messageContext = React.useMemo<WizardMessageContext>(
@@ -294,44 +289,11 @@ export function ProspectChatWizard({
   const playMessageSound = useWizardMessageSound();
 
   // ── Progressive reveal: show messages one-by-one with typing delay ──────────
-  React.useEffect(() => {
-    const prevCount = prevMsgCountRef.current;
-    const newCount = messages.length;
-
-    if (newCount > prevCount) {
-      // New messages arrived — reveal them progressively
-      let revealed = prevCount;
-      const revealNext = () => {
-        if (revealed >= newCount) {
-          setIsTyping(false);
-          return;
-        }
-        revealed++;
-        setIsTyping(revealed < newCount);
-        setVisibleCount(revealed);
-        // Play sound only for assistant messages (not user/system)
-        const msg = messages[revealed - 1];
-        if (msg?.role === 'assistant') {
-          playMessageSound();
-        }
-        if (revealed < newCount) {
-          typingTimerRef.current = setTimeout(revealNext, 450);
-        }
-      };
-      // Start revealing
-      setIsTyping(true);
-      typingTimerRef.current = setTimeout(revealNext, 400);
-    } else if (newCount < prevCount) {
-      // Messages removed (e.g. restart) — reset
-      setVisibleCount(newCount);
-    }
-
-    prevMsgCountRef.current = newCount;
-
-    return () => {
-      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-    };
-  }, [messages.length, messages, playMessageSound]);
+  // Ver `useProgressiveReveal`: sobrevive a cualquier redibujo (antes se trababa
+  // en «Escribiendo…» si el estado cambiaba sin agregar mensajes).
+  const { visibleCount, isTyping } = useProgressiveReveal(messages.length, (index) => {
+    if (messages[index]?.role === 'assistant') playMessageSound();
+  });
 
   const progress = React.useMemo(() => getWizardProgress(state), [state]);
 
