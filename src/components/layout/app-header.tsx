@@ -51,6 +51,7 @@ const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   integrations: ["hubspot", "slack"],
   activity: ["historial", "auditoría"],
   "my-drive": ["google", "drive"],
+  "my-notifications": ["slack", "boletín", "avisos", "notificaciones"],
 };
 
 /** Palabras con las que también se busca un módulo. */

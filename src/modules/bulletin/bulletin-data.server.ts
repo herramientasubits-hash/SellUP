@@ -164,7 +164,15 @@ export function buildTeams(
   };
   const direct = members.filter((m) => m.manager_id === recipientId && m.id !== recipientId);
   if (direct.length > 0) {
-    const teams = direct.map((d) => ({ name: displayUserName(d) ?? 'Sin nombre', memberIds: subtree(d.id) }));
+    // Quien tiene gente a cargo es un sub-equipo (con toda su cascada); los
+    // reportes directos sin gente a cargo van juntos con quien recibe.
+    const leads = direct.filter((d) => (childrenOf.get(d.id) ?? []).length > 0);
+    const leaves = direct.filter((d) => (childrenOf.get(d.id) ?? []).length === 0);
+    const teams: BulletinTeam[] = leads.map((d) => ({ name: displayUserName(d) ?? 'Sin nombre', memberIds: subtree(d.id) }));
+    if (leaves.length > 0) {
+      const ids = [...(memberIds.has(recipientId) ? [recipientId] : []), ...leaves.map((d) => d.id)];
+      teams.push({ name: leads.length > 0 ? 'Tu equipo directo' : 'Tu equipo', memberIds: ids });
+    }
     const covered = new Set(teams.flatMap((t) => t.memberIds));
     const rest = members.filter((m) => !covered.has(m.id)).map((m) => m.id);
     return rest.length ? [...teams, { name: 'Otros del equipo', memberIds: rest }] : teams;
@@ -236,6 +244,7 @@ export async function buildBulletinForUser(
     model: buildBulletinModel({
       period,
       recipientName,
+      recipientId: recipient.id,
       scopeLabel,
       moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
       current,

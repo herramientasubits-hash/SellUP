@@ -154,14 +154,14 @@ function Teams({ teams, moneyVisible }: { teams: BulletinModel['teams']; moneyVi
   const max = Math.max(0, ...teams.map((t) => t.approved));
   return (
     <div className="space-y-4">
-      <SectionTitle>Por equipo y por persona</SectionTitle>
+      <SectionTitle>{teams.length === 1 ? 'Por persona' : 'Por equipo y por persona'}</SectionTitle>
       {teams.map((team) => (
         <div key={team.name} className="space-y-1.5">
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate font-medium text-foreground">{team.name}</span>
             <span className="shrink-0 tabular-nums text-foreground">{team.approved} aprobadas</span>
           </div>
-          <Bar value={team.approved} max={max} label={`${team.name}: ${team.approved} aprobadas`} />
+          {teams.length > 1 && <Bar value={team.approved} max={max} label={`${team.name}: ${team.approved} aprobadas`} />}
           <p className="text-xs text-muted-foreground">
             {team.active} de {team.people} activos · {team.discarded} descartadas · {team.pending} por revisar
             {team.oldestDays ? ` · la más antigua, ${daysLabel(team.oldestDays)}` : ''}
@@ -174,7 +174,9 @@ function Teams({ teams, moneyVisible }: { teams: BulletinModel['teams']; moneyVi
 }
 
 function Behind({ behind, inactive }: { behind: BulletinModel['behind']; inactive: string[] }) {
-  if (behind.length === 0 && inactive.length === 0) return null;
+  const listed = new Set(behind.map((p) => p.name));
+  const idle = inactive.filter((name) => !listed.has(name));
+  if (behind.length === 0 && idle.length === 0) return null;
   return (
     <div className="space-y-2">
       <SectionTitle>A quién acompañar</SectionTitle>
@@ -187,9 +189,7 @@ function Behind({ behind, inactive }: { behind: BulletinModel['behind']; inactiv
             </span>
           </li>
         ))}
-        {inactive.length > 0 && (
-          <li className="px-3 py-2 text-xs text-muted-foreground">Sin actividad: {inactive.join(', ')}</li>
-        )}
+        {idle.length > 0 && <li className="px-3 py-2 text-xs text-muted-foreground">Sin actividad: {idle.join(', ')}</li>}
       </ul>
     </div>
   );

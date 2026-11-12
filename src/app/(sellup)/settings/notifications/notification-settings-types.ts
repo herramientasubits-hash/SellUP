@@ -6,7 +6,12 @@
 
 import type { BulletinModel } from '@/modules/bulletin/bulletin-model';
 import type { BulletinDeliveryRow } from '@/modules/bulletin/bulletin-send.server';
-import type { BulletinFrequency, NotificationSettingRow } from '@/modules/notifications/notification-catalog';
+import {
+  BULLETIN_KEY_BY_FREQUENCY,
+  isNotificationEnabled,
+  type BulletinFrequency,
+  type NotificationSettingRow,
+} from '@/modules/notifications/notification-catalog';
 import type { NotificationSettingsData } from '@/modules/notifications/notification-settings-actions';
 
 export type { BulletinDeliveryRow, NotificationSettingsData };
@@ -25,10 +30,16 @@ export interface BulletinRequest {
   frequency: BulletinFrequency;
 }
 
+/** Vista previa: sin `day`, el que le llegaría hoy; con `day` (AAAA-MM-DD), el del período que la contiene. */
+export interface BulletinPreviewRequest extends BulletinRequest {
+  day?: string | null;
+}
+
 export interface NotificationSettingsActions {
   setNotificationSetting: (input: RuleInput) => Promise<ActionResult>;
-  previewBulletin: (input: BulletinRequest) => Promise<ActionResult<BulletinModel>>;
+  previewBulletin: (input: BulletinPreviewRequest) => Promise<ActionResult<BulletinModel>>;
   sendBulletinPreviewToMe: (input: BulletinRequest) => Promise<ActionResult>;
+  getBulletinHistory: (userId?: string | null) => Promise<ActionResult<BulletinDeliveryRow[]>>;
   getBulletinDelivery: (id: string) => Promise<ActionResult<BulletinModel>>;
 }
 
@@ -38,6 +49,15 @@ export const FREQUENCY_OPTIONS: ReadonlyArray<{ value: BulletinFrequency; label:
   { value: 'monthly', label: 'Mensual', when: 'El día 1 de cada mes' },
   { value: 'quarterly', label: 'Trimestral', when: 'El día 1 de cada trimestre' },
 ];
+
+/** Las frecuencias de boletín que le llegan a esta persona (su regla, la de su rol o el valor por defecto). */
+export function activeFrequencies(
+  person: { id: string; roleKey: string | null },
+  rows: readonly NotificationSettingRow[],
+): BulletinFrequency[] {
+  const who = { userId: person.id, roleKey: person.roleKey };
+  return FREQUENCY_OPTIONS.map((o) => o.value).filter((f) => isNotificationEnabled(BULLETIN_KEY_BY_FREQUENCY[f], who, rows));
+}
 
 export function frequencyLabel(frequency: string): string {
   return FREQUENCY_OPTIONS.find((o) => o.value === frequency)?.label ?? frequency;

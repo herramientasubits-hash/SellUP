@@ -26,7 +26,7 @@ export default async function NotificationSettingsPage() {
         <NotificationsSettingsClient
           data={settings.data}
           history={history.success ? history.data : []}
-          actions={{ setNotificationSetting, previewBulletin, sendBulletinPreviewToMe, getBulletinDelivery }}
+          actions={{ setNotificationSetting, previewBulletin, sendBulletinPreviewToMe, getBulletinHistory, getBulletinDelivery }}
         />
       ) : (
         <Alert variant="destructive">

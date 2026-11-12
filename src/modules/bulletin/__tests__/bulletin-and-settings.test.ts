@@ -6,6 +6,7 @@ import {
   memberLine,
   namesText,
   bulletinPeriod,
+  bulletinPeriodContaining,
   isBulletinDue,
   periodBounds,
   renderBulletinBlocks,
@@ -56,6 +57,22 @@ describe('períodos del boletín (hora de Bogotá)', () => {
     assert.equal(isBulletinDue('monthly', new Date('2026-12-01T13:15:00Z')), true);
     assert.equal(isBulletinDue('quarterly', new Date('2026-12-01T13:15:00Z')), false);
     assert.equal(isBulletinDue('quarterly', new Date('2027-01-01T13:15:00Z')), true);
+  });
+
+  it('el período que contiene una fecha (para ver boletines pasados)', () => {
+    const w = bulletinPeriodContaining('weekly', '2026-11-12');
+    assert.deepEqual([w.start, w.end], ['2026-11-09', '2026-11-15']);
+    const sun = bulletinPeriodContaining('weekly', '2026-11-15');
+    assert.deepEqual([sun.start, sun.end], ['2026-11-09', '2026-11-15'], 'el domingo es de esa semana');
+    const d = bulletinPeriodContaining('daily', '2026-11-12');
+    assert.deepEqual([d.start, d.end], ['2026-11-12', '2026-11-12']);
+    const ds = bulletinPeriodContaining('daily', '2026-11-15');
+    assert.deepEqual([ds.start, ds.end], ['2026-11-13', '2026-11-15'], 'domingo = bloque viernes a domingo');
+    const m = bulletinPeriodContaining('monthly', '2026-10-31');
+    assert.deepEqual([m.start, m.end], ['2026-10-01', '2026-10-31']);
+    const q = bulletinPeriodContaining('quarterly', '2026-12-31');
+    assert.deepEqual([q.start, q.end], ['2026-10-01', '2026-12-31']);
+    assert.throws(() => bulletinPeriodContaining('weekly', '12/11/2026'));
   });
 
   it('los días de Bogotá en UTC', () => {
@@ -115,7 +132,7 @@ describe('modelo del boletín', () => {
     assert.deepEqual(model.approvalRate, { before: 92.9, now: 58.3 });
     assert.deepEqual(model.funnel.map((f) => f.value), [20, 7, 4, 2, 1]);
     assert.deepEqual(model.teams.map((t) => [t.name, t.approved, t.pending, t.oldestDays]), [['Carla', 7, 12, 12], ['Pedro', 0, 0, null]]);
-    assert.deepEqual(model.behind[0], { name: 'LUIS', pending: 9, oldestDays: 12 });
+    assert.deepEqual(model.behind, [{ name: 'LUIS', pending: 9, oldestDays: 12 }], 'sólo pendientes de más de 7 días (Ana, 2 días, no)');
   });
 
   it('🔴 sin dólares para quien no los ve: el pulso usa créditos', () => {
@@ -148,6 +165,24 @@ describe('modelo del boletín', () => {
     );
     const all = JSON.stringify(renderBulletinBlocks(model, 'https://app.example').blocks);
     for (const name of ['*LUIS*', '*ANA*', '*EVA*']) assert.ok(all.includes(name), name);
+  });
+
+  it('🔴 el gerente sin trabajo propio no cuenta como «sin actividad» en su propio boletín', () => {
+    const base = { period, recipientName: 'Leo', scopeLabel: 'x', moneyVisible: true };
+    const people = [person('leo'), person('ana', { approved: 3, searches: 1 })];
+    const m = buildBulletinModel({ ...base, recipientId: 'leo', current: people, previous: people, teams: [{ name: 'Tu equipo', memberIds: ['leo', 'ana'] }] });
+    assert.equal(m.teamSize, 1);
+    assert.deepEqual(m.inactive, []);
+    assert.deepEqual(m.teams[0].members?.map((x) => x.name), ['ANA']);
+    const busy = buildBulletinModel({ ...base, recipientId: 'leo', current: [person('leo', { pending: 2, oldestPendingDays: 1 }), people[1]], previous: people, teams: [] });
+    assert.equal(busy.teamSize, 2, 'si tiene pendientes, sí cuenta');
+  });
+
+  it('encontró y no revisó pesa más que «aprobó menos»', () => {
+    const m = buildBulletinModel({ period, recipientName: 'X', scopeLabel: 'x', moneyVisible: true,
+      current: [person('t', { searches: 1, found: 15, pending: 15, oldestPendingDays: 4 })], previous: [person('t', { approved: 3 })],
+      teams: [{ name: 'E', memberIds: ['t'] }] });
+    assert.equal(m.teams[0].members?.[0].note, 'Encontró 15 empresas pero todavía no revisó ninguna.');
   });
 
   it('nombres en las alertas', () => {
@@ -187,6 +222,16 @@ describe('sub-equipos en cascada por el organigrama', () => {
       ['pedro', ['eva', 'pedro']],
       ['Otros del equipo', ['leo', 'suelto']],
     ]);
+  });
+
+  it('🔴 líder con vendedores: un solo «Tu equipo» con todos (no un equipo por vendedor)', () => {
+    const teams = buildTeams('carla', [u('carla', 'leo'), u('ana', 'carla'), u('luis', 'carla'), u('sofia', 'carla')], new Map());
+    assert.deepEqual(teams.map((t) => [t.name, [...t.memberIds].sort()]), [['Tu equipo', ['ana', 'carla', 'luis', 'sofia']]]);
+  });
+
+  it('directos con y sin gente a cargo: sub-equipos + «Tu equipo directo»', () => {
+    const teams = buildTeams('leo', [u('leo', null), u('carla', 'leo'), u('ana', 'carla'), u('rosa', 'leo')], new Map());
+    assert.deepEqual(teams.map((t) => [t.name, [...t.memberIds].sort()]), [['carla', ['ana', 'carla']], ['Tu equipo directo', ['leo', 'rosa']]]);
   });
 
   it('sin reportes directos: por grupo de la organización', () => {

@@ -11,7 +11,7 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import { roleLabelFor } from '@/modules/access/role-labels';
 import { buildBulletinForUser } from '@/modules/bulletin/bulletin-data.server';
-import { renderBulletinBlocks, type BulletinModel } from '@/modules/bulletin/bulletin-model';
+import { bulletinPeriodContaining, renderBulletinBlocks, type BulletinModel } from '@/modules/bulletin/bulletin-model';
 import { listBulletinDeliveries, readBulletinDelivery, type BulletinDeliveryRow } from '@/modules/bulletin/bulletin-send.server';
 import { sendSlackDirectMessageByEmail } from '@/server/services/slack-connection';
 import {
@@ -112,10 +112,17 @@ export async function setNotificationSetting(input: {
   return { success: true, data: undefined };
 }
 
-/** Vista previa: el boletín que recibiría esta persona hoy (no se envía). */
-export async function previewBulletin(input: { userId: string; frequency: BulletinFrequency }): Promise<Result<BulletinModel>> {
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Vista previa: el boletín de esta persona (no se envía). Sin `day`, el que
+ * recibiría hoy; con `day`, el del período de esa frecuencia que contiene esa fecha.
+ */
+export async function previewBulletin(input: { userId: string; frequency: BulletinFrequency; day?: string | null }): Promise<Result<BulletinModel>> {
   if (!(await requireAdmin())) return { success: false, error: 'No autorizado' };
-  const built = await buildBulletinForUser(createSupabaseAdminClient(), input.userId, input.frequency).catch(() => null);
+  if (input.day && !DAY_RE.test(input.day)) return { success: false, error: 'Fecha inválida.' };
+  const period = input.day ? bulletinPeriodContaining(input.frequency, input.day) : undefined;
+  const built = await buildBulletinForUser(createSupabaseAdminClient(), input.userId, input.frequency, new Date(), period).catch(() => null);
   return built ? { success: true, data: built.model } : { success: false, error: 'No se pudo armar el boletín de esa persona.' };
 }
 
@@ -144,9 +151,10 @@ export async function sendBulletinPreviewToMe(input: { userId: string; frequency
   return outcome === 'sent' ? { success: true, data: undefined } : { success: false, error: 'No llegó por Slack (¿estás en el Slack de UBITS?).' };
 }
 
-export async function getBulletinHistory(): Promise<Result<BulletinDeliveryRow[]>> {
+export async function getBulletinHistory(userId?: string | null): Promise<Result<BulletinDeliveryRow[]>> {
   if (!(await requireAdmin())) return { success: false, error: 'No autorizado' };
-  return { success: true, data: await listBulletinDeliveries(createSupabaseAdminClient()) };
+  if (userId && !/^[0-9a-f-]{36}$/i.test(userId)) return { success: false, error: 'Persona desconocida.' };
+  return { success: true, data: await listBulletinDeliveries(createSupabaseAdminClient(), userId ? 50 : 100, userId ?? undefined) };
 }
 
 export async function getBulletinDelivery(id: string): Promise<Result<BulletinModel>> {
