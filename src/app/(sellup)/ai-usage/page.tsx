@@ -1,5 +1,8 @@
 import type * as React from 'react';
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
+import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
+import { TEAM_ROLE_KEYS } from '@/modules/access/commercial-scope-logic';
 import { Lock } from '@/icons';
 import { PageHeader } from '@/components/shared/page-header';
 import { type MetricTone } from '@/components/shared/metric-card';
@@ -135,6 +138,10 @@ function readParam(value: string | string[] | undefined): string {
 }
 
 export default async function AIUsagePage({ searchParams }: PageProps) {
+  // Dueña 12-11: Uso de IA es de admin, manager y líder (con su equipo en
+  // cascada). Vendedor y Growth no lo ven, ni por el enlace directo.
+  const [viewer, viewerIsAdmin] = await Promise.all([getCurrentUser(), isCurrentUserAdmin()]);
+  if (!viewerIsAdmin && !TEAM_ROLE_KEYS.includes(viewer?.role_key ?? '')) redirect('/pipeline');
   const params = await searchParams;
   // Enlaces viejos a la pestaña «Agente 1» abren «Por agente» con el Agente 1 elegido.
   const requestedTab = readParam(params.tab);

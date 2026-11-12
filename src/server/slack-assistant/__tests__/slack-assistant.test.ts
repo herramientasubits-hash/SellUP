@@ -446,3 +446,29 @@ describe('alcance y periodos', () => {
     assert.equal(ilikePattern('50%_a,b(c)'), '%50\\%\\_a b c%');
   });
 });
+
+describe('permisos 12-11: Uso de IA y asignar', () => {
+  it('🔴 vendedor/Growth: ni se les ofrece uso_de_ia ni se ejecuta', async () => {
+    assert.ok(!toolsForRole(false, false).some((t) => t.name === 'uso_de_ia'));
+    assert.ok(toolsForRole(false, true).some((t) => t.name === 'uso_de_ia'));
+    const data = fakeData({ usageVisible: false });
+    const out = await runAssistantTool(data, null, 'uso_de_ia', { periodo: 'mes' });
+    assert.equal(out.isError, true);
+    assert.equal(data.calls.length, 0);
+  });
+
+  it('🔴 un vendedor no puede proponer asignarle a otra persona', async () => {
+    let proposed = false;
+    const out = await runAssistantTool(fakeData(), null, 'proponer_asignar', { tipo: 'empresas', empresas: ['Copec'], persona: 'Pedro' }, {
+      actor: { id: 'yo', roleKey: 'seller_bd' },
+      propose: () => {
+        proposed = true;
+      },
+      resolver: {
+        resolveActiveUser: async () => ({ user: { id: 'pedro', nombre: 'Pedro Tapia' }, opciones: [] }),
+      } as never,
+    });
+    assert.equal(proposed, false);
+    assert.match(out.content, /Solo puedes asignarte a ti/);
+  });
+});

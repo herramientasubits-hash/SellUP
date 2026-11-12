@@ -138,6 +138,10 @@ describe('modelo del boletín', () => {
   it('🔴 sin dólares para quien no los ve: el pulso usa créditos', () => {
     const seller = buildBulletinModel({ period, recipientName: 'X', scopeLabel: 'Tu actividad', moneyVisible: false, current: [person('a')], previous: [person('a')], teams: [] });
     assert.equal(seller.pulse.at(-1)?.key, 'usageCredits');
+    // Uso de IA no es de vendedores ni Growth: sin botón que lleve allí (dueña 12-11).
+    const all = JSON.stringify(renderBulletinBlocks(seller, 'https://app.example').blocks);
+    assert.ok(!all.includes('/ai-usage'));
+    assert.ok(all.includes('Mis avisos de Slack'));
   });
 
   it('dibujo para Slack: secciones, barras y botones', () => {
@@ -146,6 +150,7 @@ describe('modelo del boletín', () => {
     const all = JSON.stringify(blocks);
     for (const section of ['LECTURA EJECUTIVA', 'PULSO DEL PERÍODO', 'EMBUDO DEL PERÍODO', 'POR EQUIPO Y POR PERSONA', 'A QUIÉN ACOMPAÑAR', 'CIERRE']) assert.ok(all.includes(section), section);
     assert.ok(all.includes('https://app.example/accounts?tab=prospectos'));
+    assert.ok(all.includes('https://app.example/ai-usage?tab=equipo'), 'quien ve dinero (admin/manager/líder) sí tiene el botón');
     assert.ok(blocks.length <= 50);
     assert.equal(bar(5, 10), '█████░░░░░');
     assert.equal(trendText({ value: 7, previous: 13, higherIsBetter: true, format: 'count' }), '🔴 ▼ -46.2% · vs. 13');

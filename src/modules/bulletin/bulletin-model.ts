@@ -578,7 +578,10 @@ export function renderBulletinBlocks(model: BulletinModel, appUrl: string): { te
       type: 'actions',
       elements: [
         { type: 'button', text: { type: 'plain_text', text: 'Ver por revisar' }, url: `${base}/accounts?tab=prospectos`, action_id: 'sellup_bulletin_review' },
-        { type: 'button', text: { type: 'plain_text', text: 'Ver uso del equipo' }, url: `${base}/ai-usage?tab=equipo`, action_id: 'sellup_bulletin_usage' },
+        // Uso de IA sólo lo ven admin, manager y líder (los mismos que ven dinero).
+        ...(model.moneyVisible
+          ? [{ type: 'button', text: { type: 'plain_text', text: 'Ver uso del equipo' }, url: `${base}/ai-usage?tab=equipo`, action_id: 'sellup_bulletin_usage' }]
+          : []),
       ],
     },
     { type: 'context', elements: [{ type: 'mrkdwn', text: 'Boletín de SellUp · elige qué te llega en Configuración › Mis avisos de Slack' }] },

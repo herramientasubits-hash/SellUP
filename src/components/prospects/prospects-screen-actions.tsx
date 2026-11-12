@@ -10,7 +10,7 @@ import { ControlledPanelSlot } from './controlled-panel-slot';
 
 type ProspectsScreenActionsProps = Partial<GenerateProspectsAgent> & {
   /**
-   * ¿Puede importar archivos? Lo decide el servidor (`checkCapability('prospectarMasivo')`).
+   * ¿Puede importar archivos? Lo decide el servidor (`checkCapability('importarArchivos')`).
    * Sin la capacidad —un BD con las reglas por rol encendidas— no hay «Importar archivo»;
    * Rumbo sigue a la vista para todos.
    */

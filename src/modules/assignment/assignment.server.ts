@@ -6,7 +6,14 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { buildAssignmentNotification, type AssignmentKind } from './assignment-core';
+import {
+  ASSIGN_ONLY_SELF_MESSAGE,
+  buildAssignmentNotification,
+  canAssignTo,
+  canAssignToAnyone,
+  type AssignmentKind,
+} from './assignment-core';
+import { getCurrentUser } from '@/modules/access/actions';
 import { notifySlackUsers } from '@/modules/notifications/slack-notify.server';
 
 export interface AssignmentUser {
@@ -32,6 +39,42 @@ export async function loadActiveAssignmentUser(
     .maybeSingle();
   if (error || !data) return null;
   return data as AssignmentUser;
+}
+
+/** Quién asigna: su id y su rol (de la sesión). Null si no está activo. */
+export async function loadAssignmentActor(): Promise<{ id: string; roleKey: string | null } | null> {
+  const user = await getCurrentUser();
+  if (!user || user.access_status !== 'active') return null;
+  return { id: user.id, roleKey: user.role_key ?? null };
+}
+
+/**
+ * La persona a quien se asigna, con la regla de su rol. Se lee con el cliente
+ * de servicio: la RLS de `internal_users` no le deja a un no-admin ver a nadie
+ * más, y por eso antes un líder sólo podía asignarse a sí mismo.
+ */
+export async function loadAssignmentTarget(
+  actor: { id: string; roleKey: string | null },
+  targetUserId: string,
+): Promise<{ ok: true; user: AssignmentUser } | { ok: false; error: string }> {
+  if (!canAssignTo(actor, targetUserId)) return { ok: false, error: ASSIGN_ONLY_SELF_MESSAGE };
+  const user = await loadActiveAssignmentUser(createSupabaseAdminClient(), targetUserId);
+  return user ? { ok: true, user } : { ok: false, error: 'La persona elegida no es un usuario activo.' };
+}
+
+/** Las personas que quien pide puede elegir en «Asignar a…» y como responsable. */
+export async function listAssignableUsers(): Promise<AssignmentUser[]> {
+  const actor = await loadAssignmentActor();
+  if (!actor) return [];
+  let query = createSupabaseAdminClient()
+    .from('internal_users')
+    .select('id, full_name, email')
+    .eq('access_status', 'active')
+    .order('full_name', { ascending: true });
+  if (!canAssignToAnyone(actor.roleKey)) query = query.eq('id', actor.id);
+  const { data, error } = await query;
+  if (error) throw new Error(`listAssignableUsers: ${error.message}`);
+  return (data ?? []) as AssignmentUser[];
 }
 
 /**

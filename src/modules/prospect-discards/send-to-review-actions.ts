@@ -11,7 +11,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { isBatchInScope } from './batch-in-scope.server';
 import {
   requireActiveUser,
@@ -83,17 +82,15 @@ async function toActionResult(
 /**
  * Sends one discarded item (candidate row OR disposition row) back to
  * `needs_review`. `itemId` is the composite id from `DiscardedProspectItem`
- * (`disposition:<id>` or `candidate:<id>`). Admin gate mirrors the existing
- * `prospect-review` discard/approve wrappers — this is the same class of
- * sensitive override.
+ * (`disposition:<id>` or `candidate:<id>`). Same rule as discarding (dueña
+ * 12-11, «cascada hacia abajo»): admin, anything; everyone else, only items of
+ * a search in their scope — the core enforces it with `isBatchInScope`
+ * (`out_of_scope`).
  */
 export async function sendDiscardedProspectToReviewAction(
   itemId: string,
 ): Promise<SendToReviewActionResult> {
   try {
-    const isAdmin = await isCurrentUserAdmin();
-    if (!isAdmin) return { ok: false, reason: 'not_allowed' };
-
     const { internalUserId } = await requireActiveUser();
 
     const [source, id] = itemId.split(':', 2) as [string | undefined, string | undefined];

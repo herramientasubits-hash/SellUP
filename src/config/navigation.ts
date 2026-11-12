@@ -1,4 +1,5 @@
 import { type LucideIcon } from "@/icons";
+import { TEAM_ROLE_KEYS } from "@/modules/access/commercial-scope-logic";
 import {
   BrainCircuit,
   Building2,
@@ -27,7 +28,11 @@ import {
  * `growth`: the bulk-prospecting team (role `growth`, migration 158) plus
  * admins. Sellers prospect by hand and never see bulk-prospecting modules.
  */
-export type NavAccess = "public" | "adminOnly" | "growth";
+/**
+ * `team`: admin plus quien tiene equipo a cargo (manager y líder comercial). Uso
+ * de IA (dueña 12-11): ellos lo ven con su gente en cascada; vendedor y Growth no.
+ */
+export type NavAccess = "public" | "adminOnly" | "growth" | "team";
 
 export interface NavItem {
   title: string;
@@ -154,11 +159,9 @@ export const mainNavItems: NavItem[] = [
     title: "Uso de IA y costos",
     href: "/ai-usage",
     icon: BrainCircuit,
-    // `/ai-usage` only returns data to admins today (queries gate it to admin
-    // when ENABLE_COMMERCIAL_SCOPE is off — the production default). Showing it
-    // to non-admins leads straight to the "requiere permisos de administrador"
-    // banner, so it is hidden from the sidebar for them.
-    access: "adminOnly",
+    // Dueña 12-11: admin, manager y líder (con su equipo en cascada; la página
+    // y las consultas aplican el alcance). Vendedor y Growth no lo ven.
+    access: "team",
   },
   {
     title: "Catálogo de fuentes",
@@ -203,6 +206,8 @@ export function canAccessNavItem(
       return ctx.isAdmin;
     case "growth":
       return ctx.isAdmin || ctx.roleKey?.trim().toLowerCase() === "growth";
+    case "team":
+      return ctx.isAdmin || TEAM_ROLE_KEYS.includes(ctx.roleKey?.trim().toLowerCase() ?? "");
     default:
       return false;
   }

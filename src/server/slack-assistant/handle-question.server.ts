@@ -137,6 +137,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
         actions: {
           resolver: createAssistantActionResolver(admin, scope),
           isAdmin: scope.canViewAll,
+          actor: { id: asker.id, roleKey },
           propose: (proposal) => {
             proposed = proposal;
           },

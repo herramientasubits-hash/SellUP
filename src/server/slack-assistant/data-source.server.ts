@@ -216,6 +216,7 @@ export function createAssistantDataSource(
   }
 
   const source: Omit<AssistantDataSource, 'help'> = {
+    usageVisible: options.moneyVisible,
     async summary(who): Promise<AssistantSummary> {
       const enlaces = { empresas: accountsLink(appUrl), porRevisar: pendingProspectsLink(appUrl), busquedas: searchesLink(appUrl) };
       const alcance = whoseLabel(who);
@@ -619,6 +620,7 @@ export function createAssistantDataSource(
     },
 
     async aiUsage(period: UsagePeriod, who: WhoseFilter = {}): Promise<AssistantUsage> {
+      if (!options.moneyVisible) throw new Error('Uso de IA lo ven sólo administradores, managers y líderes.');
       const periodStart = usagePeriodStart(period, now);
       const since = visibleSince && visibleSince > periodStart ? visibleSince : periodStart;
       const money = options.moneyVisible;
