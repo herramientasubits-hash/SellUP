@@ -127,6 +127,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
           ...createAssistantDataSource(admin, scope, {
             appUrl,
             now,
+            askerId: asker.id,
             moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
           }),
           // Guía de uso: fichas escritas desde el código, filtradas por el rol.

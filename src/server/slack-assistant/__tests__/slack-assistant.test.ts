@@ -103,6 +103,7 @@ function fakeData(overrides: Partial<AssistantDataSource> = {}): AssistantDataSo
     summary: async () => {
       calls.push('summary');
       return {
+        alcance: 'toda la plataforma',
         empresasActivas: 3,
         empresasPorEstado: { Nueva: 3 },
         prospectosPorRevisar: 5,
@@ -196,7 +197,7 @@ describe('herramientas de sólo lectura', () => {
     await runAssistantTool(data, null, 'busquedas', {});
     await runAssistantTool(data, null, 'uso_de_ia', { periodo: 'año', responsable: 'Ana' });
     assert.equal((data.calls[0] as { limit: number }).limit, 5);
-    assert.deepEqual(data.calls[1], { tool: 'usage', period: 'mes', responsable: 'Ana' });
+    assert.deepEqual(data.calls[1], { tool: 'usage', period: 'mes', responsable: { responsable: 'Ana' } });
   });
 
   it('herramienta desconocida o error de lectura: vuelve un error, no lanza', async () => {

@@ -9,6 +9,8 @@ export type CreatedPeriod = UsagePeriod | 'todo';
 export type ProspectState = 'por_revisar' | 'descartados' | 'aprobados' | 'duplicados' | 'todos';
 
 export interface AssistantSummary {
+  /** De quién son los totales («sólo lo tuyo», «tú y tu equipo»…). */
+  alcance: string;
   empresasActivas: number;
   empresasPorEstado: Record<string, number>;
   prospectosPorRevisar: number;
@@ -81,6 +83,11 @@ export interface AssistantAccountDetail {
   encontrada: boolean;
   /** Otras empresas que también coinciden (para desambiguar). */
   otrasCoincidencias: string[];
+  /** No está en Empresas pero sí entre los prospectos (por revisar, descartados, duplicados…). */
+  enProspectos?: AssistantProspect[];
+  enlaceProspectos?: string;
+  /** Lo buscado es el nombre o correo de una persona: sus contactos y empresa. */
+  contactosConEseNombre?: AssistantContact[];
   empresa?: {
     id: string;
     nombre: string;

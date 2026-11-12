@@ -17,8 +17,10 @@ import {
   combineOr,
   countryFilter,
   ilikePattern,
+  matchPeople,
   PROSPECT_STATE_STATUSES,
   scopeOwnerIds,
+  type PersonRow,
 } from './query-helpers';
 
 export interface ItemSelection {
@@ -93,6 +95,17 @@ export function createAssistantActionResolver(
   scope: Pick<CommercialScope, 'canViewAll' | 'allowedUserIds'>,
 ): AssistantActionResolver {
   const owners = scopeOwnerIds(scope);
+
+  /** Personas con ese estado de acceso (la tabla es chica: se compara en memoria, sin tildes). */
+  async function usersWithStatus(status: 'active' | 'suspended'): Promise<PersonRow[]> {
+    const { data, error } = await admin
+      .from('internal_users')
+      .select('id, full_name, email')
+      .eq('access_status', status)
+      .limit(2000);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PersonRow[];
+  }
 
   async function ownership(): Promise<string | null | ''> {
     if (owners === null) return null;
@@ -182,41 +195,23 @@ export function createAssistantActionResolver(
     },
 
     async resolveUsersByStatus(names, status): Promise<Resolution> {
+      const people = await usersWithStatus(status);
       const matches = new Map<string, Array<{ id: string; name: string }>>();
       for (const name of names.slice(0, MAX_ACTION_ITEMS)) {
-        const p = ilikePattern(name);
-        const { data, error } = await admin
-          .from('internal_users')
-          .select('id, full_name, email')
-          .eq('access_status', status)
-          .or(`full_name.ilike.${p},email.ilike.${p}`)
-          .limit(6);
-        if (error) throw new Error(error.message);
         matches.set(
           name,
-          ((data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>).map((u) => ({
-            id: u.id,
-            name: displayUserName(u) ?? u.email ?? 'Sin nombre',
-          })),
+          matchPeople(people, name)
+            .slice(0, 6)
+            .map((u) => ({ id: u.id, name: displayUserName(u) ?? u.email ?? 'Sin nombre' })),
         );
       }
       return collectByName(names, matches, (row) => ({ id: row.id, nombre: row.name }));
     },
 
     async resolveActiveUser(text): Promise<UserResolution> {
-      const p = ilikePattern(text);
-      const { data, error } = await admin
-        .from('internal_users')
-        .select('id, full_name, email')
-        .eq('access_status', 'active')
-        .or(`full_name.ilike.${p},email.ilike.${p}`)
-        .limit(6);
-      if (error) throw new Error(error.message);
-      const rows = (data ?? []) as Array<{ id: string; full_name: string | null; email: string | null }>;
-      const exact = rows.filter((r) => (r.full_name ?? '').trim().toLowerCase() === text.trim().toLowerCase());
-      const pick = exact.length === 1 ? exact : rows;
-      if (pick.length === 1) return { user: { id: pick[0].id, nombre: displayUserName(pick[0]) ?? 'Sin nombre' }, opciones: [] };
-      return { user: null, opciones: pick.map((r) => displayUserName(r) ?? r.email ?? '').filter(Boolean) };
+      const rows = matchPeople(await usersWithStatus('active'), text).slice(0, 6);
+      if (rows.length === 1) return { user: { id: rows[0].id, nombre: displayUserName(rows[0]) ?? 'Sin nombre' }, opciones: [] };
+      return { user: null, opciones: rows.map((r) => displayUserName(r) ?? r.email ?? '').filter(Boolean) };
     },
   };
 }

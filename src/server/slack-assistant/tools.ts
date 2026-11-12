@@ -77,18 +77,28 @@ export interface AssistantFilters {
   /** Nombre o correo de la persona responsable (dentro de lo que se puede ver). */
   responsable?: string;
   periodo?: CreatedPeriod;
+  /** De quién: lo propio, el equipo de quien pregunta o todo lo que puede ver. */
+  de?: Whose;
+  /** Con `responsable`: también su gente a cargo en cascada («el equipo de Carla»). */
+  equipo?: boolean;
 }
+
+/** «mío» = sólo quien pregunta; «mi_equipo» = quien pregunta y su gente en cascada; «todo» = todo su alcance. */
+export type Whose = 'mio' | 'mi_equipo' | 'todo';
+
+/** De quién se piden los datos (siempre dentro del alcance del rol). */
+export type WhoseFilter = Pick<AssistantFilters, 'responsable' | 'de' | 'equipo'>;
 
 /** Datos comerciales: cualquier rol, filtrados por su alcance. */
 export interface AssistantDataSource {
-  summary(): Promise<AssistantSummary>;
+  summary(who?: WhoseFilter): Promise<AssistantSummary>;
   prospects(filters: AssistantFilters & { busqueda?: string; estado: ProspectState }, limit: number): Promise<AssistantProspectList>;
   accounts(filters: AssistantFilters & { estado?: string }, limit: number): Promise<AssistantAccountList>;
   accountDetail(query: string): Promise<AssistantAccountDetail>;
   contacts(filters: { texto?: string; empresa?: string; cargo?: string; pais?: string }, limit: number): Promise<AssistantContactList>;
   searches(filters: AssistantFilters, limit: number): Promise<AssistantSearch[]>;
   /** Mismo alcance que la pantalla Uso de IA: admin todo, líder su equipo en cascada, vendedor lo suyo. */
-  aiUsage(period: UsagePeriod, responsable?: string): Promise<AssistantUsage>;
+  aiUsage(period: UsagePeriod, who?: WhoseFilter): Promise<AssistantUsage>;
   /** Guía de uso de SellUp (fichas escritas desde el código), filtrada por rol. */
   help(query: string): HelpAnswer;
 }
@@ -110,7 +120,21 @@ const PERIOD_PROPERTY = {
   description: 'Creadas hoy, en los últimos 7 días, en el mes en curso o sin límite (hora de Bogotá).',
 } as const;
 const COUNTRY_PROPERTY = { type: 'string', description: 'Código ISO de 2 letras (CL, CO, MX…) o nombre del país.' } as const;
-const OWNER_PROPERTY = { type: 'string', description: 'Nombre o correo de la persona responsable.' } as const;
+const OWNER_PROPERTY = {
+  type: 'string',
+  description: 'Nombre (aunque sea parcial: «elkin garcia») o correo de OTRA persona. Para lo de quien pregunta usa de=mio.',
+} as const;
+const WHOSE_PROPERTY = {
+  type: 'string',
+  enum: ['mio', 'mi_equipo', 'todo'],
+  description:
+    'De quién. mio: «mío», «mis», «tengo», «mi resumen» → sólo quien pregunta. mi_equipo: «mi equipo», «mis vendedores» → quien pregunta y su gente a cargo en cascada. todo: «general», «de todos», «toda la operación» → todo lo que su rol puede ver (por defecto si no dice de quién).',
+} as const;
+const TEAM_PROPERTY = {
+  type: 'boolean',
+  description: 'Con responsable: true = esa persona Y su gente a cargo en cascada («el equipo de Carla»).',
+} as const;
+const WHOSE_PROPERTIES = { de: WHOSE_PROPERTY, responsable: OWNER_PROPERTY, equipo: TEAM_PROPERTY } as const;
 const LIMIT_PROPERTY = { type: 'integer', minimum: 1, maximum: MAX_TOOL_LIMIT } as const;
 
 /** Herramientas comerciales: las ve cualquier rol. */
@@ -118,8 +142,8 @@ export const COMMERCIAL_TOOLS = [
   {
     name: 'mi_resumen',
     description:
-      'Totales de lo que la persona ve en SellUp: empresas activas por estado, prospectos por revisar, búsquedas en curso y contactos. Sólo totales: para listar nombres usa las otras herramientas.',
-    input_schema: { type: 'object', properties: {}, additionalProperties: false },
+      'Totales en SellUp: empresas activas por estado, prospectos por revisar, búsquedas en curso y contactos. «Mi resumen» = de=mio; «resumen de mi equipo» = mi_equipo; «general» = todo; de otra persona = responsable. Sólo totales: para listar nombres usa las otras herramientas.',
+    input_schema: { type: 'object', properties: { ...WHOSE_PROPERTIES }, additionalProperties: false },
   },
   {
     name: 'prospectos',
@@ -133,7 +157,7 @@ export const COMMERCIAL_TOOLS = [
         periodo: PERIOD_PROPERTY,
         busqueda: { type: 'string', description: 'Nombre (o parte) de la búsqueda de origen.' },
         industria: { type: 'string' },
-        responsable: OWNER_PROPERTY,
+        ...WHOSE_PROPERTIES,
         texto: { type: 'string', description: 'Nombre, dominio o NIT.' },
         limite: LIMIT_PROPERTY,
       },
@@ -155,7 +179,7 @@ export const COMMERCIAL_TOOLS = [
           description: 'Nueva, Lista para investigar, Investigación en curso, Lista para contacto.',
         },
         industria: { type: 'string' },
-        responsable: OWNER_PROPERTY,
+        ...WHOSE_PROPERTIES,
         periodo: PERIOD_PROPERTY,
         limite: LIMIT_PROPERTY,
       },
@@ -165,10 +189,10 @@ export const COMMERCIAL_TOOLS = [
   {
     name: 'ficha_empresa',
     description:
-      'TODO sobre una empresa aprobada: datos (razón social, NIT, país, ciudad, industria, tamaño, web, LinkedIn, HubSpot), estado, responsable, notas, contactos y el trabajo de Rumbo (investigación y primer contacto). Busca por nombre, dominio, NIT, ID de SellUp o ID de HubSpot.',
+      'TODO lo que SellUp tiene de una empresa (sólo datos guardados en SellUp; no consulta HubSpot): razón social, NIT, país, ciudad, industria, tamaño, web, LinkedIn, estado, responsable, notas, contactos y el trabajo de Rumbo. Busca por nombre, dominio, NIT o ID de SellUp (un número de HubSpot también sirve para encontrarla). Si no está aprobada, trae dónde está entre los prospectos (por revisar, descartada…) y, si lo buscado es una persona, sus contactos con su empresa.',
     input_schema: {
       type: 'object',
-      properties: { consulta: { type: 'string', description: 'Nombre, dominio, NIT, ID de SellUp o ID de HubSpot.' } },
+      properties: { consulta: { type: 'string', description: 'Nombre o dominio de la empresa, NIT, ID de SellUp, o nombre/correo de un contacto.' } },
       required: ['consulta'],
       additionalProperties: false,
     },
@@ -198,7 +222,7 @@ export const COMMERCIAL_TOOLS = [
       properties: {
         texto: { type: 'string', description: 'Parte del nombre de la búsqueda.' },
         pais: COUNTRY_PROPERTY,
-        responsable: OWNER_PROPERTY,
+        ...WHOSE_PROPERTIES,
         periodo: PERIOD_PROPERTY,
         limite: LIMIT_PROPERTY,
       },
@@ -213,7 +237,7 @@ export const COMMERCIAL_TOOLS = [
       type: 'object',
       properties: {
         periodo: { type: 'string', enum: ['hoy', 'semana', 'mes'] },
-        responsable: OWNER_PROPERTY,
+        ...WHOSE_PROPERTIES,
       },
       required: ['periodo'],
       additionalProperties: false,
@@ -435,6 +459,18 @@ export function readFilters(args: Record<string, unknown>): AssistantFilters {
     industria: text(args.industria),
     responsable: text(args.responsable),
     periodo: createdPeriod(args.periodo),
+    ...readWhose(args),
+  };
+}
+
+/** De quién: lo desconocido se ignora (queda «todo su alcance»). */
+export function readWhose(args: Record<string, unknown>): WhoseFilter {
+  const de = args.de === 'mio' || args.de === 'mi_equipo' || args.de === 'todo' ? args.de : undefined;
+  const responsable = text(args.responsable);
+  return {
+    ...(responsable ? { responsable } : {}),
+    ...(de ? { de } : {}),
+    ...(responsable && args.equipo === true ? { equipo: true } : {}),
   };
 }
 
@@ -465,7 +501,7 @@ export async function runAssistantTool(
   try {
     switch (name) {
       case 'mi_resumen':
-        return ok(await data.summary());
+        return ok(await data.summary(readWhose(args)));
       case 'prospectos':
         return ok(
           await data.prospects(
@@ -492,7 +528,7 @@ export async function runAssistantTool(
         return ok(await data.searches(readFilters(args), clampLimit(args.limite, 5)));
       case 'uso_de_ia': {
         const period = args.periodo === 'hoy' || args.periodo === 'semana' ? args.periodo : 'mes';
-        return ok(await data.aiUsage(period, text(args.responsable)));
+        return ok(await data.aiUsage(period, readWhose(args)));
       }
       case 'usuarios': {
         const estado = typeof args.estado === 'string' && USER_STATES.has(args.estado) ? args.estado : undefined;
