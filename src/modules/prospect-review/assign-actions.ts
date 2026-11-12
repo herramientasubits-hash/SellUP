@@ -32,7 +32,7 @@ import {
   assignmentUserName,
   hasCandidateAssignmentColumn,
   isMissingAssignmentColumnError,
-  loadActiveAssignmentUser,
+  loadAssignmentTarget,
   notifyAssignment,
 } from '@/modules/assignment/assignment.server';
 
@@ -95,8 +95,9 @@ export async function assignCandidatesToUser(
       return { success: false, error: NOT_ACTIVE_YET };
     }
 
-    const target = await loadActiveAssignmentUser(supabase, request.targetUserId);
-    if (!target) return { success: false, error: 'La persona elegida no es un usuario activo.' };
+    const targetResult = await loadAssignmentTarget({ id: current.id, roleKey: current.role_key ?? null }, request.targetUserId);
+    if (!targetResult.ok) return { success: false, error: targetResult.error };
+    const target = targetResult.user;
 
     const { data, error: loadError } = await supabase
       .from('prospect_candidates')

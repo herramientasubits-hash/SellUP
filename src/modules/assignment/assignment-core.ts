@@ -327,3 +327,21 @@ export function splitEvenly(ids: readonly string[], userIds: readonly string[]):
   [...new Set(ids)].forEach((id, index) => shares[index % shares.length].ids.push(id));
   return shares.filter((share) => share.ids.length > 0);
 }
+
+/**
+ * A quién puede asignar cada rol (dueña 12-11): admin, manager, líder y Growth,
+ * a cualquier usuario activo; el vendedor, sólo a sí mismo. Lo que se asigna
+ * siempre es de su alcance (en cascada): eso lo filtra cada acción aparte.
+ */
+export const ASSIGN_TO_ANYONE_ROLE_KEYS: readonly string[] = ['admin', 'commercial_manager', 'commercial_lead', 'growth'];
+
+export function canAssignToAnyone(roleKey: string | null | undefined): boolean {
+  return !!roleKey && ASSIGN_TO_ANYONE_ROLE_KEYS.includes(roleKey);
+}
+
+/** ¿Puede esta persona dejarle trabajo a `targetUserId`? */
+export function canAssignTo(actor: { id: string; roleKey: string | null | undefined }, targetUserId: string): boolean {
+  return canAssignToAnyone(actor.roleKey) || actor.id === targetUserId;
+}
+
+export const ASSIGN_ONLY_SELF_MESSAGE = 'Solo puedes asignarte a ti. Para pasarlo a otra persona, pídeselo a tu líder.';

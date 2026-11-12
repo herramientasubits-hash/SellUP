@@ -58,6 +58,10 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.deepEqual(hrefs(getVisibleNavItems(mainNavItems, adminCtx)), hrefs(mainNavItems));
   });
 
+  it('Growth does NOT see Uso de IA (dueña 12-11)', () => {
+    assert.ok(!hrefs(getVisibleNavItems(mainNavItems, { isAdmin: false, roleKey: 'growth' })).includes('/ai-usage'));
+  });
+
   it('seller_bd does NOT see Uso de IA nor Configuración', () => {
     const visible = hrefs(getVisibleNavItems(mainNavItems, sellerCtx));
     assert.ok(!visible.includes('/ai-usage'), 'Uso de IA must be hidden for seller_bd');
@@ -84,11 +88,11 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.equal(routes.indexOf(ROI_CALCULATOR_ROUTE), routes.indexOf(SOURCE_CATALOG_ROUTE) + 1);
   });
 
-  it('commercial_manager and commercial_lead match seller_bd today (admin-only Uso de IA while ENABLE_COMMERCIAL_SCOPE is off)', () => {
+  it('commercial_manager and commercial_lead see Uso de IA (their team, dueña 12-11) but not Configuración', () => {
     const managerVisible = hrefs(getVisibleNavItems(mainNavItems, managerCtx));
     const leadVisible = hrefs(getVisibleNavItems(mainNavItems, leadCtx));
     for (const visible of [managerVisible, leadVisible]) {
-      assert.ok(!visible.includes('/ai-usage'));
+      assert.ok(visible.includes('/ai-usage'));
       assert.ok(!visible.includes('/settings'));
       assert.ok(visible.includes('/accounts'));
       assert.ok(visible.includes('/contacts'));
