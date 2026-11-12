@@ -6,6 +6,7 @@ import {
   memberLine,
   namesText,
   bulletinPeriod,
+  bulletinPeriodContaining,
   isBulletinDue,
   periodBounds,
   renderBulletinBlocks,
@@ -56,6 +57,22 @@ describe('períodos del boletín (hora de Bogotá)', () => {
     assert.equal(isBulletinDue('monthly', new Date('2026-12-01T13:15:00Z')), true);
     assert.equal(isBulletinDue('quarterly', new Date('2026-12-01T13:15:00Z')), false);
     assert.equal(isBulletinDue('quarterly', new Date('2027-01-01T13:15:00Z')), true);
+  });
+
+  it('el período que contiene una fecha (para ver boletines pasados)', () => {
+    const w = bulletinPeriodContaining('weekly', '2026-11-12');
+    assert.deepEqual([w.start, w.end], ['2026-11-09', '2026-11-15']);
+    const sun = bulletinPeriodContaining('weekly', '2026-11-15');
+    assert.deepEqual([sun.start, sun.end], ['2026-11-09', '2026-11-15'], 'el domingo es de esa semana');
+    const d = bulletinPeriodContaining('daily', '2026-11-12');
+    assert.deepEqual([d.start, d.end], ['2026-11-12', '2026-11-12']);
+    const ds = bulletinPeriodContaining('daily', '2026-11-15');
+    assert.deepEqual([ds.start, ds.end], ['2026-11-13', '2026-11-15'], 'domingo = bloque viernes a domingo');
+    const m = bulletinPeriodContaining('monthly', '2026-10-31');
+    assert.deepEqual([m.start, m.end], ['2026-10-01', '2026-10-31']);
+    const q = bulletinPeriodContaining('quarterly', '2026-12-31');
+    assert.deepEqual([q.start, q.end], ['2026-10-01', '2026-12-31']);
+    assert.throws(() => bulletinPeriodContaining('weekly', '12/11/2026'));
   });
 
   it('los días de Bogotá en UTC', () => {

@@ -116,12 +116,14 @@ export interface BulletinDeliveryRow {
 }
 
 /** Historial: los últimos envíos (sin el modelo, que se pide al abrir uno). */
-export async function listBulletinDeliveries(admin: SupabaseClient, limit = 100): Promise<BulletinDeliveryRow[]> {
-  const { data, error } = await admin
+export async function listBulletinDeliveries(admin: SupabaseClient, limit = 100, recipientId?: string): Promise<BulletinDeliveryRow[]> {
+  let query = admin
     .from('slack_bulletin_deliveries')
     .select('id, recipient_user_id, frequency, period_start, period_end, status, triggered_by, created_at, recipient:internal_users!slack_bulletin_deliveries_recipient_user_id_fkey(full_name, email)')
     .order('created_at', { ascending: false })
     .limit(limit);
+  if (recipientId) query = query.eq('recipient_user_id', recipientId);
+  const { data, error } = await query;
   if (error) return [];
   return ((data ?? []) as unknown as Array<{
     id: string;
@@ -146,8 +148,10 @@ export async function listBulletinDeliveries(admin: SupabaseClient, limit = 100)
   }));
 }
 
-export async function readBulletinDelivery(admin: SupabaseClient, id: string): Promise<BulletinModel | null> {
-  const { data } = await admin.from('slack_bulletin_deliveries').select('model').eq('id', id).maybeSingle();
+export async function readBulletinDelivery(admin: SupabaseClient, id: string, recipientId?: string): Promise<BulletinModel | null> {
+  let query = admin.from('slack_bulletin_deliveries').select('model').eq('id', id);
+  if (recipientId) query = query.eq('recipient_user_id', recipientId);
+  const { data } = await query.maybeSingle();
   const model = (data as { model: BulletinModel } | null)?.model ?? null;
   return model && typeof model === 'object' && 'pulse' in model ? model : null;
 }

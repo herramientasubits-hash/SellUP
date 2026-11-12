@@ -292,7 +292,7 @@ describe('Cabecera — el buscador sigue llegando a Configuración', () => {
 
     assert.deepEqual(
       options().filter((label) => label?.startsWith('Configuración')),
-      ['Configuración, Actividad de la plataforma', 'Configuración, Mi Google Drive'],
+      ['Configuración, Actividad de la plataforma', 'Configuración, Mi Google Drive', 'Configuración, Mis avisos de Slack'],
     );
     assert.equal(options().includes('Catálogo de fuentes'), false);
   });

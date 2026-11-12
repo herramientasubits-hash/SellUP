@@ -1,6 +1,7 @@
 import {
   Activity,
   Bell,
+  MessageSquare,
   HardDrive,
   Layers,
   Link2,
@@ -97,6 +98,14 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description: "Conecta tu Drive para guardar ahí las propuestas y los archivos que genera SellUp.",
     href: "/settings/my-drive",
     icon: HardDrive,
+    access: "active",
+  },
+  {
+    id: "my-notifications",
+    title: "Mis avisos de Slack",
+    description: "Elige qué avisos y qué boletines te llegan por Slack, y mira tu boletín y los que ya recibiste.",
+    href: "/settings/my-notifications",
+    icon: MessageSquare,
     access: "active",
   },
 ];
