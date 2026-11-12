@@ -10,11 +10,12 @@
 //
 // Reglas (las mismas del completado de vacíos al aprobar, #612 / #828):
 //   * SÓLO se completan propiedades VACÍAS en HubSpot. Nunca se sobrescribe lo que el CRM tiene.
-//   * Sólo viajan los canales que el reveal produce: `phone` / `mobilephone`, `hs_linkedin_url` y
-//     el correo. Nombre y cargo no: el candidato los trajo de HubSpot.
-//   * Teléfonos (AGENT2A-REVEAL-PHONE-SLOTS, `planRevealedPhonesForHubSpot`): primero `phone`; si
-//     ya tiene un número DISTINTO, el revelado va a `mobilephone`; sin números y con dos
-//     revelados, uno a cada campo. Un número que HubSpot ya tiene no viaja otra vez.
+//   * Sólo viajan los canales que el reveal produce: teléfonos, `hs_linkedin_url` y el correo.
+//     Nombre y cargo no: el candidato los trajo de HubSpot.
+//   * Teléfonos (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER, `planRevealedPhonesForHubSpot`): cada número
+//     que HubSpot no tiene va al PRIMER campo vacío de `phone` → `mobilephone` → `company_phone`
+//     → `telefono_2` (los dos últimos apagados hasta que se apruebe su uso). Un campo en uso se
+//     salta. Un número que HubSpot ya tiene, en cualquiera de esos campos, no viaja otra vez.
 //   * El contacto de HubSpot se resuelve por el emparejamiento del candidato y, si no lo hay, por
 //     el contacto OFICIAL que creó su aprobación (`matched_contacts_id` → `hubspot_contact_id`):
 //     un candidato de Apollo/Lusha aprobado vive en HubSpot por esa vía.

@@ -9,6 +9,7 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import {
   HUBSPOT_FILL_EMPTY_PROPERTY_NAMES,
+  isHubSpotFillPropertyWritable,
   buildHubSpotContactUpdateProperties,
   type HubSpotContactCreateInput,
   type HubSpotContactFillProperties,
@@ -441,15 +442,29 @@ async function patchHubSpotContactProperties(
 }
 
 /**
+ * Propiedades que, si HubSpot rechaza el PATCH con 400, se quitan para reintentar UNA vez:
+ * nunca deben impedir que `phone` / `mobilephone` (y nombre / cargo) lleguen.
+ */
+const HUBSPOT_FILL_OPTIONAL_PROPERTY_NAMES: readonly HubSpotFillEmptyPropertyName[] = [
+  'hs_linkedin_url',
+  'company_phone',
+  'telefono_2',
+];
+
+/**
  * Completa SÓLO propiedades vacías de un contacto que ya existía en HubSpot
  * (AGENT2A-HUBSPOT-FILL-EMPTY-ON-APPROVAL).
  *
  * Quien decide QUÉ viaja es `buildHubSpotFillEmptyProperties` (motor puro); este adaptador sólo
  * descarta valores vacíos —una cadena vacía BORRARÍA la propiedad en HubSpot— y hace el PATCH.
  *
- * `hs_linkedin_url` es la única propiedad nueva en escritura. Si HubSpot rechaza el cuerpo con
- * 400 y lo llevaba, se reintenta UNA vez sin ella: un portal que la tenga restringida no puede
- * impedir que el teléfono llegue.
+ * Propiedades opcionales (`hs_linkedin_url`, `company_phone`, `telefono_2`): si HubSpot rechaza
+ * el cuerpo con 400 y llevaba alguna, se reintenta UNA vez sin ellas. Un portal que las tenga
+ * restringidas (o un formato que su validación no acepte) no puede impedir que `phone` /
+ * `mobilephone` lleguen.
+ *
+ * AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER: un campo de teléfono APAGADO
+ * (`HUBSPOT_PHONE_SLOT_WRITE_ENABLED`) nunca se envía, aunque el llamador lo pase.
  */
 export async function fillEmptyHubSpotContactProperties(
   hubspotContactId: string,
@@ -457,6 +472,7 @@ export async function fillEmptyHubSpotContactProperties(
 ): Promise<{ ok: true; written: HubSpotFillEmptyPropertyName[] } | { error: string }> {
   const properties: Record<string, string> = {};
   for (const name of HUBSPOT_FILL_EMPTY_PROPERTY_NAMES) {
+    if (!isHubSpotFillPropertyWritable(name)) continue;
     const value = input[name];
     if (typeof value === 'string' && value.trim().length > 0) properties[name] = value.trim();
   }
@@ -470,8 +486,9 @@ export async function fillEmptyHubSpotContactProperties(
     const first = await patchHubSpotContactProperties(token, hubspotContactId, properties);
     if ('ok' in first) return { ok: true, written: names() };
 
-    if (first.status === 400 && 'hs_linkedin_url' in properties) {
-      delete properties.hs_linkedin_url;
+    const optionalSent = HUBSPOT_FILL_OPTIONAL_PROPERTY_NAMES.filter((name) => name in properties);
+    if (first.status === 400 && optionalSent.length > 0) {
+      for (const name of optionalSent) delete properties[name];
       if (names().length === 0) return { error: 'HUBSPOT_FILL_HTTP_400' };
       const retry = await patchHubSpotContactProperties(token, hubspotContactId, properties);
       if ('ok' in retry) return { ok: true, written: names() };

@@ -112,13 +112,27 @@ test('vinculado al aprobar: completa teléfono y LinkedIn vacíos en HubSpot y q
   assert.equal(fillBlock(spy)?.outcome, 'filled');
 });
 
-test('nunca sobrescribe lo que HubSpot ya tiene', async () => {
+test('nunca sobrescribe lo que HubSpot ya tiene: `phone` en uso ⇒ el número va a `mobilephone`', async () => {
   const spy = fresh();
   await runSyncContactToHubSpot(
     'contact-1',
     deps(spy, {
       id: 'hs-123',
       properties: { firstname: 'A', lastname: 'F', jobtitle: 'CEO', phone: '+1 999', mobilephone: null, hs_linkedin_url: 'https://www.linkedin.com/in/otra' },
+    }),
+  );
+  // AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER: `phone` tiene OTRO número ⇒ se salta; nada se pisa.
+  assert.deepEqual(spy.fills, [{ id: 'hs-123', props: { mobilephone: '+57 1 555 0000' } }]);
+  assert.equal(fillBlock(spy)?.outcome, 'filled');
+});
+
+test('nada que completar: los campos de teléfono en uso y el resto lleno', async () => {
+  const spy = fresh();
+  await runSyncContactToHubSpot(
+    'contact-1',
+    deps(spy, {
+      id: 'hs-123',
+      properties: { firstname: 'A', lastname: 'F', jobtitle: 'CEO', phone: '+1 999', mobilephone: '+1 888', hs_linkedin_url: 'https://www.linkedin.com/in/otra' },
     }),
   );
   assert.equal(spy.fills.length, 0);
