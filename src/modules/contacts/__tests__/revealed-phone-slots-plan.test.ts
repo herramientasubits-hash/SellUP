@@ -1,7 +1,7 @@
 /**
  * AGENT2A-REVEAL-PHONE-SLOTS + AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER — la regla ÚNICA que decide a
  * qué campo de HubSpot va un teléfono: cada número que HubSpot no tiene va al PRIMER campo vacío
- * de `phone` → `mobilephone` → `company_phone` → `telefono_2` (los dos últimos apagados por ahora).
+ * de `phone` → `mobilephone` → `company_phone` → `telefono_alterno` (`company_phone` apagado por ahora).
  * Nunca se sobrescribe ni se reenvía un número que ya está.
  */
 
@@ -120,41 +120,62 @@ describe('isSameHubSpotPhone', () => {
 
 // ── AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER ──────────────────────────────────────────
 
-const ALL_ON = { phone: true, mobilephone: true, company_phone: true, telefono_2: true } as const;
-const ALL_EMPTY = { phone: null, mobilephone: null, company_phone: null, telefono_2: null };
+const ALL_ON = { phone: true, mobilephone: true, company_phone: true, telefono_alterno: true } as const;
+const ALL_EMPTY = { phone: null, mobilephone: null, company_phone: null, telefono_alterno: null };
 
 describe('orden de campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', () => {
-  it('el orden es phone → mobilephone → company_phone → telefono_2', () => {
-    assert.deepEqual([...HUBSPOT_PHONE_SLOT_ORDER], ['phone', 'mobilephone', 'company_phone', 'telefono_2']);
+  it('el orden es phone → mobilephone → company_phone → telefono_alterno', () => {
+    assert.deepEqual([...HUBSPOT_PHONE_SLOT_ORDER], ['phone', 'mobilephone', 'company_phone', 'telefono_alterno']);
   });
 
-  it('hoy sólo se escriben `phone` y `mobilephone` (company_phone y telefono_2 apagados)', () => {
+  it('hoy se escriben `phone`, `mobilephone` y `telefono_alterno` (company_phone apagado)', () => {
     assert.deepEqual(HUBSPOT_PHONE_SLOT_WRITE_ENABLED, {
       phone: true,
       mobilephone: true,
       company_phone: false,
-      telefono_2: false,
+      telefono_alterno: true,
     });
     assert.equal(isHubSpotFillPropertyWritable('company_phone'), false);
-    assert.equal(isHubSpotFillPropertyWritable('telefono_2'), false);
+    assert.equal(isHubSpotFillPropertyWritable('telefono_alterno'), true);
     assert.equal(isHubSpotFillPropertyWritable('phone'), true);
     assert.equal(isHubSpotFillPropertyWritable('hs_linkedin_url'), true);
   });
 
-  it('apagados: phone y mobilephone llenos ⇒ nada viaja aunque company_phone / telefono_2 estén vacíos', () => {
+  it('config actual: phone y mobilephone llenos ⇒ el número salta company_phone (apagado) y va a telefono_alterno', () => {
     assert.deepEqual(
       planRevealedPhonesForHubSpot([{ phone: '+57 300 111 2222' }], {
         ...ALL_EMPTY,
         phone: '+57 601 555 0000',
         mobilephone: '+57 310 000 0000',
       }),
+      { telefono_alterno: '+57 300 111 2222' },
+    );
+  });
+
+  it('config actual: tres números en un contacto vacío ⇒ phone, mobilephone y telefono_alterno', () => {
+    assert.deepEqual(
+      planRevealedPhonesForHubSpot(
+        [{ phone: '+57 300 111 2222' }, { phone: '+57 315 444 5555' }, { phone: '+57 320 999 8888' }],
+        ALL_EMPTY,
+      ),
+      { phone: '+57 300 111 2222', mobilephone: '+57 315 444 5555', telefono_alterno: '+57 320 999 8888' },
+    );
+  });
+
+  it('todos apagados salvo phone/mobilephone: llenos ⇒ nada viaja', () => {
+    assert.deepEqual(
+      planRevealedPhonesForHubSpot(
+        [{ phone: '+57 300 111 2222' }],
+        { ...ALL_EMPTY, phone: '+57 601 555 0000', mobilephone: '+57 310 000 0000' },
+        { phone: true, mobilephone: true, company_phone: false, telefono_alterno: false },
+      ),
       {},
     );
   });
 
-  it('apagados pero leídos: un número que HubSpot ya tiene en telefono_2 no se reenvía a `phone`', () => {
+  it('leídos: un número que HubSpot ya tiene en telefono_alterno / company_phone no se reenvía a `phone`', () => {
     assert.deepEqual(
-      planRevealedPhonesForHubSpot([{ phone: '+57 300 111 2222' }], { ...ALL_EMPTY, telefono_2: '3001112222' }),
+      planRevealedPhonesForHubSpot([{ phone: '+57 300 111 2222' }], { ...ALL_EMPTY, telefono_alterno: '3001112222' }),
       {},
     );
     assert.deepEqual(
@@ -174,14 +195,14 @@ describe('orden de campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', () 
     );
   });
 
-  it('encendidos: con los tres primeros en uso, el número va a telefono_2', () => {
+  it('encendidos: con los tres primeros en uso, el número va a telefono_alterno (tal cual, tipo teléfono)', () => {
     assert.deepEqual(
       planRevealedPhonesForHubSpot(
         [{ phone: '+57 300 111 2222' }],
-        { phone: '+57 601 555 0000', mobilephone: '+57 310 000 0000', company_phone: '+57 601 777 0000', telefono_2: '' },
+        { phone: '+57 601 555 0000', mobilephone: '+57 310 000 0000', company_phone: '+57 601 777 0000', telefono_alterno: '' },
         ALL_ON,
       ),
-      { telefono_2: '573001112222' },
+      { telefono_alterno: '+57 300 111 2222' },
     );
   });
 
@@ -189,10 +210,10 @@ describe('orden de campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', () 
     assert.deepEqual(
       planRevealedPhonesForHubSpot(
         [{ phone: '+57 300 111 2222' }, { phone: '+57 315 444 5555' }, { phone: '+57 320 999 8888' }],
-        { phone: null, mobilephone: '+57 310 000 0000', company_phone: null, telefono_2: null },
+        { phone: null, mobilephone: '+57 310 000 0000', company_phone: null, telefono_alterno: null },
         ALL_ON,
       ),
-      { phone: '+57 300 111 2222', company_phone: '+57 315 444 5555', telefono_2: '573209998888' },
+      { phone: '+57 300 111 2222', company_phone: '+57 315 444 5555', telefono_alterno: '+57 320 999 8888' },
     );
   });
 
@@ -200,14 +221,14 @@ describe('orden de campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', () 
     assert.deepEqual(
       planRevealedPhonesForHubSpot(
         [{ phone: '+57 300 111 2222' }],
-        { phone: '1', mobilephone: '2', company_phone: '3', telefono_2: '4' },
+        { phone: '1', mobilephone: '2', company_phone: '3', telefono_alterno: '4' },
         ALL_ON,
       ),
       {},
     );
   });
 
-  it('encendidos pero SIN leer company_phone / telefono_2 ⇒ no se escriben (no saber no autoriza)', () => {
+  it('encendidos pero SIN leer company_phone / telefono_alterno ⇒ no se escriben (no saber no autoriza)', () => {
     assert.deepEqual(
       planRevealedPhonesForHubSpot(
         [{ phone: '+57 300 111 2222' }],
@@ -220,23 +241,23 @@ describe('orden de campos de teléfono (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', () 
 });
 
 describe('formatPhoneForHubSpotSlot', () => {
-  it('`telefono_2` es de tipo número en HubSpot: viaja sólo con dígitos', () => {
-    assert.equal(formatPhoneForHubSpotSlot('telefono_2', '+57 (300) 111-2222'), '573001112222');
+  it('`telefono_alterno` es de tipo teléfono: viaja tal cual (ya no se fuerzan dígitos)', () => {
+    assert.equal(formatPhoneForHubSpotSlot('telefono_alterno', '+57 (300) 111-2222'), '+57 (300) 111-2222');
   });
   it('los demás campos viajan tal cual', () => {
     assert.equal(formatPhoneForHubSpotSlot('phone', '+57 300 111 2222'), '+57 300 111 2222');
     assert.equal(formatPhoneForHubSpotSlot('company_phone', '+57 601 555 0000'), '+57 601 555 0000');
   });
-  it('sin dígitos no hay valor para `telefono_2`', () => {
-    assert.equal(formatPhoneForHubSpotSlot('telefono_2', 'ext.'), null);
+  it('vacío no hay valor', () => {
+    assert.equal(formatPhoneForHubSpotSlot('telefono_alterno', '   '), null);
   });
-  it('un número que HubSpot guardó en `telefono_2` como dígitos cuenta como el mismo', () => {
+  it('un número que HubSpot guardó en `telefono_alterno` como dígitos cuenta como el mismo', () => {
     assert.deepEqual(
       planRevealedPhonesForHubSpot([{ phone: '+57 300 111 2222' }], {
         phone: null,
         mobilephone: null,
         company_phone: null,
-        telefono_2: '573001112222',
+        telefono_alterno: '573001112222',
       }),
       {},
     );

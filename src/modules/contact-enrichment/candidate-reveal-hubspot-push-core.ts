@@ -14,7 +14,7 @@
 //     Nombre y cargo no: el candidato los trajo de HubSpot.
 //   * Teléfonos (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER, `planRevealedPhonesForHubSpot`): cada número
 //     que HubSpot no tiene va al PRIMER campo vacío de `phone` → `mobilephone` → `company_phone`
-//     → `telefono_2` (los dos últimos apagados hasta que se apruebe su uso). Un campo en uso se
+//     → `telefono_alterno` (`company_phone` apagado hasta que se apruebe su uso). Un campo en uso se
 //     salta. Un número que HubSpot ya tiene, en cualquiera de esos campos, no viaja otra vez.
 //   * El contacto de HubSpot se resuelve por el emparejamiento del candidato y, si no lo hay, por
 //     el contacto OFICIAL que creó su aprobación (`matched_contacts_id` → `hubspot_contact_id`):
