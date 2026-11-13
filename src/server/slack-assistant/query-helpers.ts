@@ -156,3 +156,37 @@ export function cascadeIds(rootId: string, rows: ReadonlyArray<{ id: string; man
   }
   return out;
 }
+
+/**
+ * Lotes cuyo RESPONSABLE es alguien de `users` (regla de `resolveCandidateResponsibleId`):
+ * el dueño del lote o, si el lote no tiene dueño, quien lo creó. Sirve para
+ * contar «lo mío» / los pendientes de una persona: un lote que creó alguien
+ * pero tiene otro dueño NO es suyo.
+ */
+export function effectiveBatchOwnerClause(users: readonly string[]): string {
+  const list = users.join(',');
+  return `owner_id.in.(${list}),and(owner_id.is.null,created_by.in.(${list}))`;
+}
+
+/**
+ * «De Carla» no se pudo resolver a personas de forma segura: varias coinciden,
+ * ninguna, o las que coinciden están fuera del alcance de quien pregunta.
+ * Las herramientas lo devuelven como respuesta (no como error) para que el
+ * asistente pregunte a quién se refiere en vez de sumar o decir «0».
+ */
+export class PersonFilterProblem extends Error {
+  constructor(
+    readonly problema: 'varias_personas' | 'sin_coincidencias' | 'fuera_de_alcance',
+    readonly persona: string,
+    readonly opciones: readonly string[] = [],
+  ) {
+    super(
+      problema === 'varias_personas'
+        ? `Hay varias personas que coinciden con «${persona}»: pregunta a cuál se refiere.`
+        : problema === 'fuera_de_alcance'
+          ? `«${persona}» está fuera de tu alcance: sólo ves lo de tu rol.`
+          : `No encontré a nadie que coincida con «${persona}».`,
+    );
+    this.name = 'PersonFilterProblem';
+  }
+}

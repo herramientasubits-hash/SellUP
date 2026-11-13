@@ -4,15 +4,23 @@
 // 2) qué puede ver (alcance comercial por rol),
 // 3) Claude responde con herramientas de sólo lectura,
 // 4) la respuesta vuelve a Slack y la consulta queda en Uso de IA.
+// Mención en un canal (dueña 13-11): la respuesta y los botones van por mensaje
+// directo a quien preguntó; en el hilo del canal sólo una nota neutra.
 // Nunca lanza: cualquier falla se le explica a la persona en Slack.
 // ============================================================
 
+import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveCommercialScopeForUser } from '@/modules/access/commercial-scope-core.server';
 import { roleLabelFor } from '@/modules/access/role-labels';
 import { sellupLoginUrl } from '@/modules/access/slack-invitation.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
-import { getSlackConversationHistory, getSlackUserEmail, postSlackMessage } from '@/server/services/slack-connection';
+import {
+  getSlackConversationHistory,
+  getSlackUserEmail,
+  openSlackDirectChannel,
+  postSlackMessage,
+} from '@/server/services/slack-connection';
 import { runAnthropicConversation } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { resolveActiveAnthropicModel } from '@/server/agents/prospecting-toolkit/claude-classifier/classify-batch-candidates.server';
 import { estimateClassifierCost } from '@/server/agents/prospecting-toolkit/claude-classifier/cost';
@@ -27,6 +35,9 @@ import { lookupHelp } from './help/lookup';
 import { HELP_TOPICS } from './help/topics';
 import { ACTION_TTL_SECONDS, proposalBlocks } from './action-proposal';
 import type { ProposedAction } from './tools';
+import { findInternalUserBySlackEmail } from './asker-lookup.server';
+import { planSlackDelivery } from './delivery';
+import { createTeamScopeResolver } from './team-scope.server';
 
 export const SLACK_ASSISTANT_AGENT_KEY = 'slack_assistant';
 export const SLACK_ASSISTANT_STEP = 'responder_pregunta';
@@ -42,6 +53,8 @@ export interface SlackQuestion {
   text: string;
   source: 'direct_message' | 'mention';
   eventId: string | null;
+  /** App de Slack del evento (para no tomar como propios mensajes de otros bots). */
+  apiAppId?: string | null;
 }
 
 interface AskerRow {
@@ -49,6 +62,7 @@ interface AskerRow {
   email: string | null;
   full_name: string | null;
   group_id: string | null;
+  auth_user_id: string | null;
   access_status: string;
   roles: { key: string } | null;
 }
@@ -58,7 +72,28 @@ function bogotaToday(now: Date): string {
 }
 
 export async function handleSlackQuestion(question: SlackQuestion): Promise<void> {
-  const reply = (text: string) => postSlackMessage({ channel: question.channel, text, threadTs: question.threadTs });
+  // Mención en un canal: todo lo que dice SellUp va por mensaje directo.
+  const directChannel =
+    question.source === 'mention' ? await openSlackDirectChannel(question.slackUserId).catch(() => null) : null;
+  const plan = planSlackDelivery(question, directChannel, {
+    answered: SLACK_ASSISTANT_COPY.answeredByDirectMessage,
+    failed: SLACK_ASSISTANT_COPY.directMessageFailed,
+  });
+  const answerTo = plan.answer;
+  let noteSent = false;
+  const sendThreadNote = async () => {
+    if (!plan.threadNote || noteSent) return;
+    noteSent = true;
+    await postSlackMessage({ channel: plan.threadNote.channel, threadTs: plan.threadNote.threadTs, text: plan.threadNote.text });
+  };
+  if (!answerTo) {
+    await sendThreadNote();
+    return;
+  }
+  const reply = async (text: string) => {
+    await postSlackMessage({ channel: answerTo.channel, text, threadTs: answerTo.threadTs });
+    await sendThreadNote();
+  };
 
   try {
     const email = await getSlackUserEmail(question.slackUserId);
@@ -68,11 +103,11 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
     }
 
     const admin = createSupabaseAdminClient();
-    const { data: asker } = await admin
-      .from('internal_users')
-      .select('id, email, full_name, group_id, access_status, roles(key)')
-      .ilike('email', email)
-      .maybeSingle<AskerRow>();
+    const asker = await findInternalUserBySlackEmail<AskerRow>(
+      admin,
+      email,
+      'id, email, full_name, group_id, auth_user_id, access_status, roles(key)',
+    );
     if (!asker) {
       await reply(SLACK_ASSISTANT_COPY.notInSellUp);
       return;
@@ -104,7 +139,14 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
       beforeTs: question.messageTs,
       limit: HISTORY_MAX_MESSAGES + 4,
     });
-    const conversation = buildConversationTurns(history, question.text, question.messageTs);
+    // Sólo lo que dijo quien pregunta y lo que respondió el asistente: en un hilo de
+    // canal, lo que escribieron otras personas no es su conversación.
+    const conversation = buildConversationTurns(history, question.text, question.messageTs, {
+      askerSlackId: question.slackUserId,
+      ownAppId: question.apiAppId ?? null,
+    });
+    // Sin `auth_user_id` (nunca entró a SellUp) no hay sesión con qué confirmar: no se le proponen acciones.
+    const canAct = Boolean(asker.auth_user_id);
     const appUrl = sellupLoginUrl().replace(/\/login$/, '');
 
     let proposed: ProposedAction | null = null;
@@ -120,6 +162,7 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
         apiKey: active.apiKey,
         today: bogotaToday(now),
         appUrl,
+        actionsUnavailableNote: canAct ? null : SLACK_ASSISTANT_COPY.mustSignInFirst,
       },
       {
         runConversation: (body, apiKey) => runAnthropicConversation({ apiKey, body, deadlineAtMs, timeoutMs: 40_000 }),
@@ -129,35 +172,41 @@ export async function handleSlackQuestion(question: SlackQuestion): Promise<void
             now,
             askerId: asker.id,
             moneyVisible: canSeeMoney({ viewAll: scope.canViewAll, roleKey }),
+            // «mi equipo» (admin) y «el equipo de Carla»: grupo ∪ reportes, como la plataforma.
+            resolveTeam: createTeamScopeResolver(admin),
           }),
           // Guía de uso: fichas escritas desde el código, filtradas por el rol.
           help: (query) => lookupHelp(HELP_TOPICS, query, { roleKey, isAdmin: scope.canViewAll, appUrl, env: process.env }),
         },
         // Aprobar, descartar y asignar: sólo se PROPONEN; la persona confirma con un botón.
-        actions: {
-          resolver: createAssistantActionResolver(admin, scope),
-          isAdmin: scope.canViewAll,
-          actor: { id: asker.id, roleKey },
-          propose: (proposal) => {
-            proposed = proposal;
-          },
-        },
+        actions: canAct
+          ? {
+              resolver: createAssistantActionResolver(admin, scope),
+              isAdmin: scope.canViewAll,
+              actor: { id: asker.id, roleKey },
+              propose: (proposal) => {
+                proposed = proposal;
+              },
+            }
+          : null,
         // Usuarios, catálogos y presupuesto: sólo un administrador (como en la plataforma).
         adminData: scope.canViewAll ? createAssistantAdminDataSource(admin, { appUrl, now }) : null,
       },
     );
 
     await reply(result.answer);
-    // La propuesta va aparte, con sus botones (vale sólo para quien preguntó, 30 min).
+    // La propuesta va aparte, con sus botones (vale sólo para quien preguntó, 30 min),
+    // en el mismo lugar que la respuesta (por mensaje directo si fue una mención).
     const proposal = proposed as ProposedAction | null;
-    if (proposal && result.status === 'success') {
+    if (proposal && canAct && result.status === 'success') {
       const message = proposalBlocks({
         ...proposal,
         askerId: asker.id,
         askerSlackId: question.slackUserId,
         expiresAt: Math.floor(Date.now() / 1000) + ACTION_TTL_SECONDS,
+        nonce: randomUUID(),
       });
-      await postSlackMessage({ channel: question.channel, threadTs: question.threadTs, text: message.text, blocks: message.blocks });
+      await postSlackMessage({ channel: answerTo.channel, threadTs: answerTo.threadTs, text: message.text, blocks: message.blocks });
     }
 
     if (result.requests > 0 || result.errorCode) {

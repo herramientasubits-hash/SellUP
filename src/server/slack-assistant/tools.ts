@@ -45,6 +45,7 @@ import {
   type RumboChannel,
 } from './action-proposal';
 import { ASSIGN_ONLY_SELF_MESSAGE, canAssignTo } from '@/modules/assignment/assignment-core';
+import { PersonFilterProblem } from './query-helpers';
 import { composeDiscardReason, validateDiscardReason } from '@/modules/prospect-review/discard-reason';
 
 export type * from './tool-types';
@@ -238,7 +239,7 @@ export const COMMERCIAL_TOOLS = [
   {
     name: 'uso_de_ia',
     description:
-      'Uso de IA y costos con el alcance del rol (admin: todo; líder: su equipo en cascada; vendedor: lo suyo): consultas a proveedores (Claude, Apollo, Lusha, Tavily…), errores, créditos y costo en dólares (sólo admin y líderes ven dólares) por proveedor y por persona; hoy, últimos 7 días o mes en curso. Opcional: de una persona.',
+      'Uso de IA y costos con el alcance del rol (admin: todo; manager y líder: su equipo en cascada): consultas a proveedores (Claude, Apollo, Lusha, Tavily…), errores, créditos y costo en dólares por proveedor y por persona; hoy, últimos 7 días o mes en curso. Opcional: de una persona.',
     input_schema: {
       type: 'object',
       properties: {
@@ -439,10 +440,15 @@ const ADMIN_TOOL_NAMES: ReadonlySet<string> = new Set(ADMIN_TOOLS.map((t) => t.n
 export function toolsForRole(
   isAdmin: boolean,
   usageVisible = true,
+  actionsAvailable = true,
 ): ReadonlyArray<(typeof COMMERCIAL_TOOLS)[number] | (typeof ADMIN_TOOLS)[number]> {
   // Uso de IA no es de vendedores ni Growth (dueña 12-11): ni se les ofrece.
-  const commercial = usageVisible ? [...COMMERCIAL_TOOLS] : COMMERCIAL_TOOLS.filter((t) => t.name !== 'uso_de_ia');
-  return isAdmin ? [...commercial, ...ADMIN_TOOLS] : commercial;
+  // Sin acciones (p. ej. nunca entró a SellUp y no hay sesión con qué confirmar): sin proponer_*.
+  const commercial = COMMERCIAL_TOOLS.filter(
+    (t) => (usageVisible || t.name !== 'uso_de_ia') && (actionsAvailable || !t.name.startsWith('proponer_')),
+  );
+  const admin = actionsAvailable ? [...ADMIN_TOOLS] : ADMIN_TOOLS.filter((t) => !t.name.startsWith('proponer_'));
+  return isAdmin ? [...commercial, ...admin] : commercial;
 }
 
 const ACCOUNT_STATES = new Set(['new', 'ready_for_research', 'research_in_progress', 'ready_for_outreach']);
@@ -573,6 +579,11 @@ export async function runAssistantTool(
         return fail(`Herramienta desconocida: ${name}`);
     }
   } catch (error) {
+    // «De Carla» ambiguo, inexistente o fuera del alcance: se responde (no es un error)
+    // para que el asistente pregunte a quién se refiere en vez de sumar o decir 0.
+    if (error instanceof PersonFilterProblem) {
+      return ok({ problema: error.problema, persona: error.persona, nota: error.message, opciones: [...error.opciones] });
+    }
     const message = error instanceof Error ? error.message : 'error';
     return fail(`No se pudo leer: ${message.slice(0, 200)}`);
   }

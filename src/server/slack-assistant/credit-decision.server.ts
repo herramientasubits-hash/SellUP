@@ -11,6 +11,7 @@ import { runAsUser } from '@/lib/supabase/borrowed-session.server';
 import { decideCreditApproval } from '@/modules/credit-approvals/actions';
 import { decodeCreditDecision } from '@/modules/notifications/credit-approval-slack';
 import { getSlackUserEmail, respondToSlackInteraction } from '@/server/services/slack-connection';
+import { findInternalUserBySlackEmail } from './asker-lookup.server';
 
 export async function handleCreditDecisionClick(input: {
   actionId: string | undefined;
@@ -25,10 +26,13 @@ export async function handleCreditDecisionClick(input: {
       return;
     }
     const email = await getSlackUserEmail(input.clickerSlackId);
-    const { data } = email
-      ? await createSupabaseAdminClient().from('internal_users').select('auth_user_id, access_status').ilike('email', email).maybeSingle()
-      : { data: null };
-    const person = data as { auth_user_id: string | null; access_status: string } | null;
+    const person = email
+      ? await findInternalUserBySlackEmail<{ auth_user_id: string | null; access_status: string }>(
+          createSupabaseAdminClient(),
+          email,
+          'auth_user_id, access_status',
+        )
+      : null;
     if (!person?.auth_user_id || person.access_status !== 'active') {
       await respondToSlackInteraction(input.responseUrl, 'No pude confirmar tu acceso activo a SellUp. No se decidió nada.', { replaceOriginal: false });
       return;

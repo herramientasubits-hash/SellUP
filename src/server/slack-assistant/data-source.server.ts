@@ -10,7 +10,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CommercialScope } from '@/modules/access/commercial-scope-logic';
 import { displayUserName } from '@/modules/access/user-names';
-import { buildCandidateOwnershipOrClause, intersectOptionalUserIds } from '@/modules/assignment/assignment-core';
+import {
+  buildCandidateOwnershipOrClause,
+  intersectOptionalUserIds,
+  resolveCandidateResponsibleId,
+} from '@/modules/assignment/assignment-core';
 import { PIPELINE_STATUS_LABELS, type PipelineStatus } from '@/modules/accounts/types';
 import {
   BATCH_STATUS_LABELS,
@@ -31,8 +35,10 @@ import {
   createdSince,
   day,
   cascadeIds,
+  effectiveBatchOwnerClause,
   ilikePattern,
   matchPeople,
+  PersonFilterProblem,
   PROSPECT_STATE_STATUSES,
   type PersonRow,
   round2,
@@ -107,6 +113,12 @@ export interface AssistantDataSourceOptions {
   now?: Date;
   /** Quien pregunta: para «mío» y «mi equipo». */
   askerId?: string;
+  /**
+   * La cascada de una persona con la regla de la plataforma (grupo ∪ reportes,
+   * ver `createTeamScopeResolver`). Para «mi equipo» de un administrador y «el
+   * equipo de Carla». Sin ella (pruebas), la cascada por `manager_id`.
+   */
+  resolveTeam?: (userId: string) => Promise<string[]>;
 }
 
 type UserLite = PersonRow & { manager_id: string | null };
@@ -159,51 +171,90 @@ export function createAssistantDataSource(
     return usersCache;
   }
 
+  /** La persona y su gente en cascada (regla de la plataforma si se inyectó). */
+  async function teamOf(userId: string): Promise<string[]> {
+    if (options.resolveTeam) return options.resolveTeam(userId);
+    return cascadeIds(userId, await allUsers());
+  }
+
+  /** Vendedor/Growth (o líder sin equipo): todo lo suyo es «sólo lo tuyo». */
+  const selfOnly = scope.isRestrictedToSelf && !scope.canViewAll;
+
   /**
    * De quién se leen los datos, SIEMPRE dentro del alcance del rol:
    * otra persona (por nombre parcial o correo, con o sin su equipo), lo propio,
    * el equipo de quien pregunta o todo su alcance. `null` = sin restricción.
+   * Si el nombre es ambiguo, no existe o está fuera del alcance, lanza
+   * `PersonFilterProblem` (la herramienta lo devuelve para preguntar).
    */
   async function peopleIds(who: WhoseFilter = {}): Promise<string[] | null> {
     const askerId = options.askerId;
     if (who.responsable) {
       const users = await allUsers();
       const found = matchPeople(users, who.responsable);
-      const ids = who.equipo ? found.flatMap((u) => cascadeIds(u.id, users)) : found.map((u) => u.id);
+      if (found.length === 0) throw new PersonFilterProblem('sin_coincidencias', who.responsable);
+      const visible = owners === null ? found : found.filter((u) => owners.includes(u.id));
+      if (visible.length === 0) throw new PersonFilterProblem('fuera_de_alcance', who.responsable);
+      if (visible.length > 1) {
+        throw new PersonFilterProblem(
+          'varias_personas',
+          who.responsable,
+          visible.slice(0, 8).map((u) => displayUserName(u) ?? u.email ?? u.id),
+        );
+      }
+      const person = visible[0];
+      const ids = who.equipo ? await teamOf(person.id) : [person.id];
       return intersectOptionalUserIds(owners, ids) ?? [];
     }
     if (who.de === 'mio' && askerId) return intersectOptionalUserIds(owners, [askerId]) ?? [];
     if (who.de === 'mi_equipo' && askerId) {
-      return intersectOptionalUserIds(owners, cascadeIds(askerId, await allUsers())) ?? [];
+      // Líder/manager: su alcance ES su equipo (grupo ∪ reportes, como la plataforma).
+      // Vendedor/Growth: sólo lo suyo. Admin: su cascada en el organigrama.
+      if (!scope.canViewAll) return owners ?? [];
+      return intersectOptionalUserIds(owners, await teamOf(askerId)) ?? [];
     }
     return owners;
+  }
+
+  /**
+   * «mío» o una sola persona: los prospectos se cuentan por su RESPONSABLE
+   * efectivo. Sin decir de quién, vale la visibilidad de la pantalla (lotes de
+   * los que es dueño o que creó).
+   */
+  function isPersonal(who: WhoseFilter = {}): boolean {
+    return who.de === 'mio' || (Boolean(who.responsable) && !who.equipo);
   }
 
   /** En palabras, de quién son los datos que se devuelven. */
   function whoseLabel(who: WhoseFilter = {}): string {
     if (who.responsable) return who.equipo ? `${who.responsable} y su equipo` : who.responsable;
-    if (who.de === 'mio' || (scope.isRestrictedToSelf && !scope.canViewAll)) return 'sólo lo tuyo';
+    if (who.de === 'mio' || selfOnly) return 'sólo lo tuyo';
     if (who.de === 'mi_equipo') return 'tú y tu equipo (en cascada por el organigrama)';
     return scope.canViewAll ? 'toda la plataforma' : 'tu equipo (en cascada por el organigrama)';
   }
 
-  /** Lotes cuyo dueño o creador está entre `users` (como la pantalla). */
-  async function batchesOwnedBy(users: string[]): Promise<string[]> {
+  /**
+   * Lotes de `users`. Alcance (como la pantalla): dueño o creador. Personal
+   * («mío», una persona): sólo los que son suyos de verdad — dueño o, sin
+   * dueño, creador — para no contarle lo de otro dueño.
+   */
+  async function batchesOwnedBy(users: string[], personal: boolean): Promise<string[]> {
     if (users.length === 0) return [];
-    const { data, error } = await admin.from('prospect_batches').select('id').or(batchScopeClause(users)).limit(5000);
+    const clause = personal ? effectiveBatchOwnerClause(users) : batchScopeClause(users);
+    const { data, error } = await admin.from('prospect_batches').select('id').or(clause).limit(5000);
     if (error) throw new Error(error.message);
     return (data ?? []).map((b) => b.id as string);
   }
 
   /** Cláusula «responsable efectivo» de un prospecto: asignado, o el del lote. */
-  async function candidateOwnership(users: string[] | null): Promise<string | null | ''> {
+  async function candidateOwnership(users: string[] | null, personal = false): Promise<string | null | ''> {
     if (users === null) return null;
     if (users.length === 0) return '';
-    return buildCandidateOwnershipOrClause(users, await batchesOwnedBy(users)) ?? '';
+    return buildCandidateOwnershipOrClause(users, await batchesOwnedBy(users, personal)) ?? '';
   }
 
-  async function countPending(users: string[] | null): Promise<number> {
-    const ownership = await candidateOwnership(users);
+  async function countPending(users: string[] | null, personal: boolean): Promise<number> {
+    const ownership = await candidateOwnership(users, personal);
     if (ownership === '') return 0;
     let query = admin
       .from('prospect_candidates')
@@ -243,7 +294,7 @@ export function createAssistantDataSource(
       if (visibleSince) contacts = contacts.gte('created_at', visibleSince);
       if (users) contacts = contacts.or(accountScopeClause(users), { referencedTable: 'accounts' });
 
-      const [acc, open, cont, pending] = await Promise.all([accounts, openBatches, contacts, countPending(users)]);
+      const [acc, open, cont, pending] = await Promise.all([accounts, openBatches, contacts, countPending(users, isPersonal(who))]);
       for (const res of [acc, open, cont]) if (res.error) throw new Error(res.error.message);
 
       const byStatus: Record<string, number> = {};
@@ -265,7 +316,7 @@ export function createAssistantDataSource(
     async prospects(filters, limit): Promise<AssistantProspectList> {
       const enlace = prospectsLink(appUrl, filters.estado, filters);
       const empty: AssistantProspectList = { estado: filters.estado, total: 0, mostrados: 0, enlace, prospectos: [] };
-      const ownership = await candidateOwnership(await peopleIds(filters));
+      const ownership = await candidateOwnership(await peopleIds(filters), isPersonal(filters));
       if (ownership === '') return empty;
 
       let batchIds: string[] | null = null;
@@ -283,7 +334,7 @@ export function createAssistantDataSource(
       let query = admin
         .from('prospect_candidates')
         .select(
-          'name, status, country, industry, company_size, employee_count, website, tax_identifier, tax_id, assigned_to, created_at, reviewed_by, reviewed_at, rejection_reason, review_notes, batch:prospect_batches!prospect_candidates_batch_id_fkey(name, owner_id)',
+          'name, status, country, industry, company_size, employee_count, website, tax_identifier, tax_id, assigned_to, created_at, reviewed_by, reviewed_at, rejection_reason, review_notes, batch:prospect_batches!prospect_candidates_batch_id_fkey(name, owner_id, created_by)',
           { count: 'exact' },
         )
         .order('created_at', { ascending: false })
@@ -323,16 +374,19 @@ export function createAssistantDataSource(
         reviewed_at: string | null;
         rejection_reason: string | null;
         review_notes: string | null;
-        batch: { name: string | null; owner_id: string | null } | null;
+        batch: { name: string | null; owner_id: string | null; created_by?: string | null } | null;
       }>;
-      const names = await namesOf(rows.flatMap((r) => [r.assigned_to ?? r.batch?.owner_id ?? null, r.reviewed_by]));
+      // Responsable efectivo (como la pantalla): asignado, dueño del lote o quien lo creó.
+      const responsibleOf = (r: (typeof rows)[number]) =>
+        resolveCandidateResponsibleId({ assignedTo: r.assigned_to, batchOwnerId: r.batch?.owner_id, batchCreatedBy: r.batch?.created_by });
+      const names = await namesOf(rows.flatMap((r) => [responsibleOf(r), r.reviewed_by]));
       return {
         estado: filters.estado,
         total: count ?? rows.length,
         mostrados: rows.length,
         enlace,
         prospectos: rows.map((r) => {
-          const ownerId = r.assigned_to ?? r.batch?.owner_id ?? null;
+          const ownerId = responsibleOf(r);
           const decided = r.status === 'discarded' || r.status === 'approved' || r.status === 'converted_to_account';
           return {
             nombre: r.name,
@@ -449,14 +503,15 @@ export function createAssistantDataSource(
 
       const a = rows[0];
       const accountId = a.id as string;
+      let contactsQuery = admin
+        .from('contacts')
+        .select(CONTACT_COLUMNS, { count: 'exact' })
+        .eq('account_id', accountId)
+        .is('archived_at', null);
+      // Corte de visibilidad, igual que Contactos (`contacts()`).
+      if (visibleSince) contactsQuery = contactsQuery.gte('created_at', visibleSince);
       const [contactsRes, briefRes, packsRes] = await Promise.all([
-        admin
-          .from('contacts')
-          .select(CONTACT_COLUMNS, { count: 'exact' })
-          .eq('account_id', accountId)
-          .is('archived_at', null)
-          .order('is_primary', { ascending: false })
-          .limit(10),
+        contactsQuery.order('is_primary', { ascending: false }).limit(10),
         admin
           .from('account_research_briefs')
           .select('status, summary, created_at')

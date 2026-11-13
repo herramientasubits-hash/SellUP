@@ -7,9 +7,12 @@
 //    botones de la pantalla (mismos permisos, HubSpot, auditoría, avisos);
 // 4) el resultado se lee de la base (no se confía sólo en la respuesta) y
 //    reemplaza el mensaje con los botones.
+// Cada propuesta se ejecuta UNA vez: se quitan los botones y se reclama en la
+// base (`action-claim.server.ts`) antes de hacer nada.
 // Nunca lanza.
 // ============================================================
 
+import { randomUUID } from 'node:crypto';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { runAsUser } from '@/lib/supabase/borrowed-session.server';
 import { approveAndConvertPendingReviewCandidateAction } from '@/modules/prospect-review/approve-and-convert-actions';
@@ -25,6 +28,7 @@ import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 import { parseFirstCallRequest } from '@/modules/speech/first-call-request';
 import { runFirstCall } from '@/server/agents/first-call/run-first-call';
 import { buildLiveFirstCallDeps } from '@/server/agents/first-call/run-first-call.server';
+import { recordFirstContactRunFinish, recordFirstContactRunStart } from '@/server/agents/first-call/run-registry.server';
 import { createContactEnrichmentRequestAction } from '@/modules/contact-enrichment/actions';
 import { runAutomaticContactEnrichmentForRequestCore } from '@/modules/contact-enrichment/automatic-routing-action-core';
 import { completeContactSearch } from '@/modules/contact-enrichment/contact-search-follow-up.server';
@@ -36,16 +40,24 @@ import {
   confirmationProblem,
   decodeActionValue,
   outcomeText,
+  RUMBO_CHANNEL_LABELS,
   type DecodedAction,
   type ItemOutcome,
 } from './action-proposal';
 import { verifyOutcomes, type VerifiedState } from './action-verify';
+import { actionClaimKey, claimSlackAction, messageStillHasButtons } from './action-claim.server';
+import { findInternalUserBySlackEmail } from './asker-lookup.server';
+import { SLACK_ASSISTANT_COPY } from './copy';
 
 export interface SlackBlockActionPayload {
   type?: string;
   user?: { id?: string };
   response_url?: string;
   actions?: Array<{ action_id?: string; value?: string }>;
+  /** El mensaje donde se pulsó (Slack lo manda con cada clic). */
+  message?: { blocks?: Array<{ type?: string }> };
+  team?: { id?: string };
+  api_app_id?: string;
 }
 
 /** Por qué no se pudo, dicho para la persona (motivos de las acciones de la plataforma). */
@@ -171,15 +183,52 @@ export async function handleSlackActionClick(payload: SlackBlockActionPayload): 
       return;
     }
 
+    // Otro clic ya lo procesó (el mensaje ya no tiene botones): no se repite.
+    if (!messageStillHasButtons(payload.message)) {
+      await respondToSlackInteraction(responseUrl, 'Esta propuesta ya se procesó. No se repitió nada.', { replaceOriginal: false });
+      return;
+    }
+
     // Quien confirma sigue siendo esa persona activa de SellUp.
     const email = await getSlackUserEmail(clickerSlackId);
     const admin = createSupabaseAdminClient();
-    const { data: user } = email
-      ? await admin.from('internal_users').select('id, auth_user_id, access_status').ilike('email', email).maybeSingle()
-      : { data: null };
-    const person = user as { id: string; auth_user_id: string | null; access_status: string } | null;
-    if (!person || person.id !== action.askerId || person.access_status !== 'active' || !person.auth_user_id) {
+    const person = email
+      ? await findInternalUserBySlackEmail<{ id: string; auth_user_id: string | null; access_status: string }>(
+          admin,
+          email,
+          'id, auth_user_id, access_status',
+        )
+      : null;
+    if (!person || person.id !== action.askerId || person.access_status !== 'active') {
       await respondToSlackInteraction(responseUrl, 'No pude confirmar que seas la persona que pidió la acción, o tu acceso no está activo. No se hizo nada.');
+      return;
+    }
+    if (!person.auth_user_id) {
+      await respondToSlackInteraction(responseUrl, `${SLACK_ASSISTANT_COPY.mustSignInFirst} y luego pídemela de nuevo. No se hizo nada.`);
+      return;
+    }
+    const authUserId = person.auth_user_id;
+
+    // Reclamo durable ANTES de todo: el segundo clic (otra función) choca con el
+    // índice único y sólo recibe un aviso efímero (no toca el mensaje).
+    const count = action.ids.length;
+    const claim = await claimSlackAction(admin, {
+      askerId: person.id,
+      key: actionClaimKey(action.nonce, clicked.value ?? ''),
+      summary: `${action.kind}: ${count} elemento${count === 1 ? '' : 's'}`,
+    });
+    if (claim === 'already_claimed') {
+      await respondToSlackInteraction(responseUrl, 'Ya se está procesando (o ya se hizo). No se repitió nada.', { replaceOriginal: false });
+      return;
+    }
+    if (claim === 'failed') {
+      await respondToSlackInteraction(responseUrl, 'No pude registrar la confirmación. No se hizo nada; pídemela de nuevo o hazlo en SellUp.');
+      return;
+    }
+    // Sin botones antes de ejecutar: si Slack no lo acepta, no se hace nada.
+    const replaced = await respondToSlackInteraction(responseUrl, `Procesando ${count} elemento${count === 1 ? '' : 's'}…`);
+    if (!replaced) {
+      console.error('[slack-assistant] no se pudieron quitar los botones; no se ejecuta');
       return;
     }
 
@@ -188,10 +237,7 @@ export async function handleSlackActionClick(payload: SlackBlockActionPayload): 
       return;
     }
 
-    // Sin botones mientras corre: un segundo clic no repite nada.
-    await respondToSlackInteraction(responseUrl, `Procesando ${action.ids.length} elemento${action.ids.length === 1 ? '' : 's'}…`);
-
-    const run = await runAsUser(person.auth_user_id, () => runPlatformActions(action, person.id));
+    const run = await runAsUser(authUserId, () => runPlatformActions(action, person.id));
     if (!run.ok) {
       await respondToSlackInteraction(responseUrl, 'No pude abrir tu sesión de SellUp para hacerlo. No se hizo nada; inténtalo de nuevo o hazlo en SellUp.');
       return;
@@ -268,7 +314,26 @@ async function runSpendActions(action: DecodedAction, userId: string, failures: 
       failures.set(accountId, 'no se pudo armar la preparación');
       return;
     }
-    const result = await runFirstCall(parsed.request, buildLiveFirstCallDeps(userId, { agentRunId: null }));
+    // La corrida queda registrada como desde la plataforma (Centro de procesos, barrido de las colgadas).
+    const { data: accountRow } = await admin.from('accounts').select('name').eq('id', accountId).maybeSingle();
+    const accountName = (accountRow as { name: string | null } | null)?.name ?? 'la empresa';
+    const meta = {
+      id: randomUUID(),
+      title: `Desde Slack · ${parsed.request.channels.map((c) => RUMBO_CHANNEL_LABELS[c as keyof typeof RUMBO_CHANNEL_LABELS] ?? c).join(', ')}`,
+      expected: Math.max(1, parsed.request.contactIds.length) * Math.max(1, parsed.request.channels.length),
+      accountName,
+    };
+    const recorded = await recordFirstContactRunStart({ meta, accountId, userId });
+    let result: Awaited<ReturnType<typeof runFirstCall>>;
+    try {
+      result = await runFirstCall(parsed.request, buildLiveFirstCallDeps(userId, { agentRunId: recorded ? meta.id : null }));
+    } catch (error) {
+      if (recorded) {
+        await recordFirstContactRunFinish({ runId: meta.id, userId, meta, result: { ok: false, code: 'unexpected_error', message: 'Algo falló al preparar el primer contacto.' } });
+      }
+      throw error;
+    }
+    if (recorded) await recordFirstContactRunFinish({ runId: meta.id, userId, meta, result });
     if (!result.ok) failures.set(accountId, result.message ?? 'Rumbo no pudo prepararlo');
     else failures.set(`ok:${accountId}`, `${result.packIds.length} preparación${result.packIds.length === 1 ? '' : 'es'} lista${result.packIds.length === 1 ? '' : 's'}${result.budgetStopped ? ' (se acabó el presupuesto a mitad)' : ''}`);
     return;

@@ -11,6 +11,30 @@ export interface HistoryMessage {
   text: string;
   fromBot: boolean;
   hasActions: boolean;
+  /** Quién lo escribió (id de Slack). */
+  userId?: string | null;
+  /** App que lo publicó (mensajes de bots). */
+  appId?: string | null;
+}
+
+export interface ConversationTurnsOptions {
+  /**
+   * Quien pregunta. En un hilo de canal hablan varias personas: sólo sus
+   * mensajes (y las respuestas del asistente) son contexto; lo que escribió
+   * otra persona nunca se vuelve un turno «user».
+   */
+  askerSlackId?: string | null;
+  /** La app del asistente: lo que publicó otro bot tampoco es contexto. */
+  ownAppId?: string | null;
+}
+
+/** ¿Este mensaje anterior cuenta como parte de la conversación de quien pregunta? */
+export function isOwnConversationMessage(message: HistoryMessage, options: ConversationTurnsOptions = {}): boolean {
+  if (message.fromBot) {
+    return !(options.ownAppId && message.appId && message.appId !== options.ownAppId);
+  }
+  if (!options.askerSlackId) return true;
+  return message.userId === options.askerSlackId;
 }
 
 export type ConversationTurn = { role: 'user' | 'assistant'; content: string };
@@ -30,10 +54,12 @@ export function buildConversationTurns(
   history: readonly HistoryMessage[],
   question: string,
   currentTs: string,
+  options: ConversationTurnsOptions = {},
 ): ConversationTurn[] {
   const now = Number(currentTs);
   const recent = history
     .filter((m) => !m.hasActions)
+    .filter((m) => isOwnConversationMessage(m, options))
     .filter((m) => Number.isFinite(Number(m.ts)) && now - Number(m.ts) <= HISTORY_MAX_AGE_SECONDS && Number(m.ts) < now)
     .slice(-HISTORY_MAX_MESSAGES);
 
