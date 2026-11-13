@@ -54,6 +54,14 @@ describe('cableado (código)', () => {
     assert.equal((previewActions.match(/allowedRealUser\(\)/g) ?? []).length >= 3, true, 'cada acción revisa a la persona real');
   });
 
+  it('🔴 la lista de personas nombra la relación del grupo (hay dos entre usuarios y grupos)', () => {
+    // organization_groups.created_by también apunta a internal_users: sin el
+    // nombre de la relación, PostgREST responde «ambiguo» y el diálogo no carga
+    // (Prod 13-11, «No pudimos cargar las personas»).
+    const previewActions = read('src/modules/access/role-preview-actions.ts');
+    assert.match(previewActions, /organization_groups!internal_users_group_id_fkey\(name\)/);
+  });
+
   it('🔴 Rumbo: buscar con Apollo es de cualquier usuario activo; elegir proveedor sigue siendo de admin', () => {
     const wiring = read('src/modules/prospect-batches/chat-wizard-execution/wizard-execution-actions.ts');
     assert.match(wiring, /isRolePermitted: isWizardApolloDiscoveryAllowedForUser,/);

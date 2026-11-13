@@ -35,7 +35,7 @@ export async function getRolePreviewOptions(): Promise<RolePreviewOption[] | nul
   if (!(await allowedRealUser())) return null;
   const { data, error } = await createSupabaseAdminClient()
     .from('internal_users')
-    .select('id, full_name, email, roles(key), group:organization_groups(name)')
+    .select('id, full_name, email, roles(key), group:organization_groups!internal_users_group_id_fkey(name)')
     .eq('access_status', 'active')
     .order('full_name', { ascending: true })
     .limit(2000);
