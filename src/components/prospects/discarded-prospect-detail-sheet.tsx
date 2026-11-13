@@ -5,21 +5,20 @@
 // already fetched server-side — no provider call, no re-query, ever.
 
 import * as React from 'react';
-import { Building2, FileSearch, MessageSquareText, SendHorizonal } from "@/icons";
-import { CollapsibleDrawerSection } from '@/components/shared/collapsible-drawer-section';
+import { Building2, MessageSquareText, SendHorizonal } from "@/icons";
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { countryFlag, countryName } from '@/components/shared/table-cells';
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DISCARD_DISPOSITION_LABELS } from '@/modules/prospect-discards/types';
+import { describeDiscardReason, discardReasonDetail } from '@/modules/prospect-discards/discard-reason-labels';
+import { CANDIDATE_SOURCE_LABELS, type CandidateSourcePrimary } from '@/modules/prospect-batches/types';
 import type { DiscardedProspectItem } from '@/modules/prospect-discards/types';
 import { formatProspectDate } from '@/modules/prospect-batches/prospect-date-utils';
 import {
   COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
   COMPETITOR_SMALL_STATUS_LABEL,
 } from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
-import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface DiscardedProspectDetailSheetProps {
   item: DiscardedProspectItem | null;
@@ -47,12 +46,15 @@ export function DiscardedProspectDetailSheet({
   onSendToReview,
   pending,
 }: DiscardedProspectDetailSheetProps) {
-  const { isAdmin } = useNavAccess();
   if (!item) return null;
 
   const isAlreadySent = item.status === 'sent_to_review';
-  const evidenceEntries = Object.entries(item.evidence ?? {});
-  const reasonLabel = DISCARD_DISPOSITION_LABELS[item.disposition] ?? 'Otro motivo';
+  // Sólo lo que sirve para decidir: sin códigos internos ni la evidencia técnica.
+  const reasonLabel = describeDiscardReason(item);
+  const reasonDetail = discardReasonDetail(item);
+  const source = item.sourcePrimary
+    ? (CANDIDATE_SOURCE_LABELS[item.sourcePrimary as CandidateSourcePrimary] ?? null)
+    : null;
   const country = countryName(item.countryCode);
 
   return (
@@ -103,18 +105,9 @@ export function DiscardedProspectDetailSheet({
       <div className="space-y-4 py-2">
         {/* Primero el porqué: es lo que decide si la empresa vuelve a revisión. */}
         <DrawerSection title="Por qué se descartó" icon={MessageSquareText} tone="warning">
-          <div className="space-y-3">
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {item.reasonDetail ?? reasonLabel}
-            </p>
-            {item.reasonCode && (
-              <dl>
-                <DetailField
-                  label="Código del motivo"
-                  value={<code className="font-mono text-xs">{item.reasonCode}</code>}
-                />
-              </dl>
-            )}
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">{reasonLabel}</p>
+            {reasonDetail && <p className="text-sm leading-relaxed text-muted-foreground">{reasonDetail}</p>}
           </div>
         </DrawerSection>
 
@@ -126,29 +119,10 @@ export function DiscardedProspectDetailSheet({
               value={country ? `${countryFlag(item.countryCode)} ${country}`.trim() : null}
             />
             <DetailField label="Industria" value={item.industry} />
-            <DetailField label="Fuente" value={item.sourcePrimary} />
-            <DetailField label="Ronda u origen" value={item.roundOrigin ?? item.batchName} />
-            <DetailField label="Motivo" value={reasonLabel} />
-            {/* El id solo le sirve a quien depura; para los demás basta con saber que existe. */}
-            {item.resultingCandidateId && (
-              <DetailField label="Candidata resultante" value={isAdmin ? item.resultingCandidateId : 'Enviada a revisión'} />
-            )}
+            <DetailField label="Fuente" value={source} />
+            <DetailField label="Búsqueda" value={item.batchName} />
           </dl>
         </DrawerSection>
-
-        {isAdmin && evidenceEntries.length > 0 && (
-          <CollapsibleDrawerSection
-            title="Evidencia guardada"
-            icon={FileSearch}
-            tone="neutral"
-            badge={evidenceEntries.length}
-            summary="Los datos técnicos con los que se tomó la decisión."
-          >
-            <pre className="max-h-64 overflow-auto rounded-lg bg-surface-subtle p-3 text-xs leading-relaxed text-muted-foreground">
-              {JSON.stringify(item.evidence, null, 2)}
-            </pre>
-          </CollapsibleDrawerSection>
-        )}
       </div>
     </DrawerShell>
   );
