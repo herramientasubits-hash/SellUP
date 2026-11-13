@@ -76,7 +76,10 @@ import type {
 } from './wizard-idempotency';
 // A1-APOLLO-QA-CONTROL-SURFACE-1 § 7 — un solo lector de sesión y rol, compartido
 // con la capacidad que gobierna la superficie administrativa.
-import { isWizardApolloDiscoveryRolePermitted } from './wizard-run-provider-capability.server';
+import {
+  isWizardApolloDiscoveryAllowedForUser,
+  isWizardApolloDiscoveryRolePermitted,
+} from './wizard-run-provider-capability.server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isTavilyConfiguredForWizard } from './wizard-availability';
 import {
@@ -889,7 +892,9 @@ export async function executeProspectWizardGenerationAction(
             ? descriptor.canRunInProduction
             : descriptor.canRunInPreview;
         },
-        isRolePermitted: resolveIsApolloDiscoveryRolePermitted,
+        // Buscar con Apollo: cualquier usuario activo (elegir el proveedor a
+        // mano, más abajo, sigue siendo sólo de admin).
+        isRolePermitted: isWizardApolloDiscoveryAllowedForUser,
         // El tope real lo aplica la reserva atómica de presupuesto (paso 7);
         // aquí sólo se verifica que exista una estimación positiva que reservar.
         hasBudgetAvailable: async () =>

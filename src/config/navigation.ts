@@ -1,5 +1,6 @@
 import { type LucideIcon } from "@/icons";
 import { TEAM_ROLE_KEYS } from "@/modules/access/commercial-scope-logic";
+import type { RolePreviewState } from "@/modules/access/role-preview";
 import {
   BrainCircuit,
   Building2,
@@ -52,6 +53,8 @@ export interface NavItem {
 export interface NavAccessContext {
   isAdmin: boolean;
   roleKey: string | null;
+  /** «Ver como…» (sólo la persona autorizada). Ausente = no aplica. */
+  rolePreview?: RolePreviewState;
 }
 
 /**

@@ -277,6 +277,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         <AccountMenu
           user={{ name: displayName, email: user.email, avatarUrl }}
           roleLabel={roleLabel(navAccess)}
+          rolePreview={navAccess.rolePreview}
           onLogout={handleSignOut}
         />
       </div>
