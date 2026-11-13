@@ -42,6 +42,8 @@ export interface AssignableUser {
   id: string;
   full_name: string | null;
   email: string;
+  /** Es quien asigna (con «Ver como…», la persona real, no la que se previsualiza). */
+  is_self?: boolean;
 }
 
 interface AssignOwnerDrawerProps {
@@ -52,8 +54,13 @@ interface AssignOwnerDrawerProps {
   users: AssignableUser[];
   currentUserId?: string;
   onAssign: (ids: string[], userId: string) => Promise<AssignmentActionResult>;
-  /** Tras asignar con éxito (limpiar selección, refrescar). */
-  onAssigned?: () => void;
+  /** Tras asignar con éxito (limpiar selección, refrescar); trae a quién y qué se asignó. */
+  onAssigned?: (assignment: { ids: string[]; user: AssignableUser }) => void;
+}
+
+/** Quien asigna: la marca del servidor manda; sin ella, el id que pasó la pantalla. */
+function isSelf(user: AssignableUser, currentUserId: string | undefined): boolean {
+  return user.is_self ?? user.id === currentUserId;
 }
 
 function displayName(user: AssignableUser): string {
@@ -111,8 +118,8 @@ export function AssignOwnerDrawer({
   const sortedUsers = React.useMemo(
     () =>
       [...users].sort((a, b) => {
-        if (a.id === currentUserId) return -1;
-        if (b.id === currentUserId) return 1;
+        if (isSelf(a, currentUserId)) return -1;
+        if (isSelf(b, currentUserId)) return 1;
         return displayName(a).localeCompare(displayName(b), "es");
       }),
     [users, currentUserId],
@@ -132,10 +139,8 @@ export function AssignOwnerDrawer({
     if (!selectedUser || pending) return;
     setPending(true);
     try {
-      const result = await onAssign(
-        items.map((item) => item.id),
-        selectedUser.id,
-      );
+      const ids = items.map((item) => item.id);
+      const result = await onAssign(ids, selectedUser.id);
       if (!result.success) {
         toast.error(result.error);
         return;
@@ -144,7 +149,9 @@ export function AssignOwnerDrawer({
       if (result.assigned > 0) toast.success(summary);
       else toast.info(summary);
       close();
-      onAssigned?.();
+      // Sólo si quedaron todas con esa persona se sabe CUÁLES cambiaron; si alguna
+      // se saltó, la pantalla espera a la base (ids vacíos).
+      onAssigned?.({ ids: result.skipped === 0 ? ids : [], user: selectedUser });
     } catch {
       toast.error("No se pudo asignar. Inténtalo de nuevo.");
     } finally {
@@ -214,7 +221,7 @@ export function AssignOwnerDrawer({
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate font-medium">
                         {displayName(user)}
-                        {user.id === currentUserId && (
+                        {isSelf(user, currentUserId) && (
                           <span className="font-normal text-muted-foreground">
                             {" "}
                             · tú

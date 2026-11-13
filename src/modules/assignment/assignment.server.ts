@@ -62,8 +62,12 @@ export async function loadAssignmentTarget(
   return user ? { ok: true, user } : { ok: false, error: 'La persona elegida no es un usuario activo.' };
 }
 
-/** Las personas que quien pide puede elegir en «Asignar a…» y como responsable. */
-export async function listAssignableUsers(): Promise<AssignmentUser[]> {
+/**
+ * Las personas que quien pide puede elegir en «Asignar a…» y como responsable.
+ * `is_self` marca a quien asigna: con «Ver como…» los filtros toman a la persona
+ * previsualizada, pero la asignación corre a nombre de la persona real.
+ */
+export async function listAssignableUsers(): Promise<Array<AssignmentUser & { is_self: boolean }>> {
   const actor = await loadAssignmentActor();
   if (!actor) return [];
   let query = createSupabaseAdminClient()
@@ -74,7 +78,7 @@ export async function listAssignableUsers(): Promise<AssignmentUser[]> {
   if (!canAssignToAnyone(actor.roleKey)) query = query.eq('id', actor.id);
   const { data, error } = await query;
   if (error) throw new Error(`listAssignableUsers: ${error.message}`);
-  return (data ?? []) as AssignmentUser[];
+  return ((data ?? []) as AssignmentUser[]).map((user) => ({ ...user, is_self: user.id === actor.id }));
 }
 
 /**
