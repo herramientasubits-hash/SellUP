@@ -4,14 +4,14 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
-import { ClipboardCheck, Eye, Pause, Play, Search, UserPlus, X } from "@/icons";
+import { ClipboardCheck, Eye, Pause, Play, Search, UserPlus, Users, X } from "@/icons";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataTable, type DataTableContextMenuItem } from "@/components/data-table";
 import { MetricStrip } from "@/components/shared/metric-strip";
 import { formatAppDate } from "@/lib/format-date";
 import { TONE_BADGE, type Tone } from "@/lib/tone";
-import { BatchBulkEnrichmentButton } from "@/components/contact-enrichment/batch-bulk-enrichment-button";
+import { BATCH_ENRICH_LABEL, useBatchBulkEnrichment } from "@/components/contact-enrichment/batch-bulk-enrichment-button";
 import { BulkSearchAssignDrawer } from "@/components/prospect-batches/bulk-search/bulk-search-assign-drawer";
 import type { AssignableUser } from "@/components/assignment/assign-owner-drawer";
 import type { BulkSearchView } from "@/modules/prospect-batches/bulk-search/bulk-search-view";
@@ -61,6 +61,10 @@ export function SearchesTableClient({
   const [assignRow, setAssignRow] = React.useState<SearchRow | null>(null);
   const [controlError, setControlError] = React.useState<string | null>(null);
   const canAssign = assignableUsers.length > 0;
+  // «Buscar contactos de las aprobadas» vive en el menú de tres puntos: como botón en
+  // la fila se cortaba (QA dueña 13-11).
+  const enrichment = useBatchBulkEnrichment();
+  const { start: startEnrichment, loading: enriching } = enrichment;
 
   // Cada lote es su fila; las rondas de una masiva dicen de cuál salieron.
   const rows = React.useMemo(() => {
@@ -178,24 +182,8 @@ export function SearchesTableClient({
         ),
         meta: { label: "Fecha", disableFilter: true },
       },
-      ...(canEnrichBulk
-        ? [
-            {
-              id: "contacts",
-              header: () => <span className="sr-only">Contactos</span>,
-              enableSorting: false,
-              cell: ({ row }) =>
-                row.original.converted > 0 ? (
-                  <div className="flex justify-end">
-                    <BatchBulkEnrichmentButton batchId={row.original.id} convertedCount={row.original.converted} />
-                  </div>
-                ) : null,
-              meta: { label: "Contactos", disableFilter: true },
-            } satisfies ColumnDef<SearchRow, unknown>,
-          ]
-        : []),
     ],
-    [rows, searchHref, focusSearchId, canEnrichBulk],
+    [rows, searchHref, focusSearchId],
   );
 
   const contextMenu = React.useMemo(
@@ -220,6 +208,17 @@ export function SearchesTableClient({
               },
             ]
           : []),
+        ...(canEnrichBulk && row.converted > 0
+          ? [
+              {
+                id: "contacts",
+                label: BATCH_ENRICH_LABEL,
+                icon: Users,
+                disabled: enriching,
+                onClick: () => void startEnrichment(row.id),
+              },
+            ]
+          : []),
         // La búsqueda masiva de la que salió esta ronda, mientras siga viva.
         ...(row.bulkSearch?.status === "running"
           ? [{ id: "pause", label: "Pausar búsqueda masiva", icon: Pause, onClick: () => void controlBulk(row.bulkSearch!.id, "pause") }]
@@ -232,7 +231,7 @@ export function SearchesTableClient({
           : []),
       ],
     }),
-    [router, searchHref, canAssign, controlBulk],
+    [router, searchHref, canAssign, controlBulk, canEnrichBulk, startEnrichment, enriching],
   );
 
   if (searches.length === 0 && bulkSearches.length === 0) {
@@ -275,6 +274,8 @@ export function SearchesTableClient({
           {controlError}
         </p>
       )}
+
+      {enrichment.drawer}
 
       {assignRow && (
         <BulkSearchAssignDrawer

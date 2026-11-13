@@ -63,8 +63,10 @@ describe('cableado', () => {
     assert.ok(searchesPanel.includes("checkCapability('enriquecerMasivo')"));
     assert.ok(searchesPanel.includes('canEnrichBulk={enrichBulk}'));
     const table = read('components/searches/searches-table-client.tsx');
-    assert.ok(table.includes('...(canEnrichBulk'));
-    assert.ok(table.includes('row.original.converted > 0 ? ('));
+    // En la tabla va en el menú de tres puntos (como botón en la fila se cortaba).
+    assert.ok(table.includes('...(canEnrichBulk && row.converted > 0'));
+    assert.ok(table.includes('label: BATCH_ENRICH_LABEL'));
+    assert.ok(!table.includes('<BatchBulkEnrichmentButton'));
   });
 
   it('la corrida guarda de qué búsqueda salió', () => {
