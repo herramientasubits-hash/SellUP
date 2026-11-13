@@ -20,8 +20,9 @@
 // autorizado o el candidato no tiene ninguna corrida: la UI simplemente no muestra
 // el bloque de auditoría.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { isPhoneRevealWaterfallEnabled } from '@/lib/feature-flags.server';
 import {
   buildLegacyPhoneRevealAuthorizationPreview,
@@ -44,28 +45,7 @@ import {
  * /login, y un actor sin rol conocido queda no autorizado.
  */
 async function resolveActorRoleKey(): Promise<string | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-  if (!internalUser.role_id) return null;
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-  return typeof role?.key === 'string' ? role.key : null;
+  return (await requireActiveActor()).roleKey;
 }
 
 /**
@@ -90,6 +70,8 @@ export async function getPhoneRevealWaterfallAuditAction(input: {
   if (!isPhoneRevealWaterfallRoleAuthorized(roleKey)) return null;
 
   try {
+    // Alcance en cascada: un candidato de otro equipo no se ve (ni su auditoría ni su tope).
+    if (!(await canSeeContactCandidate(await createClient(), candidateId))) return null;
     const run = await findLatestWaterfallRunForCandidate(candidateId);
     return run ? buildPhoneRevealWaterfallAuditView(run) : null;
   } catch (err) {
@@ -139,6 +121,8 @@ export async function getPhoneRevealWaterfallAuthorizationPreviewAction(input: {
   if (!isPhoneRevealWaterfallRoleAuthorized(roleKey)) return null;
 
   try {
+    // Alcance en cascada: un candidato de otro equipo no se ve (ni su auditoría ni su tope).
+    if (!(await canSeeContactCandidate(await createClient(), candidateId))) return null;
     // MISMA lectura que `buildStartWaterfallDeps`: identidades persistidas + hechos de
     // búsqueda. Sin esto la respuesta sería la de antes del hito y volvería a decir 8
     // donde el servidor reserva 14.
@@ -197,6 +181,8 @@ export async function getLegacyPhoneRevealAuthorizationPreviewAction(input: {
   if (!isPhoneRevealWaterfallRoleAuthorized(roleKey)) return null;
 
   try {
+    // Alcance en cascada: un candidato de otro equipo no se ve (ni su auditoría ni su tope).
+    if (!(await canSeeContactCandidate(await createClient(), candidateId))) return null;
     // MISMA lectura que `buildStartLegacyWaterfallDeps`, con los mismos hechos de
     // identidad: es lo que hace que el número mostrado y el reservado no puedan
     // discrepar.

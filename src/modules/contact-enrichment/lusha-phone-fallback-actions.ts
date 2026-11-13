@@ -37,8 +37,7 @@
 // El resultado sigue siendo PII-free: nunca devuelve el teléfono, la identidad, el id
 // de contacto de Lusha ni el id de la corrida. En éxito la UI recarga el candidato.
 
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import { isLushaPhoneRevealFallbackEnabled } from '@/lib/feature-flags.server';
 import {
   LUSHA_PHONE_FALLBACK_DEFAULT_MAX_CREDITS,
@@ -55,36 +54,9 @@ import type { StartLegacyPhoneRevealWaterfallRuntimeResult } from './phone-revea
  * Resuelve el usuario interno activo y su role key. Redirige a /login si no
  * hay usuario. Espejo de resolveActorForReveal en phone-reveal-actions.ts.
  */
-async function resolveActorForLushaFallback(): Promise<{
-  internalUserId: string;
-  roleKey: string | null;
-}> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-
-  return { internalUserId: internalUser.id, roleKey };
+async function resolveActorForLushaFallback(): Promise<{ internalUserId: string; roleKey: string | null }> {
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 // ── Adaptación del desenlace del motor al contrato de la acción ──

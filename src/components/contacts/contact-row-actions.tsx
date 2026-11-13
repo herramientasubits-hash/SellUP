@@ -33,6 +33,7 @@ import {
   resolveHubSpotSyncAction,
 } from '@/modules/contacts/contact-hubspot-sync-state';
 import { EditContactDrawer } from './edit-contact-drawer';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface ContactRowActionsProps {
   contact: Contact;
@@ -56,6 +57,8 @@ export function ContactRowActions({
   placement = 'row',
 }: ContactRowActionsProps) {
   const router = useRouter();
+  // Archivar contactos es sólo de admin (el servidor lo niega a los demás): ni se ofrece.
+  const { isAdmin } = useNavAccess();
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
   const [pending, setPending] = React.useState(false);
@@ -235,15 +238,19 @@ export function ContactRowActions({
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuSeparator />
+          {isAdmin ? (
+            <>
+              <DropdownMenuSeparator />
 
-          <DropdownMenuItem
-            onClick={() => setArchiveOpen(true)}
-            className="text-destructive focus:text-destructive"
-          >
-            <Archive className="mr-2 h-3.5 w-3.5" />
-            Archivar contacto
-          </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setArchiveOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Archive className="mr-2 h-3.5 w-3.5" />
+                Archivar contacto
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 

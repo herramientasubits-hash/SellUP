@@ -98,7 +98,7 @@ async function defaultSearchByAccountId(id: string): Promise<SellUpAccountMatch 
   const admin = getAdminClient();
   const { data } = await admin
     .from('accounts')
-    .select('id, name, domain, country, country_code, hubspot_company_id')
+    .select('id, name, domain, country, country_code, hubspot_company_id, owner_id, created_by')
     .eq('id', id)
     .is('archived_at', null)
     .neq('pipeline_status', 'archived')
@@ -110,7 +110,7 @@ async function defaultSearchByHubSpotId(hsId: string): Promise<SellUpAccountMatc
   const admin = getAdminClient();
   const { data } = await admin
     .from('accounts')
-    .select('id, name, domain, country, country_code, hubspot_company_id')
+    .select('id, name, domain, country, country_code, hubspot_company_id, owner_id, created_by')
     .eq('hubspot_company_id', hsId)
     .is('archived_at', null)
     .neq('pipeline_status', 'archived')
@@ -124,7 +124,7 @@ export async function defaultSearchByDomain(domain: string): Promise<SellUpAccou
   const normalized = domain.toLowerCase().replace(/^www\./, '');
   const { data } = await admin
     .from('accounts')
-    .select('id, name, domain, country, country_code, hubspot_company_id')
+    .select('id, name, domain, country, country_code, hubspot_company_id, owner_id, created_by')
     .ilike('domain', `%${normalized}%`)
     .is('archived_at', null)
     .neq('pipeline_status', 'archived')
@@ -136,7 +136,7 @@ export async function defaultSearchByName(name: string): Promise<SellUpAccountMa
   const admin = getAdminClient();
   const { data } = await admin
     .from('accounts')
-    .select('id, name, domain, country, country_code, hubspot_company_id')
+    .select('id, name, domain, country, country_code, hubspot_company_id, owner_id, created_by')
     .ilike('name', `%${name.trim()}%`)
     .is('archived_at', null)
     .neq('pipeline_status', 'archived')
@@ -204,6 +204,19 @@ export async function defaultGetHubSpotCompanyById(companyId: string): Promise<H
   return mapHubSpotCompanyByIdResultToMatches(await getHubSpotCompanyByIdForResolver(companyId));
 }
 
+// ── Alcance ──────────────────────────────────────────────────
+
+/** ¿Esta cuenta de SellUp es de alguien del alcance? `null` ⇒ sin restricción. */
+export function isSellUpMatchInScope(
+  match: Pick<SellUpAccountMatch, 'owner_id' | 'created_by'>,
+  scopeUserIds: readonly string[] | null,
+): boolean {
+  if (scopeUserIds === null) return true;
+  return [match.owner_id, match.created_by].some(
+    (id) => typeof id === 'string' && id.length > 0 && scopeUserIds.includes(id),
+  );
+}
+
 // ── Helpers de conversión ────────────────────────────────────
 
 export function sellupMatchToCandidate(match: SellUpAccountMatch, confidence: number): CompanyCandidate {
@@ -262,7 +275,13 @@ export async function resolveCompanyForContactEnrichment(
     searchSellUpByName = defaultSearchByName,
     searchHubSpot = defaultSearchHubSpot,
     getHubSpotCompanyById = defaultGetHubSpotCompanyById,
+    sellupScopeUserIds = null,
   } = deps;
+
+  // Sólo cuentas de SellUp del alcance de quien busca (en cascada); una de otro equipo
+  // no se ofrece. Con el filtro, la búsqueda sigue a HubSpot como si no estuviera.
+  const inScope = (match: SellUpAccountMatch | null): match is SellUpAccountMatch =>
+    match !== null && isSellUpMatchInScope(match, sellupScopeUserIds);
 
   const sellupCandidates: CompanyCandidate[] = [];
   let skippedHubSpot = false;
@@ -272,7 +291,7 @@ export async function resolveCompanyForContactEnrichment(
   if (input.sellupAccountId) {
     try {
       const match = await searchSellUpByAccountId(input.sellupAccountId);
-      if (match) {
+      if (inScope(match)) {
         sellupCandidates.push(sellupMatchToCandidate(match, 1.0));
       }
     } catch (err) {
@@ -283,7 +302,7 @@ export async function resolveCompanyForContactEnrichment(
   // 2. Por hubspotCompanyId exacto en SellUp
   if (input.hubspotCompanyId && sellupCandidates.length === 0) {
     try {
-      const matches = await searchSellUpByHubSpotId(input.hubspotCompanyId);
+      const matches = (await searchSellUpByHubSpotId(input.hubspotCompanyId)).filter(inScope);
       for (const m of matches) {
         sellupCandidates.push(sellupMatchToCandidate(m, 1.0));
       }
@@ -323,7 +342,7 @@ export async function resolveCompanyForContactEnrichment(
   // 3. Por dominio en SellUp
   if (input.companyDomain && sellupCandidates.length === 0) {
     try {
-      const matches = await searchSellUpByDomain(input.companyDomain);
+      const matches = (await searchSellUpByDomain(input.companyDomain)).filter(inScope);
       for (const m of matches) {
         sellupCandidates.push(sellupMatchToCandidate(m, 0.9));
       }
@@ -335,7 +354,7 @@ export async function resolveCompanyForContactEnrichment(
   // 4. Por nombre en SellUp
   if (input.companyName && sellupCandidates.length === 0) {
     try {
-      const matches = await searchSellUpByName(input.companyName);
+      const matches = (await searchSellUpByName(input.companyName)).filter(inScope);
       for (const m of matches) {
         sellupCandidates.push(sellupMatchToCandidate(m, 0.7));
       }

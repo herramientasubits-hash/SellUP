@@ -26,6 +26,9 @@ export interface SellUpAccountMatch {
   country_code: string | null;
   hubspot_company_id: string | null;
   linkedin_url?: string | null;
+  /** Responsable y creador: deciden si la cuenta está en el alcance de quien busca. */
+  owner_id?: string | null;
+  created_by?: string | null;
 }
 
 export interface HubSpotCompanyMatch {
@@ -59,4 +62,10 @@ export interface CompanyResolverDeps {
    * `[]` ⇒ HubSpot contestó que ese ID no existe; `[empresa]` ⇒ encontrada.
    */
   getHubSpotCompanyById?: (companyId: string) => Promise<HubSpotCompanyMatch[] | null>;
+  /**
+   * Alcance comercial de quien busca (en cascada): las cuentas de SellUp que se ofrecen son
+   * sólo las suyas o de su equipo (responsable o creador en la lista). `null`/ausente ⇒ sin
+   * filtro (admin, bandera apagada o llamadas internas). Lo de HubSpot no se filtra.
+   */
+  sellupScopeUserIds?: readonly string[] | null;
 }

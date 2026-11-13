@@ -73,8 +73,8 @@
 // del CONTACTO y resuelven el candidato en el servidor, así que el cliente no puede apuntar esta
 // operación a un candidato que él elija.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import { canSeeOfficialContact } from './candidate-scope.server';
 import type {
   OfficialContactPhoneRevealOfferView,
@@ -131,29 +131,8 @@ import type { PhoneProcessingBasis } from './types';
  * redirige a /login, y un actor sin rol conocido queda no autorizado.
  */
 async function resolveActor(): Promise<{ internalUserId: string; roleKey: string | null }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-  const internalUserId = typeof internalUser.id === 'string' ? internalUser.id : '';
-  if (!internalUser.role_id) return { internalUserId, roleKey: null };
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-  return { internalUserId, roleKey: typeof role?.key === 'string' ? role.key : null };
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 /** Cablea las dependencias REALES. Un solo sitio las nombra, para las tres acciones. */

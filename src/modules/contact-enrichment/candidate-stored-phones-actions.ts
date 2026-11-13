@@ -50,8 +50,8 @@
 // imprimen el código de la operación y el mensaje del error, nunca la fila.
 // El tombstone se obedece aguas abajo y no se expone en ninguna forma.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import {
   countAdditionalStoredPhones,
   selectAdditionalStoredPhones,
@@ -81,28 +81,7 @@ export type StoredCandidatePhonesResult =
 
 /** Sesión + usuario interno activo + role key. Espejo del resto del subsistema. */
 async function resolveActorRoleKey(): Promise<string | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-  if (!internalUser.role_id) return null;
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-  return typeof role?.key === 'string' ? role.key : null;
+  return (await requireActiveActor()).roleKey;
 }
 
 function isAuthorized(roleKey: string | null): boolean {

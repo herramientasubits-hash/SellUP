@@ -62,8 +62,9 @@
 // corrida ni ningún id de proveedor. En éxito la UI recarga el candidato, que es
 // quien muestra el número.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { startLegacyPhoneRevealWaterfallForCandidate } from './phone-reveal-waterfall-deps';
 import {
   classifyLegacyPhoneRevealStartFailure,
@@ -111,36 +112,9 @@ export interface LegacyPhoneRevealWaterfallActionResult {
  * `resolveActorForReveal` en phone-reveal-actions.ts: sin usuario redirige a /login,
  * y un actor sin rol conocido llega al core como `null` y queda no autorizado.
  */
-async function resolveActorForLegacyWaterfall(): Promise<{
-  internalUserId: string;
-  roleKey: string | null;
-}> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-
-  return { internalUserId: internalUser.id, roleKey };
+async function resolveActorForLegacyWaterfall(): Promise<{ internalUserId: string; roleKey: string | null }> {
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 /**
@@ -232,6 +206,16 @@ export async function startLegacyPhoneRevealWaterfallAction(input: {
   }
 
   const actor = await resolveActorForLegacyWaterfall();
+
+  // Alcance en cascada: sólo candidatos propios o del equipo. Nunca se gasta en uno ajeno.
+  if (!(await canSeeContactCandidate(await createClient(), candidateId))) {
+    return {
+      status: 'not_eligible',
+      reason: 'out_of_scope',
+      maxCreditsAuthorized: null,
+      requiredMaxCredits: null,
+    };
+  }
 
   const result = await startLegacyPhoneRevealWaterfallForCandidate(
     candidateId,

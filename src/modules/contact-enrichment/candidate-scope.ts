@@ -74,3 +74,55 @@ export function isContactRunInScope(
     (id) => id != null && scopeIds.includes(id),
   );
 }
+
+// ── Listas con la MISMA regla que el acceso por id ──────────────────────────────
+//
+// `isContactRunInScope` (por id) deja ver un candidato si la búsqueda la lanzó alguien del
+// alcance O si su empresa es de alguien del alcance. Las listas («Por revisar», «Duplicados»,
+// «Rechazados») antes sólo miraban quién la lanzó, así que el dueño de una empresa podía abrir
+// por enlace un candidato que su lista no le mostraba. PostgREST no puede hacer un OR entre
+// `run.triggered_by` y `run.account.owner_id` (dos niveles distintos), así que la lista se lee
+// en DOS ramas y se une: «la lanzó alguien del alcance» ∪ «su empresa es de alguien del alcance».
+
+/** Rama de lectura de una lista con alcance. */
+export type CandidateScopeBranch = 'triggered_by' | 'account';
+
+export const CANDIDATE_SCOPE_BRANCHES: readonly CandidateScopeBranch[] = ['triggered_by', 'account'];
+
+/** Embebido del run para una rama: con `account` trae la empresa (`!inner`) para filtrarla. */
+export function candidateRunEmbedForBranch(branch: CandidateScopeBranch): string {
+  return branch === 'account'
+    ? `run:contact_enrichment_runs!inner ( ${CANDIDATE_RUN_EMBED_COLUMNS}, triggered_by, account:accounts!inner ( owner_id, created_by ) )`
+    : candidateRunEmbed(true);
+}
+
+/** Filtro `.or()` sobre `run.account`: la empresa es (responsable o creador) de alguien del alcance. */
+export function candidateAccountScopeOrClause(ids: readonly string[]): string {
+  return ['owner_id', 'created_by'].map((col) => `${col}.in.(${ids.join(',')})`).join(',');
+}
+
+/**
+ * Une las filas de las dos ramas: sin repetidos (por `id`), en el orden pedido y con el tope.
+ * Pura, para poder probarla con `node --test`.
+ */
+export function mergeScopedCandidateRows<T extends { id: string }>(
+  branches: ReadonlyArray<ReadonlyArray<T>>,
+  compare: (a: T, b: T) => number,
+  limit: number,
+): T[] {
+  const byId = new Map<string, T>();
+  for (const rows of branches) for (const row of rows) if (!byId.has(row.id)) byId.set(row.id, row);
+  return [...byId.values()].sort(compare).slice(0, Math.max(0, limit));
+}
+
+/** Más reciente primero por una columna de fecha ISO (nulos al final). */
+export function byIsoDesc<T>(pick: (row: T) => string | null | undefined): (a: T, b: T) => number {
+  return (a, b) => {
+    const x = pick(a) ?? '';
+    const y = pick(b) ?? '';
+    if (x === y) return 0;
+    if (!x) return 1;
+    if (!y) return -1;
+    return x < y ? 1 : -1;
+  };
+}
