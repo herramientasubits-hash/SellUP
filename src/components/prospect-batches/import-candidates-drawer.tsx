@@ -114,13 +114,10 @@ export function ImportCandidatesDrawer({
 
   // Batch defaults
   const [selectedCountryCode, setSelectedCountryCode] = React.useState('');
-  const [selectedIndustry, setSelectedIndustry] = React.useState('');
-  const [selectedSubindustryId, setSelectedSubindustryId] = React.useState('');
 
   // Input-step catalog loading state
   const [catalogLoading, setCatalogLoading] = React.useState(false);
   const [catalogError, setCatalogError] = React.useState<string | null>(null);
-  const [subindustryCountryWarning, setSubindustryCountryWarning] = React.useState(false);
 
   // Input state
   const [pasteText, setPasteText] = React.useState('');
@@ -163,11 +160,8 @@ export function ImportCandidatesDrawer({
     setFileMethod('paste');
     setShowGuide(false);
     setSelectedCountryCode('');
-    setSelectedIndustry('');
-    setSelectedSubindustryId('');
     setCatalogLoading(false);
     setCatalogError(null);
-    setSubindustryCountryWarning(false);
     setPasteText('');
     setFileText('');
     setFileXlsx(null);
@@ -227,23 +221,7 @@ export function ImportCandidatesDrawer({
   }, [open]);
 
   function handleCountryChange(value: string | null) {
-    const code = value ?? '';
-    setSubindustryCountryWarning(false);
-    if (selectedSubindustryId && selectedSubindustryId !== '__none__' && catalogData && code) {
-      const industry = catalogData.industries.find((i) => i.id === selectedIndustry);
-      const sub = industry?.subindustries.find((s) => s.id === selectedSubindustryId);
-      if (sub && sub.countries && sub.countries.length > 0 && !sub.countries.includes(code)) {
-        setSelectedSubindustryId('');
-        setSubindustryCountryWarning(true);
-      }
-    }
-    setSelectedCountryCode(code);
-  }
-
-  function handleIndustryChange(value: string) {
-    setSelectedIndustry(value ?? '');
-    setSelectedSubindustryId('');
-    setSubindustryCountryWarning(false);
+    setSelectedCountryCode(value ?? '');
   }
 
   // Mismas reglas de siempre (tipo y tamaño), ahora también al arrastrar el archivo.
@@ -287,7 +265,6 @@ export function ImportCandidatesDrawer({
   }
 
   const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === selectedCountryCode);
-  const selectedIndustryName = catalogData?.industries.find((i) => i.id === selectedIndustry)?.name;
   // AGENT1-IMPORT-NO-SUBINDUSTRY-1 — SellUp ya no maneja subindustrias: el
   // catálogo v2 no publica ninguna. Sin subindustrias en el catálogo, la
   // importación no las pide, no las muestra y no las envía.
@@ -296,33 +273,12 @@ export function ImportCandidatesDrawer({
     [catalogData],
   );
 
-  const selectedSubindustryName = (selectedSubindustryId && selectedSubindustryId !== '__none__')
-    ? catalogData?.industries.find((i) => i.id === selectedIndustry)?.subindustries.find((s) => s.id === selectedSubindustryId)?.name
-    : undefined;
-
-  const industryOptions = React.useMemo(() => {
-    if (!catalogData) return [];
-    return catalogData.industries.map((i) => ({ value: i.id, label: i.name }));
-  }, [catalogData]);
-
-  const subindustryOptions = React.useMemo(() => {
-    if (!catalogData || !selectedIndustry || !selectedCountryCode) return [];
-    const industry = catalogData.industries.find((i) => i.id === selectedIndustry);
-    if (!industry) return [];
-    const filtered = industry.subindustries.filter(
-      (sub) => !sub.countries || sub.countries.length === 0 || sub.countries.includes(selectedCountryCode),
-    );
-    return [
-      { value: '__none__', label: 'Sin subindustria por defecto' },
-      ...filtered.map((sub) => ({ value: sub.id, label: sub.name })),
-    ];
-  }, [catalogData, selectedIndustry, selectedCountryCode]);
-
+  // Dueña 13-11 — sin «Industria por defecto»: confundía y sesgaba. Cada fila
+  // conserva la industria del archivo; las que no la traen quedan sin industria
+  // y la IA (rescate de Claude, después de importar) la asigna del catálogo.
   const defaults: ImportDefaults = {
     country: selectedCountry?.name,
     countryCode: selectedCountryCode || undefined,
-    industry: selectedIndustryName || undefined,
-    subindustry: selectedSubindustryName || undefined,
   };
 
   // ── Core classification runner — accepts params directly to avoid stale-closure issues ──
@@ -345,8 +301,6 @@ export function ImportCandidatesDrawer({
           rows: classifiableRows,
           defaults: {
             country_code: selectedCountryCode || undefined,
-            industry: selectedIndustryName || undefined,
-            subindustry: selectedSubindustryName || undefined,
           },
         }),
       });
@@ -602,8 +556,8 @@ export function ImportCandidatesDrawer({
       defaults: {
         country: selectedCountry?.name,
         country_code: selectedCountryCode || undefined,
-        industry: selectedIndustryName || undefined,
-        subindustry: selectedSubindustryName || undefined,
+        industry: undefined,
+        subindustry: undefined,
       },
     });
     // El mismo contrato que aplica el servidor, antes de enviar.
@@ -799,19 +753,6 @@ export function ImportCandidatesDrawer({
           <ImportCandidatesInputStep
             countryCode={selectedCountryCode}
             onCountryChange={handleCountryChange}
-            industryId={selectedIndustry}
-            onIndustryChange={handleIndustryChange}
-            industryOptions={industryOptions}
-            subindustriesEnabled={subindustriesEnabled}
-            subindustryId={selectedSubindustryId}
-            onSubindustryChange={(v) => {
-              setSelectedSubindustryId(v ?? '');
-              setSubindustryCountryWarning(false);
-            }}
-            subindustryOptions={subindustryOptions}
-            subindustryCountryWarning={subindustryCountryWarning}
-            catalogReady={!!catalogData}
-            catalogEmpty={!!catalogData && catalogData.industries.length === 0}
             catalogLoading={catalogLoading}
             catalogError={catalogError}
             onRetryCatalog={loadCatalog}
@@ -866,10 +807,6 @@ export function ImportCandidatesDrawer({
             exactDuplicateCount={exactDuplicateCount}
             possibleDuplicateCount={possibleDuplicateCount}
             countryLabel={selectedCountryCode ? (selectedCountry?.name ?? selectedCountryCode) : undefined}
-            industryLabel={selectedIndustry ? (selectedIndustryName ?? selectedIndustry) : undefined}
-            subindustryLabel={
-              selectedSubindustryId && selectedSubindustryId !== '__none__' ? selectedSubindustryName : undefined
-            }
             onBack={backToInput}
             onSelectionChange={setSelectedRows}
           />

@@ -6,7 +6,6 @@
 import { RefreshCw, Settings2, Table2 } from '@/icons';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Field } from '@/components/forms/field';
-import { SearchableSelect, type SearchableSelectOption } from '@/components/forms/searchable-select';
 import { Spinner } from '@/components/feedback/spinner';
 import { OptionTile } from '@/components/selection/option-tile';
 import { UploadZone } from '@/components/upload/UploadZone';
@@ -30,17 +29,7 @@ interface ImportCandidatesInputStepProps {
   // Valores por defecto del lote
   countryCode: string;
   onCountryChange: (value: string | null) => void;
-  industryId: string;
-  onIndustryChange: (value: string) => void;
-  industryOptions: SearchableSelectOption[];
-  subindustriesEnabled: boolean;
-  subindustryId: string;
-  onSubindustryChange: (value: string) => void;
-  subindustryOptions: SearchableSelectOption[];
-  subindustryCountryWarning: boolean;
   // Catálogo de industrias
-  catalogReady: boolean;
-  catalogEmpty: boolean;
   catalogLoading: boolean;
   catalogError: string | null;
   onRetryCatalog: () => void;
@@ -61,16 +50,6 @@ interface ImportCandidatesInputStepProps {
 export function ImportCandidatesInputStep({
   countryCode,
   onCountryChange,
-  industryId,
-  onIndustryChange,
-  industryOptions,
-  subindustriesEnabled,
-  subindustryId,
-  onSubindustryChange,
-  subindustryOptions,
-  subindustryCountryWarning,
-  catalogReady,
-  catalogEmpty,
   catalogLoading,
   catalogError,
   onRetryCatalog,
@@ -109,64 +88,27 @@ export function ImportCandidatesInputStep({
             </Select>
           </Field>
 
-          <Field
-            label="Industria por defecto"
-            description="Se usará únicamente en filas que no incluyan industria."
-            className="min-w-0"
-          >
-            {catalogLoading ? (
-              <div role="status" className="flex h-10 items-center gap-2">
-                <Spinner decorative size="sm" />
-                <span className="text-xs text-muted-foreground">Cargando catálogo…</span>
-              </div>
-            ) : catalogError ? (
-              <Alert variant="destructive" className="p-3">
-                <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                  <span>No pudimos cargar el catálogo.</span>
-                  <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onRetryCatalog}>
-                    <RefreshCw className="h-3 w-3" />
-                    Reintentar
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <SearchableSelect
-                options={industryOptions}
-                value={industryId}
-                onValueChange={onIndustryChange}
-                placeholder={catalogEmpty ? 'No hay un catálogo publicado disponible.' : 'Industria'}
-                searchPlaceholder="Buscar industria…"
-                emptyMessage="No se encontraron industrias."
-                disabled={!catalogReady || catalogEmpty}
-              />
+          {/* Dueña 13-11 — sin «Industria por defecto». */}
+          <div className="min-w-0 rounded-xl bg-surface-muted p-3 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Industria</p>
+            <p className="mt-1">
+              Se toma la de cada fila del archivo. Las filas sin industria la reciben de la IA después de importar.
+            </p>
+            {catalogLoading && (
+              <p role="status" className="mt-2 flex items-center gap-2">
+                <Spinner decorative size="sm" /> Cargando catálogo…
+              </p>
             )}
-          </Field>
-
-          {/* Subindustria por defecto — sólo si el catálogo publica subindustrias */}
-          {subindustriesEnabled && (
-            <Field
-              label="Subindustria por defecto (opcional)"
-              description="Opcional. Se usará únicamente en filas que no incluyan subindustria."
-              className="min-w-0 sm:col-span-2"
-            >
-              <div className="space-y-1.5">
-                {subindustryCountryWarning && (
-                  <p role="status" className="text-xs font-medium text-warning">
-                    La subindustria seleccionada no está disponible para el nuevo país y fue eliminada.
-                  </p>
-                )}
-                <SearchableSelect
-                  options={subindustryOptions}
-                  value={subindustryId}
-                  onValueChange={onSubindustryChange}
-                  placeholder="Sin subindustria por defecto"
-                  searchPlaceholder="Buscar subindustria…"
-                  emptyMessage="Selecciona un país e industria primero."
-                  disabled={!catalogReady || !industryId || !countryCode || catalogLoading || !!catalogError}
-                />
-              </div>
-            </Field>
-          )}
+            {catalogError && (
+              <span className="mt-2 flex flex-wrap items-center gap-x-2 text-destructive">
+                No pudimos cargar el catálogo.
+                <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onRetryCatalog}>
+                  <RefreshCw className="h-3 w-3" />
+                  Reintentar
+                </Button>
+              </span>
+            )}
+          </div>
         </div>
       </DrawerSection>
 
