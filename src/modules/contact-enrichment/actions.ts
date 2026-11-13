@@ -406,9 +406,16 @@ async function readScopedCandidates(
   limit: number,
 ): Promise<{ data: unknown[]; error: { message: string } | null }> {
   const results = await Promise.all(scopedCandidateQueries(supabase, scopeIds).map((query) => refine(query)));
-  const failed = results.find((result) => result.error);
-  if (failed?.error) return { data: [], error: failed.error };
-  const branches = results.map((result) => (result.data ?? []) as CandidateListRow[]);
+  // La rama «empresa del alcance» es nueva (13-11): si la base la rechazara, la lista
+  // sigue con la regla de siempre (quién lanzó la búsqueda) en vez de caerse entera.
+  const [first, ...rest] = results;
+  if (first?.error) return { data: [], error: first.error };
+  const usable = [first, ...rest.filter((result) => {
+    if (!result.error) return true;
+    console.warn('[contact-candidates] rama por empresa falló; se usa sólo «quién la lanzó»:', result.error.message);
+    return false;
+  })];
+  const branches = usable.map((result) => (result?.data ?? []) as CandidateListRow[]);
   return { data: mergeScopedCandidateRows(branches, compare, limit), error: null };
 }
 
@@ -436,8 +443,12 @@ async function countScopedCandidates(
         .or(clause, { referencedTable: 'run.account' }),
     ),
   ]);
-  const error = byTrigger.error ?? byAccount.error ?? both.error;
-  if (error) return { count: null, error };
+  if (byTrigger.error) return { count: null, error: byTrigger.error };
+  // Igual que la lista: si la rama por empresa fallara, se cuenta con la regla de siempre.
+  if (byAccount.error || both.error) {
+    console.warn('[contact-candidates] conteo por empresa falló; se usa sólo «quién la lanzó»:', (byAccount.error ?? both.error)?.message);
+    return byTrigger;
+  }
   return { count: (byTrigger.count ?? 0) + (byAccount.count ?? 0) - (both.count ?? 0), error: null };
 }
 
