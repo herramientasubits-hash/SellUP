@@ -91,6 +91,7 @@ mock.module('@/components/contact-enrichment/bulk-contact-enrichment-drawer', {
 });
 
 let AccountsDataTableClient: (typeof import('../accounts-data-table-client'))['AccountsDataTableClient'];
+let NavAccessProvider: (typeof import('@/components/layout/nav-access-context'))['NavAccessProvider'];
 
 function account(overrides: Partial<AccountListItem>): AccountListItem {
   return {
@@ -121,6 +122,7 @@ const ACCOUNTS = [
 before(async () => {
   ({ render, screen, within, fireEvent, cleanup } = await import('@testing-library/react'));
   ({ AccountsDataTableClient } = await import('../accounts-data-table-client'));
+  ({ NavAccessProvider } = await import('@/components/layout/nav-access-context'));
 });
 
 beforeEach(() => {
@@ -140,8 +142,12 @@ function indicators(): HTMLElement {
   return screen.getByRole('group', { name: 'Indicadores de empresas' });
 }
 
-function renderTable(accounts: AccountListItem[] = ACCOUNTS) {
-  return render(<AccountsDataTableClient accounts={accounts} users={[]} />);
+function renderTable(accounts: AccountListItem[] = ACCOUNTS, { isAdmin = false }: { isAdmin?: boolean } = {}) {
+  return render(
+    <NavAccessProvider value={{ isAdmin, roleKey: isAdmin ? 'admin' : 'seller_bd' }}>
+      <AccountsDataTableClient accounts={accounts} users={[]} />
+    </NavAccessProvider>,
+  );
 }
 
 describe('Empresas — los indicadores son filtros de un toque', () => {
@@ -242,7 +248,7 @@ describe('Empresas — el estado no se cambia a mano', () => {
   it('el menú de la fila no ofrece cambiar el estado: lo mueven los agentes', async () => {
     // «Menú en cada fila» (Configurar tabla): las mismas entradas que el clic derecho.
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ rowControl: 'menu' }));
-    renderTable();
+    renderTable(ACCOUNTS, { isAdmin: true });
 
     fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme' }));
 
@@ -251,6 +257,16 @@ describe('Empresas — el estado no se cambia a mano', () => {
     assert.equal(screen.queryByRole('menuitem', { name: 'Cambiar estado' }), null);
     assert.ok(screen.getByRole('menuitem', { name: 'Archivar empresa' }));
     assert.deepEqual(statusChanges, []);
+  });
+
+  it('archivar es sólo de admin (decisión 6): a un vendedor no se le ofrece', async () => {
+    window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ rowControl: 'menu' }));
+    renderTable();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme' }));
+
+    await screen.findByRole('menuitem', { name: 'Editar empresa' });
+    assert.equal(screen.queryByRole('menuitem', { name: 'Archivar empresa' }), null);
   });
 });
 

@@ -15,6 +15,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   isApolloCompanySearchEnabled,
   isApolloTwoRoundDiscoveryEnabled,
@@ -52,22 +53,13 @@ export async function resolveWizardAdminAuthority(): Promise<WizardAdminAuthorit
     } = await supabase.auth.getUser();
     if (!user) return NO_AUTHORITY;
 
-    const { data: internalUser } = await supabase
-      .from('internal_users')
-      .select('id, role_id')
-      .eq('auth_user_id', user.id)
-      .eq('access_status', 'active')
-      .single();
+    // getCurrentUser / isCurrentUserAdmin respetan «Ver como…»: mientras se
+    // prueba otro rol, no es administrador.
+    const [internalUser, isAdmin] = await Promise.all([getCurrentUser(), isCurrentUserAdmin()]);
     // Sesión válida pero sin usuario interno activo: autenticado, no admin.
-    if (!internalUser) return { isAuthenticated: true, isAdmin: false };
+    if (!internalUser || internalUser.access_status !== 'active') return { isAuthenticated: true, isAdmin: false };
 
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-
-    return { isAuthenticated: true, isAdmin: role?.key === 'admin' };
+    return { isAuthenticated: true, isAdmin: isAdmin === true };
   } catch {
     return NO_AUTHORITY;
   }

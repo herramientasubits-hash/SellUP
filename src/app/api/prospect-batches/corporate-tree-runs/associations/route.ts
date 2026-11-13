@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { canActOnAccount, canActOnCandidate } from '@/modules/access/record-scope.server';
 import {
   buildCorporateTreeViews,
   linkTreeRecordsToCandidates,
@@ -70,10 +71,24 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
-  const lookup = await resolveSelf(supabase, {
+  // Usuario ACTIVO y la ficha en su alcance (suya o de su gente): sin esto,
+  // cualquiera con sesión leía el árbol de cualquier empresa por su id.
+  const { data: me } = await supabase
+    .from('internal_users')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .eq('access_status', 'active')
+    .maybeSingle();
+  if (!me?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+
+  const ref = {
     candidateId: UUID.test(candidateId) ? candidateId : null,
     accountId: UUID.test(candidateId) ? null : accountId,
-  });
+  };
+  const inScope = ref.candidateId ? await canActOnCandidate(ref.candidateId) : await canActOnAccount(ref.accountId ?? '');
+  if (!inScope) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+  const lookup = await resolveSelf(supabase, ref);
   if (!lookup) return NextResponse.json({ available: true, trees: [] } satisfies CorporateTreeAssociationsResponse, { headers: NO_STORE });
 
   const own = await supabase.from('agent1_company_relationships').select('batch_id').or(lookup.filter).limit(MAX_ROWS);

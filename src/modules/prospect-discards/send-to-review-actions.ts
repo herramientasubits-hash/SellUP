@@ -12,10 +12,9 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { isBatchInScope } from './batch-in-scope.server';
-import {
-  requireActiveUser,
-  logProspectCandidateAudit,
-} from '@/modules/prospect-batches/actions';
+import { canActOnCandidate } from '@/modules/access/record-scope.server';
+import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { logProspectCandidateAudit } from '@/modules/prospect-batches/candidate-audit.server';
 import {
   sendCandidateToReviewCore,
   sendDispositionToReviewCore,
@@ -103,6 +102,8 @@ export async function sendDiscardedProspectToReviewAction(
       supabase,
       actorUserId: internalUserId,
       isBatchInScope,
+      // Una candidata asignada a su alcance (en una búsqueda ajena) también vuelve a revisión.
+      isCandidateInScope: canActOnCandidate,
       // AGENT1-SEND-TO-REVIEW-RECLAIM-1 — cliente ADMINISTRATIVO: la tabla de
       // reclamos sólo tiene política para `service_role` (igual que Lusha).
       claimGlobalIdentities: (batchId: string, candidateIds: string[]) =>
