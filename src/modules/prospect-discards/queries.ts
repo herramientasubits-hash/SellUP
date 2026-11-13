@@ -13,7 +13,8 @@
 // No provider calls, no writes — this file only reads already-persisted data.
 
 import { createClient } from '@/lib/supabase/server';
-import { loadUserNames, type UserNamesClient } from '@/modules/access/user-names';
+import { loadDirectoryNames } from '@/modules/access/user-directory.server';
+import { canActOnCandidate } from '@/modules/access/record-scope.server';
 import {
   importDuplicateToItem,
   isImportDuplicateCandidate,
@@ -325,7 +326,13 @@ export async function getDiscardedProspectDetail(
     .eq('id', id)
     .maybeSingle();
   if (error || !data) return null;
-  if (allowedBatchIds !== null && !allowedBatchIds.includes(data.batch_id as string)) {
+  // Misma regla que «Por revisar»: su búsqueda en el alcance, o asignada a alguien
+  // del alcance (aunque la búsqueda sea de otro equipo).
+  if (
+    allowedBatchIds !== null &&
+    !allowedBatchIds.includes(data.batch_id as string) &&
+    !(await canActOnCandidate(data.id as string))
+  ) {
     return null;
   }
   if (isImportDuplicateCandidate(data as { status?: string; source_primary?: string })) {
@@ -340,7 +347,9 @@ export async function getDiscardedProspectDetail(
 async function withDiscardedByNames(items: DiscardedProspectItem[]): Promise<DiscardedProspectItem[]> {
   const ids = items.map((item) => item.discardedById ?? null);
   if (!ids.some(Boolean)) return items;
-  const names = await loadUserNames((await createClient()) as unknown as UserNamesClient, ids);
+  // Directorio (cliente de servicio): la RLS no deja a un no-admin leer el nombre
+  // de otra persona. Los ítems ya pasaron por el alcance.
+  const names = await loadDirectoryNames(ids);
   return items.map((item) =>
     item.discardedById ? { ...item, discardedByName: names.get(item.discardedById) ?? null } : item,
   );

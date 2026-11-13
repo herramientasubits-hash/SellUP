@@ -108,6 +108,10 @@ export const SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS: readonly string[] = [
   'commercial_manager',
   'commercial_lead',
   'seller_bd',
+  // 13-11 (dueña): Growth también revela / busca números / ve lo comprado / revisa un
+  // reveal trabado, siempre dentro de su alcance (lo suyo). El gasto lo topan las reglas
+  // de presupuesto.
+  'growth',
 ];
 
 // ═══════════════════════════════════════════════════════════════════

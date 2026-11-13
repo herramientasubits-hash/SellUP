@@ -267,10 +267,10 @@ describe('4O-G — autorización de servidor, no de UI', () => {
     assert.equal(gateCount, 2, 'las DOS acciones deben pasar por el gate');
   });
 
-  it('los roles autorizados son los que pueden revelar (11-11: + líder y vendedor)', () => {
+  it('los roles autorizados son los que pueden revelar (11-11: + líder y vendedor; 13-11: + Growth)', () => {
     assert.match(
       sources[ROLES],
-      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \[\s*'admin',\s*'commercial_manager',\s*'commercial_lead',\s*'seller_bd',\s*\]/,
+      /CANDIDATE_STORED_PHONES_AUTHORIZED_ROLE_KEYS: readonly string\[\] = \[\s*'admin',\s*'commercial_manager',\s*'commercial_lead',\s*'seller_bd',(?:\s*\/\/[^\n]*)*\s*'growth',\s*\]/,
     );
     // Y la acción lo consume de ahí, en vez de declarar una segunda lista propia.
     assert.match(
@@ -689,6 +689,11 @@ describe('4O-G — alcance', () => {
       // ALCANCE COMERCIAL: la guarda de alcance LEE la acción con `readFileSync` —no la
       // importa— para fijar que comprueba el alcance del candidato antes de devolver números.
       'src/modules/contact-enrichment/__tests__/candidate-scope.test.ts',
+      // AUDITORÍA DE PERMISOS B (13-11): importa SÓLO la lista de roles para fijar que Growth
+      // ve lo que compró. No importa la lectura ni ningún camino de gasto.
+      'src/modules/contact-enrichment/__tests__/permissions-audit-b-pure.test.ts',
+      // Y su guarda estática, que LEE las acciones con `readFileSync` (no las importa).
+      'src/modules/contact-enrichment/__tests__/permissions-audit-b-static.test.ts',
       // SEARCH-MORE-PHONES-1: el copy de «Buscar más números». NO importa ningún módulo
       // de 4O-G — sólo lo NOMBRA en un comentario, para explicar que su regla del verbo
       // es el ESPEJO de la de 4O-G: allí ninguna cadena puede sugerir que se busca algo

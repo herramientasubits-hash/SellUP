@@ -56,10 +56,17 @@ export interface ImportRow {
   warnings: string[];
   resolved_country_code: string | null;
   country_from_default: boolean;
+  /** Dueña 13-11 — país que no traía la fila y se detectó (dominio, texto o IA). */
+  country_detected?: 'domain' | 'text' | 'ai' | null;
   industry_from_default: boolean;
   industryOriginalValue: string | null;
   subindustryOriginalValue: string | null;
 }
+
+/** Aviso de una fila sin país mientras se detecta (no bloquea todavía). */
+export const COUNTRY_PENDING_WARNING = 'País por detectar';
+/** Error de una fila a la que no se le pudo detectar el país. */
+export const COUNTRY_NOT_DETECTED_ERROR = 'No pudimos detectar el país: escríbelo en el archivo';
 
 export interface ImportPreview {
   total: number;
@@ -581,8 +588,10 @@ function validateRow(raw: ParsedImportRow, index: number, defaults?: ImportDefau
   const effectiveSubindustry = raw.subindustry?.trim() || (subindustry_from_default ? defaults?.subindustry : undefined);
 
   const hasCountry = hasCountryInRow || country_from_default;
+  // Dueña 13-11 — sin «País de referencia»: una fila sin país no es un error
+  // todavía; se detecta (dominio, texto o IA) y sólo si no se puede, se pide.
   if (!hasCountry) {
-    errors.push('Falta país');
+    warnings.push(COUNTRY_PENDING_WARNING);
   }
 
   const resolved_country_code = effectiveCountryCode ?? null;
@@ -993,4 +1002,37 @@ export function importTruncationNotice(result: Pick<ParseResult, 'truncated' | '
     title: `Se tomaron sólo las primeras ${limit} filas`,
     description: `El archivo tiene más de ${limit} empresas, el máximo por importación. Importa el resto en otro archivo.`,
   };
+}
+
+/** Filas a las que hay que detectarles el país: sin país reconocido y sin otros errores. */
+export function rowsNeedingCountry(rows: readonly ImportRow[]): ImportRow[] {
+  return rows.filter((row) => row.errors.length === 0 && !row.resolved_country_code);
+}
+
+/**
+ * Aplica el país detectado a cada fila (dueña 13-11). Las que siguen sin país
+ * pasan a error con un mensaje claro: no se adivina. Devuelve filas NUEVAS.
+ */
+export function applyCountryDetections(
+  rows: readonly ImportRow[],
+  detections: ReadonlyArray<{ index: number; country_code: string; country: string; source: 'domain' | 'text' | 'ai' }>,
+): ImportRow[] {
+  const byIndex = new Map(detections.map((d) => [d.index, d]));
+  return rows.map((row) => {
+    if (row.errors.length > 0 || row.resolved_country_code) return row;
+    const found = byIndex.get(row.index);
+    const warnings = row.warnings.filter((w) => w !== COUNTRY_PENDING_WARNING && !w.startsWith('País "'));
+    if (!found) {
+      const errors = [...row.errors, COUNTRY_NOT_DETECTED_ERROR];
+      return { ...row, warnings, errors, status: 'error' as RowStatus, resolved_country_code: null };
+    }
+    return {
+      ...row,
+      raw: { ...row.raw, country: found.country, country_code: found.country_code },
+      warnings,
+      status: (warnings.length > 0 ? 'warning' : 'valid') as RowStatus,
+      resolved_country_code: found.country_code,
+      country_detected: found.source,
+    };
+  });
 }

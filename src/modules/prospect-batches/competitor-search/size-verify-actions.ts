@@ -12,8 +12,10 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { requireActiveUser, logProspectCandidateAudit } from '@/modules/prospect-batches/actions';
+import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { logProspectCandidateAudit } from '@/modules/prospect-batches/candidate-audit.server';
 import { isBatchInScope } from '@/modules/prospect-discards/batch-in-scope.server';
+import { canActOnCandidate } from '@/modules/access/record-scope.server';
 import { sendCandidateToReviewCore } from '@/modules/prospect-discards/send-to-review-core';
 import { claimGlobalIdentitiesForPersistedCandidates } from '@/server/prospect-batches/global-identity-claims-store';
 import { isCompetitorSmallCompany } from './competitor-small-companies';
@@ -50,7 +52,7 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
     .maybeSingle();
   const candidate = data as CandidateRow | null;
   if (!candidate) return { ok: false, message: 'No encontramos esta empresa.' };
-  if (!(await isBatchInScope(candidate.batch_id))) return { ok: false, message: 'Esta empresa está fuera de tu alcance.' };
+  if (!(await canActOnCandidate(candidate.id))) return { ok: false, message: 'Esta empresa está fuera de tu alcance.' };
   // Ya verificada: no se vuelve a pagar.
   const previous = readCompetitorSizeVerification(candidate.metadata);
   if (previous) return { ok: true, message: describeSizeVerification(previous.decision, previous.employees), sentToReview: false };
@@ -97,6 +99,7 @@ export async function verifyCompetitorSizeAction(request: unknown): Promise<Veri
         supabase,
         actorUserId: internalUserId,
         isBatchInScope,
+        isCandidateInScope: canActOnCandidate,
         claimGlobalIdentities: (batchId: string, candidateIds: string[]) =>
           claimGlobalIdentitiesForPersistedCandidates(createSupabaseAdminClient(), batchId, candidateIds),
         // FEEDBACK 29-10 — de vuelta en revisión, se verifica en SellUp y HubSpot (sólo lectura).

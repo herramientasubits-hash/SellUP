@@ -257,6 +257,15 @@ mock.module('@/lib/supabase/server', {
   namedExports: { createClient: async () => makeClient() },
 });
 
+// «Ver como…»: las acciones resuelven al actor con `getCurrentUser()`/`isCurrentUserAdmin()`
+// (current-actor.server). Mismo actor que la sesión simulada de arriba.
+mock.module('@/modules/access/actions', {
+  namedExports: {
+    getCurrentUser: async () => ({ id: ACTOR_ID, role_key: 'admin', access_status: 'active' }),
+    isCurrentUserAdmin: async () => 'admin' === 'admin',
+  },
+});
+
 mock.module('next/navigation', {
   namedExports: {
     redirect: () => {

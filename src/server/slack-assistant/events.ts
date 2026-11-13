@@ -5,6 +5,8 @@
 // uniones a canales…) se ignora.
 // ============================================================
 
+export type SlackQuestionSource = 'direct_message' | 'mention';
+
 export type SlackEventAction =
   | { kind: 'url_verification'; challenge: string }
   | {
@@ -21,7 +23,14 @@ export type SlackEventAction =
       /** `ts` del propio mensaje (para leer lo que vino antes). */
       messageTs: string;
       text: string;
+      /**
+       * `mention`: alguien nombró al bot en un canal (o en un grupo directo). La
+       * respuesta NUNCA va al canal: va por mensaje directo a quien preguntó y
+       * en el hilo queda sólo una nota neutra (dueña 13-11).
+       */
       source: 'direct_message' | 'mention';
+      /** App de Slack que mandó el evento (para no tomar como propios mensajes de otros bots). */
+      apiAppId: string | null;
     }
   | { kind: 'ignore'; reason: string };
 
@@ -65,7 +74,12 @@ export function parseSlackEvent(payload: unknown): SlackEventAction {
   if (!slackUserId || !channel || !ts) return { kind: 'ignore', reason: 'incomplete_event' };
 
   let source: 'direct_message' | 'mention';
-  if (event.type === 'app_mention') source = 'mention';
+  if (event.type === 'app_mention') {
+    // Una mención dentro del mensaje directo con el bot ya llega como `message.im`:
+    // atenderla dos veces respondería dos veces.
+    if (event.channel_type === 'im' || channel.startsWith('D')) return { kind: 'ignore', reason: 'mention_in_direct_message' };
+    source = 'mention';
+  }
   else if (event.type === 'message' && event.channel_type === 'im') source = 'direct_message';
   else return { kind: 'ignore', reason: 'unsupported_event' };
 
@@ -81,5 +95,30 @@ export function parseSlackEvent(payload: unknown): SlackEventAction {
     messageTs: ts,
     text,
     source,
+    apiAppId: str(body.api_app_id),
+  };
+}
+
+/**
+ * ¿El evento o el clic viene de OTRO espacio de trabajo u otra app? Sólo se
+ * compara lo que está configurado; sin configuración no se rechaza nada.
+ */
+export function slackIdentityMismatch(
+  received: { teamId: string | null; appId: string | null },
+  configured: { teamId: string | null; appId: string | null },
+): 'team' | 'app' | null {
+  if (configured.teamId && received.teamId && received.teamId !== configured.teamId) return 'team';
+  if (configured.appId && received.appId && received.appId !== configured.appId) return 'app';
+  return null;
+}
+
+/** El espacio de trabajo y la app que dice traer un evento o una interacción de Slack. */
+export function slackPayloadIdentity(payload: unknown): { teamId: string | null; appId: string | null } {
+  if (!payload || typeof payload !== 'object') return { teamId: null, appId: null };
+  const body = payload as Record<string, unknown>;
+  const team = body.team && typeof body.team === 'object' ? (body.team as Record<string, unknown>).id : undefined;
+  return {
+    teamId: str(body.team_id) ?? str(team),
+    appId: str(body.api_app_id),
   };
 }

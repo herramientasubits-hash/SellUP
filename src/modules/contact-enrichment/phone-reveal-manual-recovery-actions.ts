@@ -29,8 +29,9 @@
 //   * El resultado NUNCA incluye teléfono, raw_number, sanitized_number, email,
 //     linkedin, nombre, empresa, API key, token, request id ni payload crudo.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { recoverApolloPhoneRevealForCandidate } from './phone-reveal-recovery-core';
 import { buildRecoveryCoreDeps } from './phone-reveal-recovery-deps';
 import { PHONE_CACHE_HIT_PHONE_SOURCE } from './phone-cache-core';
@@ -98,31 +99,8 @@ function mapSnapshot(row: Record<string, unknown>): ManualRecoveryCandidateSnaps
  * y devuelve `unauthorized_role` (la UI ya oculta el CTA a roles no autorizados).
  */
 async function resolveManualRecoveryActor(): Promise<ManualRecoveryActor> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-
-  return { internalUserId: internalUser.id as string, roleKey };
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 // ── Server Action ──────────────────────────────────────────────
@@ -171,6 +149,9 @@ export async function recoverCandidatePhoneRevealNowAction(
         nowIso: deps.nowIso,
 
         loadSnapshot: async (id): Promise<ManualRecoveryCandidateSnapshot | null> => {
+          // «Revisar ahora» es de lo propio y del equipo (en cascada): un candidato ajeno
+          // es, para quien no lo puede ver, inexistente.
+          if (!(await canSeeContactCandidate(supabase, id))) return null;
           const { data, error } = await supabase
             .from('contact_enrichment_candidates')
             .select(MANUAL_RECOVERY_SNAPSHOT_SELECT)

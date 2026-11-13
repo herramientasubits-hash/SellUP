@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { loadDirectoryNames, loadDirectoryUsers } from '@/modules/access/user-directory.server';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { resolveScopedUserIds } from '@/modules/access/commercial-scope-logic';
@@ -63,33 +65,13 @@ async function requireActiveUser(): Promise<{ internalUserId: string }> {
   return { internalUserId: internalUser.id };
 }
 
+// Respeta «Ver como…»: mientras se prueba otro rol, no es administrador.
 async function requireAdmin(): Promise<{ internalUserId: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  const { internalUserId } = await requireActiveUser();
+  if (!(await isCurrentUserAdmin().catch(() => false))) {
     throw new Error('Acceso restringido: se requiere rol admin');
   }
-
-  return { internalUserId: internalUser.id };
+  return { internalUserId };
 }
 
 // ============================================================
@@ -217,8 +199,7 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
     .from('accounts')
     .select(
       `id, name, country, country_code, industry, website, domain,
-       pipeline_status, source, created_at, owner_id,
-       owner:owner_id ( full_name )`,
+       pipeline_status, source, created_at, owner_id`,
     )
     .is('archived_at', null)
     .order('created_at', { ascending: false })
@@ -228,6 +209,11 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
   const { data, error } = await listQuery;
 
   if (error) throw new Error(`getAccountsList: ${error.message}`);
+
+  // Nombres por el directorio (cliente de servicio): la RLS de `internal_users`
+  // no deja a un no-admin leer el nombre de otra persona. Las filas ya vienen
+  // filtradas por alcance.
+  const ownerNames = await loadDirectoryNames((data ?? []).map((row) => row.owner_id as string | null));
 
   return (data ?? []).map((row) => ({
     id: row.id,
@@ -241,7 +227,7 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
     source: row.source as Account['source'],
     created_at: row.created_at,
     owner_id: (row.owner_id as string | null) ?? null,
-    owner_name: (row.owner as unknown as { full_name: string | null } | null)?.full_name ?? null,
+    owner_name: row.owner_id ? ownerNames.get(row.owner_id as string) ?? null : null,
   }));
 }
 
@@ -288,10 +274,7 @@ export async function getAccountById(id: string): Promise<AccountWithOwner | nul
 
   const { data, error } = await supabase
     .from('accounts')
-    .select(
-      `*, owner:owner_id ( id, full_name, email ),
-       created_by_user:created_by ( id, full_name )`,
-    )
+    .select('*')
     .eq('id', id)
     .single();
 
@@ -311,7 +294,17 @@ export async function getAccountById(id: string): Promise<AccountWithOwner | nul
     if (!ownerInScope && !creatorInScope) return null;
   }
 
-  return data as unknown as AccountWithOwner;
+  // Responsable y creador por el directorio, DESPUÉS del alcance (la RLS no deja
+  // a un no-admin leer a otra persona). Misma forma que el embed de antes.
+  const acct = data as unknown as Account;
+  const people = await loadDirectoryUsers([acct.owner_id, acct.created_by]);
+  const owner = acct.owner_id ? people.get(acct.owner_id) : undefined;
+  const creator = acct.created_by ? people.get(acct.created_by) : undefined;
+  return {
+    ...acct,
+    owner: owner ? { id: owner.id, full_name: owner.fullName, email: owner.email ?? '' } : null,
+    created_by_user: creator ? { id: creator.id, full_name: creator.fullName } : null,
+  };
 }
 
 // ============================================================
@@ -326,19 +319,36 @@ export async function getAccountAudit(accountId: string): Promise<AccountAuditEn
 
   const { data, error } = await supabase
     .from('account_audit')
-    .select(`*, actor:actor_user_id ( full_name, email )`)
+    .select('*')
     .eq('account_id', accountId)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error) throw new Error(`getAccountAudit: ${error.message}`);
 
-  return (data ?? []) as unknown as AccountAuditEntry[];
+  const rows = (data ?? []) as unknown as AccountAuditEntry[];
+  const actors = await loadDirectoryUsers(rows.map((row) => row.actor_user_id));
+  return rows.map((row) => {
+    const actor = row.actor_user_id ? actors.get(row.actor_user_id) : undefined;
+    return { ...row, actor: actor ? { full_name: actor.fullName, email: actor.email ?? '' } : null };
+  });
 }
 
 // ============================================================
 // createAccount
 // ============================================================
+
+/**
+ * Un responsable elegido que no es quien crea pasa por la misma regla que
+ * «Asignar a…» (vendedor: sólo a sí mismo; activo). `null` si vale.
+ */
+async function checkChosenOwner(chosenOwnerId: string | null | undefined, actorUserId: string): Promise<string | null> {
+  if (!chosenOwnerId || chosenOwnerId === actorUserId) return null;
+  const actor = await loadAssignmentActor();
+  if (!actor) return 'Tu sesión no está activa. Vuelve a entrar.';
+  const check = await loadAssignmentTarget(actor, chosenOwnerId);
+  return check.ok ? null : check.error;
+}
 
 export async function createAccount(
   input: CreateAccountInput,
@@ -348,6 +358,9 @@ export async function createAccount(
 
   const name = input.name.trim();
   if (!name) return { success: false, error: 'El nombre es requerido' };
+
+  const ownerError = await checkChosenOwner(input.owner_id, internalUserId);
+  if (ownerError) return { success: false, error: ownerError };
 
   const domain = input.website ? extractDomain(input.website) : null;
   const normalizedName = normalizeText(name);
@@ -412,10 +425,12 @@ export async function addAccountManually(
   | { success: true; id: string; notice: string | null }
   | { success: false; error: string; existingAccountId?: string }
 > {
-  await requireActiveUser();
+  const { internalUserId } = await requireActiveUser();
 
   const name = input.name.trim();
   if (!name) return { success: false, error: 'El nombre es requerido' };
+  const ownerError = await checkChosenOwner(input.owner_id, internalUserId);
+  if (ownerError) return { success: false, error: ownerError };
   const domain = input.website ? extractDomain(input.website) : null;
   const taxIdentifier = input.tax_identifier?.trim() || null;
   const countryCode = input.country_code?.trim() || null;
@@ -507,6 +522,11 @@ export async function updateAccount(
   if (input.metadata !== undefined) payload.metadata = input.metadata;
 
   const ownerChanged = input.owner_id !== undefined && input.owner_id !== current.owner_id;
+  // Dejar una empresa sin responsable sólo lo hace un admin: sin dueño nadie del
+  // equipo la ve (y en HubSpot queda huérfana).
+  if (ownerChanged && !input.owner_id && !(await isCurrentUserAdmin().catch(() => false))) {
+    return { success: false, error: 'Elige un responsable: la empresa no puede quedar sin dueño.' };
+  }
   if (ownerChanged && input.owner_id) {
     const assigner = await loadAssignmentActor();
     const check = assigner ? await loadAssignmentTarget(assigner, input.owner_id) : null;
@@ -753,7 +773,8 @@ export async function assignAccountsToUser(
 // logAccountAudit — interno
 // ============================================================
 
-export async function logAccountAudit({
+// Sin `export`: en un archivo 'use server' sería una acción con un actor cualquiera.
+async function logAccountAudit({
   accountId,
   actorUserId,
   actionType,

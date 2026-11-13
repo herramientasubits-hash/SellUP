@@ -34,8 +34,10 @@ interface UserRow {
 
 const PAGE = 1000;
 const MAX_PAGES = 30;
+/** Más lotes que esto no caben en un filtro `in` de la URL: se filtra más grueso. */
+const MAX_FILTER_BATCHES = 300;
 
-/** Lee todas las filas de una consulta paginada (hasta 30.000). */
+/** Lee todas las filas de una consulta paginada (hasta 30.000), en orden estable por `id`. */
 async function readAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const rows: T[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -81,17 +83,37 @@ export async function readTeamActivity(
     if (row) (row[key] as number) += amount;
   };
 
+  // Candidatas del equipo: asignadas a alguien del equipo o sin asignar en un lote
+  // del equipo (dueño o creador). Si el equipo tiene demasiados lotes para un
+  // filtro, se leen las sin asignar y se atribuyen abajo (mismo resultado).
+  const list = ids.join(',');
+  const { data: teamBatches, error: batchError } = await admin
+    .from('prospect_batches')
+    .select('id')
+    .or(`owner_id.in.(${list}),created_by.in.(${list})`)
+    .order('id', { ascending: true })
+    .limit(MAX_FILTER_BATCHES + 1);
+  if (batchError) throw new Error(batchError.message);
+  const batchIds = ((teamBatches ?? []) as Array<{ id: string }>).map((b) => b.id);
+  const candidateClause =
+    batchIds.length === 0
+      ? `assigned_to.in.(${list})`
+      : batchIds.length <= MAX_FILTER_BATCHES
+        ? `assigned_to.in.(${list}),and(assigned_to.is.null,batch_id.in.(${batchIds.join(',')}))`
+        : `assigned_to.in.(${list}),assigned_to.is.null`;
+
   const [batches, candidates, reviewed, contacts, packs, used, usage] = await Promise.all([
     readAll<{ created_by: string | null }>((a, b) =>
-      admin.from('prospect_batches').select('created_by').in('created_by', ids).gte('created_at', from).lt('created_at', to).range(a, b),
+      admin.from('prospect_batches').select('created_by').in('created_by', ids).gte('created_at', from).lt('created_at', to).order('id', { ascending: true }).range(a, b),
     ),
     readAll<{ assigned_to: string | null; batch: { owner_id: string | null; created_by: string | null } | null }>((a, b) =>
       admin
         .from('prospect_candidates')
         .select('assigned_to, batch:prospect_batches!prospect_candidates_batch_id_fkey(owner_id, created_by)')
+        .or(candidateClause)
         .gte('created_at', from)
         .lt('created_at', to)
-        .range(a, b) as never,
+        .order('id', { ascending: true }).range(a, b) as never,
     ),
     readAll<{ reviewed_by: string | null; status: string }>((a, b) =>
       admin
@@ -101,16 +123,16 @@ export async function readTeamActivity(
         .in('status', ['approved', 'converted_to_account', 'discarded'])
         .gte('reviewed_at', from)
         .lt('reviewed_at', to)
-        .range(a, b),
+        .order('id', { ascending: true }).range(a, b),
     ),
     readAll<{ created_by: string | null }>((a, b) =>
-      admin.from('contacts').select('created_by').in('created_by', ids).gte('created_at', from).lt('created_at', to).range(a, b),
+      admin.from('contacts').select('created_by').in('created_by', ids).gte('created_at', from).lt('created_at', to).order('id', { ascending: true }).range(a, b),
     ),
     readAll<{ created_by: string | null; status: string }>((a, b) =>
-      admin.from('first_call_packs').select('created_by, status').in('created_by', ids).gte('created_at', from).lt('created_at', to).range(a, b),
+      admin.from('first_call_packs').select('created_by, status').in('created_by', ids).gte('created_at', from).lt('created_at', to).order('id', { ascending: true }).range(a, b),
     ),
     readAll<{ created_by: string | null }>((a, b) =>
-      admin.from('first_call_packs').select('created_by').in('created_by', ids).gte('used_at', from).lt('used_at', to).range(a, b),
+      admin.from('first_call_packs').select('created_by').in('created_by', ids).gte('used_at', from).lt('used_at', to).order('id', { ascending: true }).range(a, b),
     ),
     readAll<{ triggered_by: string | null; estimated_cost_usd: number | null; credits_used: number | null }>((a, b) =>
       admin
@@ -119,7 +141,7 @@ export async function readTeamActivity(
         .in('triggered_by', ids)
         .gte('created_at', from)
         .lt('created_at', to)
-        .range(a, b),
+        .order('id', { ascending: true }).range(a, b),
     ),
   ]);
 

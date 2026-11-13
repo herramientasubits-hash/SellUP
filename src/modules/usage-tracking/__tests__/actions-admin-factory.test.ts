@@ -102,6 +102,11 @@ mock.module('@/lib/supabase/server', {
       auth: {
         getUser: async () => ({ data: { user: mockAuthUser }, error: null }),
       },
+      // isCurrentUserAdmin (access/actions) pregunta por RPC is_admin.
+      rpc: async (fn: string) =>
+        fn === 'is_admin'
+          ? { data: Boolean(mockAuthUser && mockInternalUser && mockRoleKey === 'admin'), error: null }
+          : { data: null, error: null },
       from: (table: string) => makeSessionSelect(table),
     }),
   },

@@ -30,6 +30,17 @@ export async function getCurrentUser(): Promise<InternalUser | null> {
   return current;
 }
 
+/**
+ * Como getCurrentUser(), pero sólo devuelve a la persona si su acceso está
+ * ACTIVO. getCurrentUser() devuelve también a quien está pendiente,
+ * suspendido o archivado (lo necesitan el layout y /access-pending): para
+ * autorizar acciones usa esta.
+ */
+export async function getCurrentActiveUser(): Promise<InternalUser | null> {
+  const current = await getCurrentUser();
+  return current && current.access_status === 'active' ? current : null;
+}
+
 export async function isCurrentUserAdmin(): Promise<boolean> {
   const supabase = await createClient();
   const {
@@ -63,6 +74,8 @@ export async function hasActiveAccess(): Promise<boolean> {
 }
 
 export async function getAllRoles(): Promise<Role[]> {
+  // Pantalla de Usuarios: sólo administradores.
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('roles')
@@ -157,6 +170,10 @@ export async function getUsersByStatus(status: string): Promise<InternalUser[]> 
 }
 
 export async function getUsersSummary(): Promise<UsersSummary> {
+  // Conteos de la pantalla de Usuarios: sólo administradores.
+  if (!(await isCurrentUserAdmin())) {
+    return { pending: 0, active: 0, suspended: 0, rejected: 0, preapproved: 0, archived: 0 };
+  }
   const supabase = await createClient();
 
   const [pending, active, suspended, rejected, preapproved, archived] = await Promise.all([
@@ -822,6 +839,8 @@ export async function cancelPreapproval(
 // ─── Organization Groups ───────────────────────────────────────────────────────
 
 export async function getOrganizationGroups(): Promise<OrganizationGroup[]> {
+  // Pantalla de Usuarios: sólo administradores.
+  if (!(await isCurrentUserAdmin())) return [];
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('organization_groups')

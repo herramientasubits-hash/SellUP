@@ -10,6 +10,7 @@
 
 import { requireActiveUserForEnrichment } from '@/modules/contact-enrichment/actions';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { canActOnAccount } from '@/modules/access/record-scope.server';
 import { runResolveHubSpotCompanyMatch } from './hubspot-company-resolution-review-core';
 import { createHubSpotCompanyForAccountWired } from './hubspot-company-resolution-wiring';
 
@@ -18,6 +19,11 @@ export async function resolveHubSpotCompanyMatchAction(input: {
   decision: 'same' | 'different';
 }): Promise<{ ok: boolean }> {
   const { internalUserId } = await requireActiveUserForEnrichment();
+  // Sólo quien tiene la empresa en su alcance decide su match en HubSpot (puede
+  // crear la empresa en HubSpot): antes bastaba con conocer el id.
+  if (typeof input?.accountId !== 'string' || !(await canActOnAccount(input.accountId))) {
+    return { ok: false };
+  }
 
   try {
     const admin = createSupabaseAdminClient();

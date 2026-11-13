@@ -8,8 +8,9 @@
 
 import { after, NextResponse } from 'next/server';
 import { isValidSlackSignature } from '@/server/slack-assistant/signature';
-import { parseSlackEvent } from '@/server/slack-assistant/events';
+import { parseSlackEvent, slackIdentityMismatch, slackPayloadIdentity } from '@/server/slack-assistant/events';
 import { handleSlackQuestion } from '@/server/slack-assistant/handle-question.server';
+import { getSlackWorkspaceIdentity } from '@/server/services/slack-connection';
 
 /** La respuesta (varias vueltas con Claude) corre dentro de `after`. */
 export const maxDuration = 60;
@@ -39,6 +40,12 @@ export async function POST(request: Request): Promise<Response> {
 
   // Slack reintenta si no recibió el 200 a tiempo: el primer intento ya se está atendiendo.
   if (action.kind === 'question' && !request.headers.get('x-slack-retry-num')) {
+    // Otro espacio de trabajo u otra app (con el mismo secreto): no se atiende.
+    const mismatch = slackIdentityMismatch(slackPayloadIdentity(payload), await getSlackWorkspaceIdentity());
+    if (mismatch) {
+      console.error('[slack-assistant] evento de otro espacio o app', mismatch);
+      return NextResponse.json({ ok: true });
+    }
     after(() => handleSlackQuestion(action));
   }
   return NextResponse.json({ ok: true });

@@ -491,6 +491,15 @@ mock.module('@/lib/supabase/server', {
   },
 });
 
+// «Ver como…»: las acciones resuelven al actor con `getCurrentUser()`/`isCurrentUserAdmin()`
+// (current-actor.server). Mismo actor que la sesión simulada de arriba.
+mock.module('@/modules/access/actions', {
+  namedExports: {
+    getCurrentUser: async () => ({ id: 'user-admin', role_key: sessionRoleKey, access_status: 'active' }),
+    isCurrentUserAdmin: async () => sessionRoleKey === 'admin',
+  },
+});
+
 // El cliente service-role que el action construye (`@supabase/supabase-js`) se
 // deja REAL a propósito: con el `fetch` global stubbeado no sale ninguna petición,
 // y así el test no depende de mockear un paquete de terceros.
@@ -905,7 +914,7 @@ describe('102 ausente — el gate de rol se evalúa antes que la infraestructura
   // AGENT2A-WATERFALL-DEFAULT-REVEAL-BEHAVIOR-1: `commercial_manager` salió de esta
   // lista porque SÍ puede revelar teléfono, y por tanto sí puede autorizar el
   // waterfall. Los que quedan son los que nunca pudieron revelar.
-  for (const roleKey of ['growth', 'seller', 'lead', null]) {
+  for (const roleKey of ['viewer', 'seller', 'lead', null]) {
     it(`${roleKey ?? 'sin rol'}: no consulta la tabla ni crea corrida`, async () => {
       setFlags(true, true);
       waterfallTableError = TABLE_MISSING_ERRORS[0].error;

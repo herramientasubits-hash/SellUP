@@ -83,6 +83,7 @@
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { readRolePreview } from '@/modules/access/role-preview.server';
 import {
   CONTACT_ENRICHMENT_AUTOMATIC_ROUTING_FLAG,
   getContactEnrichmentRoutingConfigV1,
@@ -124,9 +125,11 @@ export async function GET() {
     );
   }
 
-  const { data: isAdmin } = await supabase.rpc('is_admin', {
+  const { data: isAdminRpc } = await supabase.rpc('is_admin', {
     p_auth_user_id: user.id,
   });
+  // «Ver como…» activo ⇒ no es administración (como isCurrentUserAdmin).
+  const isAdmin = isAdminRpc === true && !(await readRolePreview());
 
   if (!isAdmin) {
     return NextResponse.json(

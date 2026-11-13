@@ -27,6 +27,8 @@ export interface ApproachResultsQuery {
   countryCode?: string | null;
   /** Sólo estos canales (lo que aprende el redactor mira el canal que va a escribir). */
   channels?: readonly string[];
+  /** Sólo las preparadas por estas personas (alcance de quien mira). undefined = todas. */
+  createdByIds?: readonly string[];
 }
 
 export interface ApproachResultsRead {
@@ -44,6 +46,7 @@ export async function readApproachResults(query: ApproachResultsQuery = {}, clie
     if (query.onlyWithOutcome) request = request.eq('status', 'used').not('pack->outcome', 'is', null);
     if (query.countryCode) request = request.eq('accounts.country_code', query.countryCode.toUpperCase());
     if (query.channels && query.channels.length > 0) request = request.in('channel', [...query.channels]);
+    if (query.createdByIds) request = request.in('created_by', [...query.createdByIds]);
     // El id desempata: con sólo la fecha, las preparaciones de una misma corrida (misma
     // fecha) podían repetirse o saltarse entre páginas.
     const { data, error } = await request

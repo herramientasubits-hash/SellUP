@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/server';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { loadActiveDiscoveryCatalog } from '@/modules/industry-catalog/discovery-catalog-loader';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { canActOnAccount } from '@/modules/access/record-scope.server';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { runAnthropicConversation } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
@@ -66,6 +67,9 @@ type AccountRow = {
 };
 
 async function loadAccount(accountId: string): Promise<AccountRow | null> {
+  // Sólo una empresa de su alcance (suya o de su gente) sirve de referencia: la
+  // ficha se paga con Claude. Fuera del alcance se trata como inexistente.
+  if (!(await canActOnAccount(accountId))) return null;
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('accounts')

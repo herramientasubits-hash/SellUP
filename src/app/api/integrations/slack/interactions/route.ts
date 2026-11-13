@@ -11,6 +11,8 @@ import { isValidSlackSignature } from '@/server/slack-assistant/signature';
 import { handleSlackActionClick, type SlackBlockActionPayload } from '@/server/slack-assistant/execute-action.server';
 import { handleCreditDecisionClick } from '@/server/slack-assistant/credit-decision.server';
 import { CREDIT_APPROVE_ACTION_ID, CREDIT_REJECT_ACTION_ID } from '@/modules/notifications/credit-approval-slack';
+import { slackIdentityMismatch, slackPayloadIdentity } from '@/server/slack-assistant/events';
+import { getSlackWorkspaceIdentity } from '@/server/services/slack-connection';
 
 /** Aprobar varias empresas (con HubSpot) puede tardar: corre dentro de `after`. */
 export const maxDuration = 300;
@@ -34,6 +36,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (payload?.type === 'block_actions') {
+    // Otro espacio de trabajo u otra app (con el mismo secreto): no se ejecuta nada.
+    const mismatch = slackIdentityMismatch(slackPayloadIdentity(payload), await getSlackWorkspaceIdentity());
+    if (mismatch) {
+      console.error('[slack-assistant] interacción de otro espacio o app', mismatch);
+      return new Response(null, { status: 200 });
+    }
     const clicked = payload.actions?.[0];
     if (clicked?.action_id === CREDIT_APPROVE_ACTION_ID || clicked?.action_id === CREDIT_REJECT_ACTION_ID) {
       // Solicitud de créditos: decide quien pulsa (si es aprobador), con su sesión.

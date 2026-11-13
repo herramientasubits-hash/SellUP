@@ -91,6 +91,7 @@ mock.module('@/components/contacts/edit-contact-drawer', {
 });
 
 let ContactsDataTableClient: (typeof import('../contacts-data-table-client'))['ContactsDataTableClient'];
+let NavAccessProvider: (typeof import('@/components/layout/nav-access-context'))['NavAccessProvider'];
 
 function contact(overrides: Partial<ContactListItem>): ContactListItem {
   return {
@@ -140,6 +141,7 @@ const CONTACTS = [
 before(async () => {
   ({ render, screen, within, fireEvent, waitFor, cleanup } = await import('@testing-library/react'));
   ({ ContactsDataTableClient } = await import('../contacts-data-table-client'));
+  ({ NavAccessProvider } = await import('@/components/layout/nav-access-context'));
 });
 
 beforeEach(() => {
@@ -165,9 +167,15 @@ function indicators(): HTMLElement {
   return screen.getByRole('group', { name: 'Indicadores de contactos' });
 }
 
-function renderTable(contacts: ContactListItem[] = CONTACTS) {
-  return render(<ContactsDataTableClient contacts={contacts} />);
+function renderTable(contacts: ContactListItem[] = CONTACTS, access = { isAdmin: false, roleKey: 'seller_bd' }) {
+  return render(
+    <NavAccessProvider value={access}>
+      <ContactsDataTableClient contacts={contacts} />
+    </NavAccessProvider>,
+  );
 }
+
+const ADMIN_ACCESS = { isAdmin: true, roleKey: 'admin' };
 
 describe('Contactos — los indicadores son filtros de un toque', () => {
   it('decisores, champions y primarios, con su recuento', () => {
@@ -242,7 +250,7 @@ describe('Contactos — archivar pide confirmación en un diálogo del sistema',
       return true;
     };
     enableRowMenus();
-    renderTable();
+    renderTable(CONTACTS, ADMIN_ACCESS);
 
     const dialog = await openArchiveFor('Ana Ruiz');
 
@@ -256,13 +264,21 @@ describe('Contactos — archivar pide confirmación en un diálogo del sistema',
 
   it('cancelar no archiva', async () => {
     enableRowMenus();
-    renderTable();
+    renderTable(CONTACTS, ADMIN_ACCESS);
 
     const dialog = await openArchiveFor('Beto Gil');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
 
     await waitFor(() => assert.equal(screen.queryByRole('alertdialog'), null));
     assert.deepEqual(archived, []);
+  });
+  it('archivar es sólo de admin: a un no admin ni se le ofrece', async () => {
+    enableRowMenus();
+    renderTable();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Acciones de Ana Ruiz' }));
+    await screen.findAllByRole('menuitem');
+    assert.equal(screen.queryByRole('menuitem', { name: 'Archivar contacto' }), null);
   });
 });
 

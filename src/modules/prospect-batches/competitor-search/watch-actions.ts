@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { OUT_OF_SCOPE_MESSAGE, canActOnBatch } from '@/modules/access/record-scope.server';
 import { readCompetitorReference } from './competitor-reference';
 
 const requestSchema = z.object({ batchId: z.string().uuid(), follow: z.boolean() }).strict();
@@ -18,6 +19,8 @@ export async function setCompetitorReferenceFollowAction(request: unknown): Prom
   const { internalUserId } = await requireActiveUser();
   const parsed = requestSchema.safeParse(request);
   if (!parsed.success) return { ok: false, message: 'Solicitud inválida.' };
+  // Sólo una búsqueda de su alcance (la RLS de lotes no filtra por equipo).
+  if (!(await canActOnBatch(parsed.data.batchId))) return { ok: false, message: OUT_OF_SCOPE_MESSAGE };
   // El lote con la sesión (RLS): sólo se sigue una referencia que la persona ve.
   const supabase = await createClient();
   const { data: batch } = await supabase

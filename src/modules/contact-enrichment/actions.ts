@@ -2,12 +2,13 @@
 
 import {
   canActOnAccount,
+  currentScopeUserIds,
   OUT_OF_SCOPE_MESSAGE,
   requireAccountInScope,
   requireEnrichmentRequestInScope,
   requireEnrichmentRunInScope,
 } from '@/modules/access/record-scope.server';
-import { loadUserNames, type UserNamesClient } from '@/modules/access/user-names';
+import { loadDirectoryNames } from '@/modules/access/user-directory.server';
 import { redirect } from 'next/navigation';
 import { getVisibleSince } from '@/lib/visible-since';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
@@ -20,7 +21,7 @@ import { executeContactEnrichmentLushaRun } from '@/server/agents/contact-enrich
 import { getLushaAccountUsage } from '@/server/integrations/lusha-client';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
-import { logContactAudit } from '@/modules/contacts/actions';
+import { logContactAudit } from '@/modules/contacts/contact-audit.server';
 import { runContactHubSpotAutoPhoneUpdateWired } from '@/modules/contacts/contact-hubspot-sync-runner';
 // El informe del PATCH automático viaja en el resultado del merge, fuera de `ok`.
 import type { ContactAutoPhoneUpdateReport } from '@/modules/contacts/contact-hubspot-auto-phone-update-core';
@@ -54,8 +55,19 @@ import {
   loadContactSearchTriggeredBy,
 } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
-import { applyCandidateCompanyReassignment } from './candidate-company-reassignment-core';
-import { candidateRunEmbed, isCandidateRunInScope } from './candidate-scope';
+import {
+  applyCandidateCompanyReassignment,
+  readCandidateCompanyReassignment,
+} from './candidate-company-reassignment-core';
+import {
+  byIsoDesc,
+  CANDIDATE_SCOPE_BRANCHES,
+  candidateAccountScopeOrClause,
+  candidateRunEmbed,
+  candidateRunEmbedForBranch,
+  isCandidateRunInScope,
+  mergeScopedCandidateRows,
+} from './candidate-scope';
 import {
   canSeeContactCandidate,
   resolveCandidateScopeIds,
@@ -148,7 +160,10 @@ export async function resolveContactEnrichmentCompanyAction(
   try {
     await requireActiveUserForEnrichment();
     const input = validateAgent2AInput(rawInput);
-    const result = await resolveCompanyForContactEnrichment(input);
+    // Sólo se ofrecen cuentas de SellUp propias o del equipo (en cascada).
+    const result = await resolveCompanyForContactEnrichment(input, {
+      sellupScopeUserIds: await currentScopeUserIds(),
+    });
     return { success: true, data: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error resolviendo empresa';
@@ -333,14 +348,14 @@ function firstRun(run: unknown): CandidateRunContext | null {
 
 /** Columnas proyectadas para revisión humana — sin payloads crudos del
  *  proveedor. Compartido por el listado y el detalle del side panel. */
-function candidateSelect(scoped: boolean): string {
+function candidateSelect(runEmbed: string = candidateRunEmbed(false)): string {
   return `id, full_name, title, email, linkedin_url, source_contact_id, apollo_person_id,
    phone, source, status, country,
    duplicate_status, confidence, enrichment_metadata, enrichment_run_id, created_at,
    reviewed_by, reviewed_at,
    phone_reveal_status, phone_reveal_last_checked_at, phone_reveal_requested_at,
    phone_reveal_request_id, phone_reveal_provider,
-   ${candidateRunEmbed(scoped)}`;
+   ${runEmbed}`;
 }
 
 /** Select + filtro de alcance para una lectura de candidatos. */
@@ -353,30 +368,94 @@ function withVisibleSince<Q extends { gte: (column: string, value: string) => Q 
   return visibleSince ? query.gte('created_at', visibleSince) : query;
 }
 
-function scopedCandidateRead(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  scopeIds: string[] | null,
-) {
-  const query = withVisibleSince(
-    supabase.from('contact_enrichment_candidates').select(candidateSelect(scopeIds !== null)),
-  );
-  return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
+function unscopedCandidateRead(supabase: Awaited<ReturnType<typeof createClient>>) {
+  return withVisibleSince(supabase.from('contact_enrichment_candidates').select(candidateSelect()));
 }
 
-/** Conteo (head) con el mismo filtro de alcance. */
-function scopedCandidateCount(
+type CandidateQuery = ReturnType<typeof unscopedCandidateRead>;
+type CandidateRowsResult = { data: unknown; error: { message: string } | null };
+type CandidateCountResult = { count: number | null; error: { message: string } | null };
+type CandidateListRow = { id: string; created_at?: string | null; reviewed_at?: string | null };
+
+/**
+ * Lecturas de una lista con alcance, con la MISMA regla que el acceso por id
+ * (`isContactRunInScope`): la búsqueda la lanzó alguien del alcance, o su empresa es de alguien
+ * del alcance. Sin alcance (`null`), una sola lectura sin filtro.
+ */
+function scopedCandidateQueries(
   supabase: Awaited<ReturnType<typeof createClient>>,
   scopeIds: string[] | null,
-) {
-  const query = withVisibleSince(
-    supabase
-      .from('contact_enrichment_candidates')
-      .select(scopeIds === null ? 'id' : 'id, run:contact_enrichment_runs!inner ( triggered_by )', {
-        count: 'exact',
-        head: true,
-      }),
+): CandidateQuery[] {
+  if (scopeIds === null) return [unscopedCandidateRead(supabase)];
+  return CANDIDATE_SCOPE_BRANCHES.map((branch) => {
+    const query = withVisibleSince(
+      supabase.from('contact_enrichment_candidates').select(candidateSelect(candidateRunEmbedForBranch(branch))),
+    );
+    return branch === 'account'
+      ? query.or(candidateAccountScopeOrClause(scopeIds), { referencedTable: 'run.account' })
+      : query.in('run.triggered_by', scopeIds);
+  });
+}
+
+/** Lee la lista (todas las ramas), une sin repetidos, ordena y aplica el tope. */
+async function readScopedCandidates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopeIds: string[] | null,
+  refine: (query: CandidateQuery) => PromiseLike<CandidateRowsResult>,
+  compare: (a: CandidateListRow, b: CandidateListRow) => number,
+  limit: number,
+): Promise<{ data: unknown[]; error: { message: string } | null }> {
+  const results = await Promise.all(scopedCandidateQueries(supabase, scopeIds).map((query) => refine(query)));
+  // La rama «empresa del alcance» es nueva (13-11): si la base la rechazara, la lista
+  // sigue con la regla de siempre (quién lanzó la búsqueda) en vez de caerse entera.
+  const [first, ...rest] = results;
+  if (first?.error) return { data: [], error: first.error };
+  const usable = [first, ...rest.filter((result) => {
+    if (!result.error) return true;
+    console.warn('[contact-candidates] rama por empresa falló; se usa sólo «quién la lanzó»:', result.error.message);
+    return false;
+  })];
+  const branches = usable.map((result) => (result?.data ?? []) as CandidateListRow[]);
+  return { data: mergeScopedCandidateRows(branches, compare, limit), error: null };
+}
+
+const COUNT_RUN_TRIGGERED = 'id, run:contact_enrichment_runs!inner ( triggered_by )';
+const COUNT_RUN_ACCOUNT =
+  'id, run:contact_enrichment_runs!inner ( triggered_by, account:accounts!inner ( owner_id, created_by ) )';
+
+/**
+ * Conteo (head) con la misma regla que la lista: |lanzó alguien del alcance| + |empresa del
+ * alcance| − |las dos cosas|, para no contar dos veces un mismo candidato.
+ */
+async function countScopedCandidates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  scopeIds: string[] | null,
+  refine: (query: ReturnType<typeof countQuery>) => PromiseLike<CandidateCountResult>,
+): Promise<CandidateCountResult> {
+  if (scopeIds === null) return refine(countQuery(supabase, 'id'));
+  const clause = candidateAccountScopeOrClause(scopeIds);
+  const [byTrigger, byAccount, both] = await Promise.all([
+    refine(countQuery(supabase, COUNT_RUN_TRIGGERED).in('run.triggered_by', scopeIds)),
+    refine(countQuery(supabase, COUNT_RUN_ACCOUNT).or(clause, { referencedTable: 'run.account' })),
+    refine(
+      countQuery(supabase, COUNT_RUN_ACCOUNT)
+        .in('run.triggered_by', scopeIds)
+        .or(clause, { referencedTable: 'run.account' }),
+    ),
+  ]);
+  if (byTrigger.error) return { count: null, error: byTrigger.error };
+  // Igual que la lista: si la rama por empresa fallara, se cuenta con la regla de siempre.
+  if (byAccount.error || both.error) {
+    console.warn('[contact-candidates] conteo por empresa falló; se usa sólo «quién la lanzó»:', (byAccount.error ?? both.error)?.message);
+    return byTrigger;
+  }
+  return { count: (byTrigger.count ?? 0) + (byAccount.count ?? 0) - (both.count ?? 0), error: null };
+}
+
+function countQuery(supabase: Awaited<ReturnType<typeof createClient>>, select: string) {
+  return withVisibleSince(
+    supabase.from('contact_enrichment_candidates').select(select, { count: 'exact', head: true }),
   );
-  return scopeIds === null ? query : query.in('run.triggered_by', scopeIds);
 }
 
 /** Mapea una fila cruda de Supabase a la proyección de solo lectura. */
@@ -473,10 +552,13 @@ export async function getPendingContactCandidates(
   if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
-    .eq('status', 'pending_review')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await readScopedCandidates(
+    supabase,
+    scopeIds,
+    (query) => query.eq('status', 'pending_review').order('created_at', { ascending: false }).limit(limit),
+    byIsoDesc((row) => row.created_at),
+    limit,
+  );
 
   if (error) throw new Error(`getPendingContactCandidates: ${error.message}`);
 
@@ -521,7 +603,7 @@ export async function getReviewableContactCandidateById(
     stage = 'read';
     // Alcance comercial por id: autor de la búsqueda o dueño de la empresa (./candidate-scope).
     if (!(await canSeeContactCandidate(supabase, trimmedId))) return null;
-    const { data, error } = await scopedCandidateRead(supabase, null)
+    const { data, error } = await unscopedCandidateRead(supabase)
       .eq('id', trimmedId)
       .in('status', REVIEWABLE_CONTACT_CANDIDATE_STATUSES)
       .maybeSingle();
@@ -570,7 +652,9 @@ export async function getPendingContactCandidatesCount(): Promise<number> {
   if (scopeIds?.length === 0) return 0;
   const supabase = await createClient();
 
-  const { count, error } = await scopedCandidateCount(supabase, scopeIds).eq('status', 'pending_review');
+  const { count, error } = await countScopedCandidates(supabase, scopeIds, (query) =>
+    query.eq('status', 'pending_review'),
+  );
 
   if (error) throw new Error(`getPendingContactCandidatesCount: ${error.message}`);
   return count ?? 0;
@@ -592,10 +676,13 @@ export async function getDuplicateContactCandidates(
   if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
-    .eq('status', 'duplicate')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await readScopedCandidates(
+    supabase,
+    scopeIds,
+    (query) => query.eq('status', 'duplicate').order('created_at', { ascending: false }).limit(limit),
+    byIsoDesc((row) => row.created_at),
+    limit,
+  );
 
   if (error) throw new Error(`getDuplicateContactCandidates: ${error.message}`);
 
@@ -616,17 +703,25 @@ export async function getRejectedContactCandidates(
   if (scopeIds?.length === 0) return [];
   const supabase = await createClient();
 
-  const { data, error } = await scopedCandidateRead(supabase, scopeIds)
-    .eq('status', 'discarded')
-    .order('reviewed_at', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .limit(limit);
+  const { data, error } = await readScopedCandidates(
+    supabase,
+    scopeIds,
+    (query) =>
+      query
+        .eq('status', 'discarded')
+        .order('reviewed_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(limit),
+    (a, b) => byIsoDesc<CandidateListRow>((row) => row.reviewed_at)(a, b) || byIsoDesc<CandidateListRow>((row) => row.created_at)(a, b),
+    limit,
+  );
 
   if (error) throw new Error(`getRejectedContactCandidates: ${error.message}`);
 
   const candidates = await withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
-  // Quién lo rechazó (dueña 11-11): el líder ve quién descartó cada contacto.
-  const names = await loadUserNames(supabase as unknown as UserNamesClient, candidates.map((c) => c.reviewed_by));
+  // Quién lo rechazó (dueña 11-11): el líder ve quién descartó cada contacto. Del directorio
+  // (cliente de servicio): la RLS de internal_users sólo deja leer la fila propia.
+  const names = await loadDirectoryNames(candidates.map((c) => c.reviewed_by));
   return candidates.map((c) => (c.reviewed_by ? { ...c, reviewed_by_name: names.get(c.reviewed_by) ?? null } : c));
 }
 
@@ -637,7 +732,7 @@ export async function getDuplicateContactCandidatesCount(): Promise<number> {
   if (scopeIds?.length === 0) return 0;
   const supabase = await createClient();
 
-  const { count, error } = await scopedCandidateCount(supabase, scopeIds).eq('status', 'duplicate');
+  const { count, error } = await countScopedCandidates(supabase, scopeIds, (query) => query.eq('status', 'duplicate'));
 
   if (error) throw new Error(`getDuplicateContactCandidatesCount: ${error.message}`);
   return count ?? 0;
@@ -853,7 +948,18 @@ export async function approveContactCandidate(
           .eq('id', id)
           .maybeSingle();
         if (error) throw new Error(error.message);
-        return data ? mapCandidateRecord(data) : null;
+        if (!data) return null;
+        const record = mapCandidateRecord(data);
+        // Con una empresa reasignada a mano, el contacto nace en ESA cuenta: sólo si es suya o
+        // de su equipo (una reasignación vieja pudo apuntar a una cuenta de otro equipo).
+        if (
+          readCandidateCompanyReassignment(record.enrichment_metadata) &&
+          record.account_id &&
+          !(await canActOnAccount(record.account_id))
+        ) {
+          throw new Error(OUT_OF_SCOPE_MESSAGE);
+        }
+        return record;
       },
       loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
         const { data, error } = await supabase
@@ -955,10 +1061,16 @@ export async function approveContactCandidate(
       resolveOrCreateAccount: async (args) => {
         const searcherUserId =
           (await loadContactSearchTriggeredBy(admin, { runId: args.run_id })) ?? internalUserId;
-        return resolveOrCreateAccountForHubSpotCandidate(
+        const resolved = await resolveOrCreateAccountForHubSpotCandidate(
           args,
           buildHubSpotAccountResolutionDeps(admin, internalUserId, 'contact_enrichment_approval', searcherUserId),
         );
+        // La empresa de HubSpot puede ser una cuenta de SellUp que YA existe y es de otro
+        // equipo: el contacto no nace ahí si no es suya o de su equipo (en cascada).
+        if (!('error' in resolved) && !(await canActOnAccount(resolved.accountId))) {
+          return { error: OUT_OF_SCOPE_MESSAGE };
+        }
+        return resolved;
       },
       updateRunAccountId: async (runId, accountId, outcome, countryCodeApplied, countryResolutionSource) => {
         const { data: runRow } = await admin
@@ -1238,6 +1350,12 @@ export interface CheckBulkEnrichmentEligibilityActionResult {
   error?: string;
 }
 
+/** Las empresas de la lista que son de quien pide o de su equipo (en cascada). */
+async function filterAccountIdsInScope(ids: string[]): Promise<string[]> {
+  const checks = await Promise.all(ids.map((id) => canActOnAccount(id)));
+  return ids.filter((_, i) => checks[i]);
+}
+
 /**
  * Verifica elegibilidad para enriquecimiento bulk. Solo lectura — sin DB writes ni Apollo.
  */
@@ -1256,7 +1374,11 @@ export async function checkBulkEnrichmentEligibilityAction(
       );
     }
 
-    const uniqueIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    // Misma regla que al crear la masiva: sólo empresas suyas o de su equipo (en cascada),
+    // para que los conteos que ve coincidan con lo que de verdad se buscará.
+    const requestedIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
+    const uniqueIds = await filterAccountIdsInScope(requestedIds);
+    if (uniqueIds.length === 0) throw new Error(OUT_OF_SCOPE_MESSAGE);
     const result = await checkBulkContactEnrichmentEligibility(uniqueIds);
     // Apagada la búsqueda automática, la masiva no corre (igual que la individual).
     const routingDisabled = !getContactEnrichmentRoutingConfigV1().automaticRoutingEnabled;
@@ -1307,8 +1429,7 @@ export async function createBulkContactEnrichmentRunAction(
 
     const requestedIds = [...new Set(accountIds.filter((id) => typeof id === 'string' && id.trim()))];
     // Sólo empresas suyas o de su equipo (en cascada): lo demás se ignora.
-    const scopeChecks = await Promise.all(requestedIds.map((id) => canActOnAccount(id)));
-    const uniqueIds = requestedIds.filter((_, i) => scopeChecks[i]);
+    const uniqueIds = await filterAccountIdsInScope(requestedIds);
     if (uniqueIds.length === 0) throw new Error(OUT_OF_SCOPE_MESSAGE);
     const eligibility = await checkBulkContactEnrichmentEligibility(uniqueIds);
     const origin = parseBulkEnrichmentOrigin(options.origin);
@@ -1512,7 +1633,7 @@ export async function getRejectedContactCandidateById(
   if (!trimmedId) return null;
   const supabase = await createClient();
   if (!(await canSeeContactCandidate(supabase, trimmedId))) return null;
-  const { data, error } = await scopedCandidateRead(supabase, null)
+  const { data, error } = await unscopedCandidateRead(supabase)
     .eq('id', trimmedId)
     .eq('status', 'discarded')
     .maybeSingle();
@@ -1806,6 +1927,9 @@ export async function createContactEnrichmentRequestAction(
         reason: accountResolution.reason,
       });
     }
+    // Una empresa de HubSpot puede resolver a una cuenta de SellUp que YA existe y es de
+    // otro equipo: buscar contactos en ella sólo si es suya o de su equipo (en cascada).
+    if (accountResolution.accountId) await requireAccountInScope(accountResolution.accountId);
 
     const result = await createContactEnrichmentRequest({
       accountId: accountResolution.accountId ?? confirmedCompany.sellupAccountId ?? null,

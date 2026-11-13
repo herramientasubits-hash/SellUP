@@ -22,8 +22,10 @@ import {
   type ImportMethod,
   type ImportDefaults,
   type ImportRow,
+  applyCountryDetections,
+  rowsNeedingCountry,
+  COUNTRY_NOT_DETECTED_ERROR,
 } from '@/modules/prospect-batches/import-candidates-parser';
-import { LATAM_COUNTRIES } from '@/modules/accounts/types';
 import { detectColumnMappings } from '@/modules/prospect-batches/import-column-mapping';
 import { validateImportBatchInput } from '@/modules/prospect-batches/import-batch-schema';
 import type {
@@ -113,7 +115,6 @@ export function ImportCandidatesDrawer({
   const [showGuide, setShowGuide] = React.useState(false);
 
   // Batch defaults
-  const [selectedCountryCode, setSelectedCountryCode] = React.useState('');
 
   // Input-step catalog loading state
   const [catalogLoading, setCatalogLoading] = React.useState(false);
@@ -159,7 +160,6 @@ export function ImportCandidatesDrawer({
     setStep('input');
     setFileMethod('paste');
     setShowGuide(false);
-    setSelectedCountryCode('');
     setCatalogLoading(false);
     setCatalogError(null);
     setPasteText('');
@@ -220,9 +220,6 @@ export function ImportCandidatesDrawer({
     loadCatalog();
   }, [open]);
 
-  function handleCountryChange(value: string | null) {
-    setSelectedCountryCode(value ?? '');
-  }
 
   // Mismas reglas de siempre (tipo y tamaño), ahora también al arrastrar el archivo.
   function handleFileSelected(file: File) {
@@ -264,7 +261,6 @@ export function ImportCandidatesDrawer({
     setFileXlsx(null);
   }
 
-  const selectedCountry = LATAM_COUNTRIES.find((c) => c.code === selectedCountryCode);
   // AGENT1-IMPORT-NO-SUBINDUSTRY-1 — SellUp ya no maneja subindustrias: el
   // catálogo v2 no publica ninguna. Sin subindustrias en el catálogo, la
   // importación no las pide, no las muestra y no las envía.
@@ -273,12 +269,10 @@ export function ImportCandidatesDrawer({
     [catalogData],
   );
 
-  // Dueña 13-11 — sin «Industria por defecto»: confundía y sesgaba. Cada fila
-  // conserva la industria del archivo; las que no la traen quedan sin industria
-  // y la IA (rescate de Claude, después de importar) la asigna del catálogo.
+  // Dueña 13-11 — sin «País de referencia» ni «Industria por defecto»: cada fila
+  // conserva lo suyo. El país que falte se detecta antes de la vista previa
+  // (dominio, texto, IA); la industria que falte la asigna el rescate de Claude.
   const defaults: ImportDefaults = {
-    country: selectedCountry?.name,
-    countryCode: selectedCountryCode || undefined,
   };
 
   // ── Core classification runner — accepts params directly to avoid stale-closure issues ──
@@ -299,9 +293,7 @@ export function ImportCandidatesDrawer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rows: classifiableRows,
-          defaults: {
-            country_code: selectedCountryCode || undefined,
-          },
+          defaults: {},
         }),
       });
 
@@ -366,14 +358,10 @@ export function ImportCandidatesDrawer({
       toast.error('Selecciona un archivo primero.');
       return;
     }
-    if (!selectedCountryCode) {
-      toast.error('Selecciona el país antes de previsualizar.');
-      return;
-    }
 
     setLoadingPreview(true);
     try {
-      let parseResult;
+      let parseResult: ParseResult;
       let effectiveMethod: ImportMethod;
 
       if (fileMethod === 'paste') {
@@ -395,6 +383,10 @@ export function ImportCandidatesDrawer({
         toast.error('No encontramos empresas', { description: 'Pega una tabla, una lista o un texto con nombres.' });
         return;
       }
+
+      // Dueña 13-11 — sin «País de referencia»: el país de cada fila que no lo
+      // trae se detecta (dominio, texto de la fila y, si falta, IA).
+      parseResult = { ...parseResult, rows: await detectMissingCountries(parseResult.rows) };
 
       // Dueña 11-11: un archivo de más de 500 filas se cortaba sin avisar.
       const truncation = importTruncationNotice(parseResult);
@@ -442,6 +434,51 @@ export function ImportCandidatesDrawer({
   }
 
   /** Claude separa las empresas de un texto corrido; las filas pasan por la misma validación. */
+  async function detectMissingCountries(rows: ImportRow[]): Promise<ImportRow[]> {
+    const pending = rowsNeedingCountry(rows);
+    if (pending.length === 0) return rows;
+    const toastId = toast.loading(`Detectando el país de ${pending.length} ${pending.length === 1 ? 'empresa' : 'empresas'}…`);
+    try {
+      const res = await fetch('/api/prospect-batches/detect-import-countries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: pending.map((row) => ({
+            index: row.index,
+            company_name: row.raw.company_name,
+            website: row.raw.website,
+            city: row.raw.city,
+            region: row.raw.region,
+            description: row.raw.description,
+            notes: row.raw.notes,
+            tax_identifier: row.raw.tax_identifier,
+          })),
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as
+        | { success?: boolean; detections?: Parameters<typeof applyCountryDetections>[1]; aiUnavailable?: boolean }
+        | null;
+      const detections = res.ok && body?.success ? body.detections ?? [] : [];
+      const patched = applyCountryDetections(rows, detections);
+      const missing = patched.filter((row) => row.errors.includes(COUNTRY_NOT_DETECTED_ERROR)).length;
+      if (missing > 0) {
+        toast.warning(`A ${missing} ${missing === 1 ? 'empresa' : 'empresas'} no les pudimos detectar el país`, {
+          id: toastId,
+          description: body?.aiUnavailable
+            ? 'La IA no está disponible ahora. Escribe el país de esas filas en el archivo.'
+            : 'Escribe el país de esas filas en el archivo; el resto sigue.',
+          duration: 10000,
+        });
+      } else {
+        toast.success('País detectado en todas las empresas', { id: toastId });
+      }
+      return patched;
+    } catch {
+      toast.error('No pudimos detectar el país de algunas filas', { id: toastId });
+      return applyCountryDetections(rows, []);
+    }
+  }
+
   async function readImportTextWithAi(text: string, rowDefaults: ImportDefaults): Promise<ParseResult> {
     const toastId = toast.loading('Leyendo las empresas del texto con IA…');
     try {
@@ -554,8 +591,8 @@ export function ImportCandidatesDrawer({
       candidates: buildImportCandidates(rowsToImport, includeSubindustry, overrides),
       preview,
       defaults: {
-        country: selectedCountry?.name,
-        country_code: selectedCountryCode || undefined,
+        country: undefined,
+        country_code: undefined,
         industry: undefined,
         subindustry: undefined,
       },
@@ -751,8 +788,6 @@ export function ImportCandidatesDrawer({
       <div key={step} className="flex min-h-0 flex-1 flex-col animate-su-tab-in">
         {step === 'input' && !confirming && (
           <ImportCandidatesInputStep
-            countryCode={selectedCountryCode}
-            onCountryChange={handleCountryChange}
             catalogLoading={catalogLoading}
             catalogError={catalogError}
             onRetryCatalog={loadCatalog}
@@ -806,7 +841,6 @@ export function ImportCandidatesDrawer({
             duplicateMap={duplicateMap}
             exactDuplicateCount={exactDuplicateCount}
             possibleDuplicateCount={possibleDuplicateCount}
-            countryLabel={selectedCountryCode ? (selectedCountry?.name ?? selectedCountryCode) : undefined}
             onBack={backToInput}
             onSelectionChange={setSelectedRows}
           />

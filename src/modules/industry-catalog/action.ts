@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { hasActiveAccess } from '@/modules/access/actions';
 import { exploratorySearchSchema } from './schema';
 import { loadActiveDiscoveryCatalog } from './discovery-catalog-loader';
 import { validateExploratorySearchAgainstCatalog } from './exploratory-search-validation-core';
@@ -31,7 +32,8 @@ export async function validateExploratorySearch(
     error: authError,
   } = await supabase.auth.getUser();
 
-  if (authError || !user) {
+  // Sólo personas con acceso activo (no pendientes ni suspendidas).
+  if (authError || !user || !(await hasActiveAccess())) {
     return {
       valid: false,
       preview: null,

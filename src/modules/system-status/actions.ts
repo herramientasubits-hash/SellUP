@@ -13,8 +13,8 @@
 //   Este módulo actúa como capa de agregación y normalización.
 // ============================================================
 
-import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { hasApolloApiKey } from '@/server/services/apollo-connection';
 import { hasLushaApiKey } from '@/server/services/lusha-connection';
 import { hasSamuApiKey } from '@/server/services/samu-connection';
@@ -35,14 +35,10 @@ function getAdminSupabase() {
   return createSupabaseAdminClient();
 }
 
+// isCurrentUserAdmin respeta «Ver como…»: mientras se prueba otro rol, no se
+// es administrador (leer is_admin directo se lo saltaba).
 async function assertAdmin(): Promise<boolean> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { data } = await supabase.rpc('is_admin', { p_auth_user_id: user.id });
-  return data ?? false;
+  return isCurrentUserAdmin();
 }
 
 // ============================================================

@@ -67,6 +67,24 @@ export async function testSourceConnectionAction(
   sourceKey: string,
 ): Promise<SourceConnectionTestResult> {
   const { internalUserId, userEmail } = await requireActiveUser();
+  // Probar conexiones (llama a la fuente y guarda el resultado) es de administración.
+  if (!(await isCurrentUserAdmin())) {
+    return {
+      sourceKey,
+      strategy: 'not_supported',
+      status: 'failed',
+      httpStatus: null,
+      responseTimeMs: null,
+      checkedAt: nowIso(),
+      testedUrl: null,
+      contentType: null,
+      contentLength: null,
+      errorCode: 'UNKNOWN_ERROR',
+      errorMessage: null,
+      recommendation: 'Sólo un administrador puede probar la conexión de una fuente.',
+      metadata: { forbidden: true },
+    };
+  }
 
   if (!checkRateLimit(internalUserId, sourceKey)) {
     return {
@@ -114,10 +132,19 @@ export type SourceDetailDrawerData = {
 export async function getSourceDetailDrawerDataAction(
   sourceKey: string,
 ): Promise<SourceDetailDrawerData> {
-  const [connectionRecord, testHistory, isAdmin, hnCoverage] = await Promise.all([
+  // El detalle trae ids de bóveda y errores de conexión: sólo administración.
+  const isAdmin = await isCurrentUserAdmin();
+  if (!isAdmin) {
+    return {
+      connectionRecord: null,
+      testHistory: { latest: null, items: [], totalShown: 0 },
+      isAdmin: false,
+      hnCoverage: null,
+    };
+  }
+  const [connectionRecord, testHistory, hnCoverage] = await Promise.all([
     getSourceConnectionRecord(sourceKey),
     getSourceConnectionTestHistory(sourceKey),
-    isCurrentUserAdmin(),
     sourceKey === 'hn_contrataciones_abiertas'
       ? getHnContratacionesCoverageSummary().catch(() => null)
       : Promise.resolve(null),

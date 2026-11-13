@@ -13,6 +13,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { runSocrataColombiaSample } from '@/server/source-catalog/connectors/socrata-colombia/run-socrata-colombia-sample';
 import { mapSocrataSampleToStructuredCandidate } from '@/server/source-catalog/connectors/socrata-colombia/candidate-mapper';
 import { writeStructuredSourceCandidatesPreview } from '@/server/source-catalog/connectors/socrata-colombia';
@@ -44,14 +45,8 @@ async function requireAdminForAction(): Promise<{
   if (!internalUser)
     return { internalUserId: null, errorMessage: 'Usuario no autorizado' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  // TODO: extender a 'manager' cuando el rol esté disponible en la tabla roles
-  if (role?.key !== 'admin') {
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) {
     return {
       internalUserId: null,
       errorMessage:

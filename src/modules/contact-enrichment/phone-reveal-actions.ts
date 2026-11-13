@@ -24,11 +24,11 @@
 // tests. Apollo only — never Lusha, never HubSpot; the action neither creates an
 // official contact nor approves the candidate.
 
-import { redirect } from 'next/navigation';
 import { canSeeContactCandidate } from './candidate-scope.server';
 import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import {
   isApolloPhoneCacheEnabled,
   isApolloPhoneRevealEnabled,
@@ -100,36 +100,9 @@ function resolveWebhookUrl(): string | null {
  * commercial_manager). No hay fallback dev que salte el rol: un actor sin rol
  * conocido queda no autorizado en el core.
  */
-async function resolveActorForReveal(): Promise<{
-  internalUserId: string;
-  roleKey: string | null;
-}> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-
-  return { internalUserId: internalUser.id, roleKey };
+async function resolveActorForReveal(): Promise<{ internalUserId: string; roleKey: string | null }> {
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 // ── Carga del candidato ────────────────────────────────────────

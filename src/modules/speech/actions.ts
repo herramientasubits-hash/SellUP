@@ -237,6 +237,19 @@ export async function addFirstCallSellerAnswers(
   const brief = row as { id: string; account_id: string; facts: ResearchFact[] | null; gaps: string[] | null } | null;
   // El alcance comercial: sólo quien ve la empresa puede completar su ficha.
   if (!brief || !(await getAccountById(brief.account_id))) return { success: false, error: 'No encontramos esa investigación.' };
+  // Un dato «del decisor» sólo puede ir a un contacto de ESA empresa (no a uno de otra cuenta).
+  const contactIds = [...new Set(clean.map((a) => a.contactId).filter((id): id is string => id !== null))];
+  if (contactIds.length > 0) {
+    const { data: owned } = await admin
+      .from('contacts')
+      .select('id')
+      .eq('account_id', brief.account_id)
+      .in('id', contactIds);
+    const ownedIds = new Set(((owned ?? []) as Array<{ id: string }>).map((c) => c.id));
+    if (contactIds.some((id) => !ownedIds.has(id))) {
+      return { success: false, error: 'Ese decisor no es de esta empresa.' };
+    }
+  }
 
   const facts = Array.isArray(brief.facts) ? brief.facts : [];
   const used = facts.map((f) => Number(String(f.id).replace(/^F/, ''))).filter((n) => Number.isFinite(n));

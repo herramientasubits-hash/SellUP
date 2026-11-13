@@ -4,7 +4,7 @@
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { resolveAccountHubSpotCompanyWired } from '@/modules/accounts/hubspot-company-resolution-wiring';
-import { logContactAudit } from '@/modules/contacts/actions';
+import { logContactAudit } from '@/modules/contacts/contact-audit.server';
 import { runContactHubSpotAutoSync } from '@/modules/contacts/contact-hubspot-autosync-core';
 import { runSyncContactToHubSpot } from '@/modules/contacts/contact-hubspot-sync-core';
 import { buildContactHubSpotSyncDeps } from '@/modules/contacts/contact-hubspot-sync-runner';

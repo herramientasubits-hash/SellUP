@@ -15,7 +15,6 @@ import {
 import type {
   Contact,
   ContactAuditEntry,
-  ContactAuditAction,
   ContactsSummary,
   CreateContactInput,
   UpdateContactInput,
@@ -31,6 +30,9 @@ import {
   runContactHubSpotSyncWired,
 } from './contact-hubspot-sync-runner';
 import type { ContactAutoPhoneUpdateReport } from './contact-hubspot-auto-phone-update-core';
+import { logContactAudit } from './contact-audit.server';
+import { requireActiveActor } from '@/modules/contact-enrichment/current-actor.server';
+import { loadDirectoryUsers } from '@/modules/access/user-directory.server';
 
 // ============================================================
 // Auth helpers
@@ -55,33 +57,16 @@ async function requireActiveUser(): Promise<{ internalUserId: string }> {
 }
 
 async function requireAdmin(): Promise<{ internalUserId: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  // Respeta «Ver como…»: mientras se prueba otro rol no se actúa como admin.
+  const actor = await requireActiveActor();
+  if (!actor.isAdmin) {
     throw new Error('Acceso restringido: se requiere rol admin');
   }
-
-  return { internalUserId: internalUser.id };
+  return { internalUserId: actor.internalUserId };
 }
+
+/** Archivar es sólo de admin y va por `archiveContact`: ni el cambio de estado ni la edición lo hacen. */
+const ARCHIVE_ONLY_VIA_ARCHIVE_MESSAGE = 'Sólo un administrador puede archivar contactos (usa «Archivar contacto»).';
 
 // ============================================================
 // Commercial scope
@@ -439,6 +424,9 @@ export async function updateContact(
   input: UpdateContactInput,
 ): Promise<UpdateContactActionResult> {
   const { internalUserId } = await requireActiveUser();
+  if (input.contact_status === 'archived') {
+    return { success: false, error: ARCHIVE_ONLY_VIA_ARCHIVE_MESSAGE };
+  }
   const supabase = await createClient();
 
   const current = await getContactById(id);
@@ -708,6 +696,7 @@ export async function changeContactStatus(
   newStatus: ContactStatus,
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { internalUserId } = await requireActiveUser();
+  if (newStatus === 'archived') return { success: false, error: ARCHIVE_ONLY_VIA_ARCHIVE_MESSAGE };
   const supabase = await createClient();
 
   const current = await getContactById(id);
@@ -732,33 +721,6 @@ export async function changeContactStatus(
 }
 
 // ============================================================
-// logContactAudit — interno
-// ============================================================
-
-export async function logContactAudit({
-  contactId,
-  accountId,
-  actorUserId,
-  actionType,
-  details,
-}: {
-  contactId: string;
-  accountId: string;
-  actorUserId: string | null;
-  actionType: ContactAuditAction;
-  details: Record<string, unknown>;
-}): Promise<void> {
-  const supabase = await createClient();
-  await supabase.from('contact_audit').insert({
-    contact_id: contactId,
-    account_id: accountId,
-    actor_user_id: actorUserId,
-    action_type: actionType,
-    details,
-  });
-}
-
-// ============================================================
 // getContactAudit
 // ============================================================
 
@@ -770,13 +732,23 @@ export async function getContactAudit(contactId: string): Promise<ContactAuditEn
 
   const { data, error } = await supabase
     .from('contact_audit')
-    .select(`*, actor:actor_user_id ( full_name, email )`)
+    .select('*')
     .eq('contact_id', contactId)
     .order('created_at', { ascending: false })
     .limit(50);
 
   if (error) throw new Error(`getContactAudit: ${error.message}`);
-  return (data ?? []) as unknown as ContactAuditEntry[];
+  // La RLS de internal_users sólo deja leer la fila propia: los nombres de quien hizo
+  // cada cambio salen del directorio (cliente de servicio), ya comprobado el alcance.
+  const rows = (data ?? []) as Array<Record<string, unknown> & { actor_user_id?: string | null }>;
+  const people = await loadDirectoryUsers(rows.map((row) => row.actor_user_id ?? null));
+  return rows.map((row) => {
+    const person = row.actor_user_id ? people.get(row.actor_user_id) : undefined;
+    return {
+      ...row,
+      actor: person ? { full_name: person.fullName, email: person.email ?? '' } : null,
+    };
+  }) as unknown as ContactAuditEntry[];
 }
 
 // ============================================================

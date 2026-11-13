@@ -69,6 +69,8 @@ function DuplicateBadge({ status }: { status?: ImportDuplicateResult['duplicate_
   return null;
 }
 
+const COUNTRY_DETECTED_LABEL = { domain: 'detectado por la web', text: 'detectado en la fila', ai: 'detectado con IA' } as const;
+
 function DefaultBadge({ label }: { label: string }) {
   return (
     <Badge variant="brand">{label}</Badge>
@@ -187,6 +189,9 @@ export function ImportPreviewDataTable({
               )}
             </p>
             {r.country_from_default && <DefaultBadge label="por defecto" />}
+            {r.country_detected && (
+              <DefaultBadge label={COUNTRY_DETECTED_LABEL[r.country_detected]} />
+            )}
           </div>
         );
       },

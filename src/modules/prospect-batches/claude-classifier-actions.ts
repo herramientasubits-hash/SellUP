@@ -10,6 +10,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   isAgent1ClaudeClassifierEnabled,
   isAgent1ClaudeCompanySearchEnabled,
@@ -63,22 +64,13 @@ async function withClaudeActionLock<T>(
   }
 }
 
+// Respeta «Ver como…» (getCurrentUser / isCurrentUserAdmin): mientras se prueba
+// otro rol, no es administrador. Devuelve el id interno del admin activo.
 async function resolveAdminInternalUserId(): Promise<string | null> {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return null;
-    const { data: internalUser } = await supabase
-      .from('internal_users')
-      .select('id, role_id')
-      .eq('auth_user_id', user.id)
-      .eq('access_status', 'active')
-      .single();
-    if (!internalUser) return null;
-    const { data: role } = await supabase.from('roles').select('key').eq('id', internalUser.role_id).single();
-    return role?.key === 'admin' ? internalUser.id : null;
+    const [me, isAdmin] = await Promise.all([getCurrentUser(), isCurrentUserAdmin()]);
+    if (!me || me.access_status !== 'active' || !isAdmin) return null;
+    return me.id;
   } catch {
     return null;
   }

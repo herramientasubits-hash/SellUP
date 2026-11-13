@@ -23,6 +23,32 @@ export interface BudgetRuleFormOptions {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Mapa id → «Nombre · correo» para resolver reglas con alcance de persona. */
+export function buildBudgetRuleUserMap(
+  rows: ReadonlyArray<{ id: unknown; full_name?: unknown; email?: unknown }> | null | undefined,
+): Map<string, string> {
+  return new Map(
+    (rows ?? []).map((u) => [
+      u.id as string,
+      u.full_name
+        ? `${u.full_name as string} · ${u.email as string}`
+        : (u.email as string),
+    ]),
+  );
+}
+
+export function resolveBudgetRuleScopeLabel(
+  scopeType: BudgetScopeType,
+  scopeId: string | null,
+  maps: {
+    roleMap: Map<string, string>;
+    groupMap: Map<string, string>;
+    userMap: Map<string, string>;
+  },
+): string {
+  return resolveScopeLabel(scopeType, scopeId, maps);
+}
+
 function resolveScopeLabel(
   scopeType: BudgetScopeType,
   scopeId: string | null,
@@ -72,10 +98,10 @@ export async function getBudgetRulesForAdmin(): Promise<BudgetRuleRow[]> {
     admin.from('tool_catalog').select('provider_key, display_name').eq('is_active', true),
     admin.from('roles').select('key, name'),
     admin.from('organization_groups').select('id, name, parent_group_id'),
-    admin
-      .from('internal_users')
-      .select('id, full_name, email')
-      .eq('access_status', 'approved'),
+    // Sin filtro de estado: una regla puede apuntar a alguien suspendido o
+    // archivado y su nombre debe seguir viéndose (antes se filtraba por un
+    // estado 'approved' que no existe ⇒ «Usuario (desconocido)»).
+    admin.from('internal_users').select('id, full_name, email'),
   ]);
 
   const rules = (rulesResult.data ?? []) as BudgetRule[];
@@ -89,14 +115,7 @@ export async function getBudgetRulesForAdmin(): Promise<BudgetRuleRow[]> {
   const groupMap = new Map(
     (groupsResult.data ?? []).map((g) => [g.id as string, g.name as string]),
   );
-  const userMap = new Map(
-    (usersResult.data ?? []).map((u) => [
-      u.id as string,
-      u.full_name
-        ? `${u.full_name as string} · ${u.email as string}`
-        : (u.email as string),
-    ]),
-  );
+  const userMap = buildBudgetRuleUserMap(usersResult.data);
 
   return rules.map((rule) => ({
     ...rule,
@@ -131,10 +150,10 @@ export async function getBudgetRulesForProvider(providerKey: string): Promise<Bu
       .maybeSingle(),
     admin.from('roles').select('key, name'),
     admin.from('organization_groups').select('id, name, parent_group_id'),
-    admin
-      .from('internal_users')
-      .select('id, full_name, email')
-      .eq('access_status', 'approved'),
+    // Sin filtro de estado: una regla puede apuntar a alguien suspendido o
+    // archivado y su nombre debe seguir viéndose (antes se filtraba por un
+    // estado 'approved' que no existe ⇒ «Usuario (desconocido)»).
+    admin.from('internal_users').select('id, full_name, email'),
   ]);
 
   const rules = (rulesResult.data ?? []) as BudgetRule[];
@@ -146,14 +165,7 @@ export async function getBudgetRulesForProvider(providerKey: string): Promise<Bu
   const groupMap = new Map(
     (groupsResult.data ?? []).map((g) => [g.id as string, g.name as string]),
   );
-  const userMap = new Map(
-    (usersResult.data ?? []).map((u) => [
-      u.id as string,
-      u.full_name
-        ? `${u.full_name as string} · ${u.email as string}`
-        : (u.email as string),
-    ]),
-  );
+  const userMap = buildBudgetRuleUserMap(usersResult.data);
 
   return rules.map((rule) => ({
     ...rule,

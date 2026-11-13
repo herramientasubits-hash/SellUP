@@ -10,7 +10,8 @@ import { revalidatePath } from 'next/cache';
 import { canReviewCandidateId } from '@/modules/access/capabilities.server';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { logProspectCandidateAudit, requireActiveUser } from '@/modules/prospect-batches/actions';
+import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { logProspectCandidateAudit } from '@/modules/prospect-batches/candidate-audit.server';
 import { recheckCandidateDuplicates } from '@/server/prospect-batches/candidate-duplicate-recheck.server';
 import { canRecheckDuplicates } from './recheck-duplicates-eligibility';
 

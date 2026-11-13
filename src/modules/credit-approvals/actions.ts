@@ -8,7 +8,7 @@
 // persona esté entre los aprobadores de la regla (o sea administradora).
 
 import { revalidatePath } from 'next/cache';
-import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
+import { getCurrentActiveUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import { getAdminClient } from '@/modules/budgets/queries';
 import {
   CREDIT_APPROVALS_PATH,
@@ -80,7 +80,8 @@ type RequestRow = {
 };
 
 export async function getCreditApprovalsInbox(): Promise<CreditApprovalsInbox | null> {
-  const me = await getCurrentUser();
+  // Sólo personas con acceso activo (pendientes/suspendidas no deciden ni ven la bandeja).
+  const me = await getCurrentActiveUser();
   if (!me) return null;
   const isAdmin = await isCurrentUserAdmin();
   const admin = getAdminClient();
@@ -160,8 +161,8 @@ export async function decideCreditApproval(input: {
   credits?: number;
   note?: string | null;
 }): Promise<ActionResult> {
-  const me = await getCurrentUser();
-  if (!me) return { success: false, error: 'Tu sesión expiró. Vuelve a entrar.' };
+  const me = await getCurrentActiveUser();
+  if (!me) return { success: false, error: 'Tu sesión expiró o tu acceso no está activo.' };
   const isAdmin = await isCurrentUserAdmin();
   const admin = getAdminClient();
 

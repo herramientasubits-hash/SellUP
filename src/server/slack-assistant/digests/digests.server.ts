@@ -15,7 +15,7 @@ import { buildCandidateOwnershipOrClause } from '@/modules/assignment/assignment
 import { notifySlackUsers, sellupAppUrl } from '@/modules/notifications/slack-notify.server';
 import { providerDisplayName } from '@/modules/usage-tracking/provider-failure';
 import { createAssistantAdminDataSource } from '../admin-data-source.server';
-import { batchScopeClause, usagePeriodStart } from '../query-helpers';
+import { effectiveBatchOwnerClause, usagePeriodStart } from '../query-helpers';
 import { isNotificationEnabled, type NotificationKey } from '@/modules/notifications/notification-catalog';
 import { loadNotificationSettingRows } from '@/modules/notifications/notification-settings.server';
 import { costAlertMessage, costAlertTitle, evaluateCostAlerts, providerBlockedTitle } from './cost-alerts';
@@ -67,9 +67,15 @@ async function notifyOnce(
   return sent;
 }
 
-/** Lo que una persona tiene por revisar (responsable efectivo: asignado o dueño de la búsqueda). */
+/**
+ * Lo que una persona tiene por revisar, por RESPONSABLE efectivo (como
+ * `resolveCandidateResponsibleId`): asignado a ella, o sin asignar en una
+ * búsqueda de la que es dueña, o sin asignar en una búsqueda sin dueño que ella
+ * creó. Una búsqueda que creó pero tiene otro dueño NO cuenta como suya.
+ * Alimenta el recordatorio diario y el boletín.
+ */
 export async function pendingFor(admin: SupabaseClient, userId: string, now: Date = new Date()): Promise<PendingSummary> {
-  const { data: batches } = await admin.from('prospect_batches').select('id').or(batchScopeClause([userId])).limit(5000);
+  const { data: batches } = await admin.from('prospect_batches').select('id').or(effectiveBatchOwnerClause([userId])).limit(5000);
   const clause = buildCandidateOwnershipOrClause([userId], (batches ?? []).map((b) => b.id as string));
   if (!clause) return { total: 0, oldestDays: null, olderThan7: 0, sample: [] };
   const { data, count } = await admin

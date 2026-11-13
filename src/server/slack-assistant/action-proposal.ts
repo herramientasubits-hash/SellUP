@@ -79,6 +79,8 @@ export interface ActionProposal {
   channels?: RumboChannel[];
   /** Vence (segundos epoch). */
   expiresAt: number;
+  /** Identificador único de esta propuesta (para ejecutarla una sola vez). */
+  nonce?: string;
 }
 
 /** Lo mínimo que viaja en el botón (los nombres van en el texto del mensaje). */
@@ -96,6 +98,8 @@ interface ButtonPayload {
   st?: string;
   ch?: string[];
   e: number;
+  /** nonce (UUID) de la propuesta. */
+  n?: string;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -134,6 +138,7 @@ export function encodeActionValue(proposal: ActionProposal): string {
     ...(proposal.stage ? { st: proposal.stage } : {}),
     ...(proposal.channels?.length ? { ch: proposal.channels } : {}),
     e: proposal.expiresAt,
+    ...(proposal.nonce ? { n: proposal.nonce } : {}),
   };
   const value = JSON.stringify(payload);
   if (value.length > MAX_VALUE_CHARS) throw new Error('La propuesta es demasiado grande para un botón de Slack.');
@@ -152,6 +157,8 @@ export interface DecodedAction {
   stage: MovableStage | null;
   channels: RumboChannel[];
   expiresAt: number;
+  /** nonce de la propuesta (`null` en botones de antes). */
+  nonce: string | null;
 }
 
 /** Lee el botón; `null` si no tiene la forma esperada (nunca se ejecuta algo raro). */
@@ -168,6 +175,7 @@ export function decodeActionValue(raw: unknown): DecodedAction | null {
   if (!isIds(p.ids) || p.ids.length === 0 || p.ids.length > MAX_ACTION_ITEMS) return null;
   if (typeof p.a !== 'string' || !UUID_PATTERN.test(p.a) || typeof p.s !== 'string' || !p.s) return null;
   if (typeof p.e !== 'number' || !Number.isFinite(p.e)) return null;
+  if (p.n !== undefined && (typeof p.n !== 'string' || !UUID_PATTERN.test(p.n))) return null;
   const ids = p.ids;
   const isPositions = (v: unknown): v is number[] =>
     Array.isArray(v) && v.every((x) => Number.isInteger(x) && x >= 0 && x < ids.length);
@@ -195,6 +203,7 @@ export function decodeActionValue(raw: unknown): DecodedAction | null {
     stage: (MOVABLE_STAGES as readonly string[]).includes(p.st ?? '') ? (p.st as MovableStage) : null,
     channels,
     expiresAt: p.e,
+    nonce: p.n ?? null,
   };
 }
 

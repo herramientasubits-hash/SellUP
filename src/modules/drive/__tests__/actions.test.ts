@@ -208,8 +208,8 @@ function installFetch(): void {
 let getUserDriveConnection: typeof import('../actions').getUserDriveConnection;
 let testUserDriveConnection: typeof import('../actions').testUserDriveConnection;
 let disconnectUserDrive: typeof import('../actions').disconnectUserDrive;
-let getDriveConnectionStats: typeof import('../actions').getDriveConnectionStats;
-let getAuthorizedDriveClientForUser: typeof import('../actions').getAuthorizedDriveClientForUser;
+let getDriveConnectionStats: typeof import('../drive.server').getDriveConnectionStats;
+let getAuthorizedDriveClientForUser: typeof import('../drive.server').getAuthorizedDriveClientForUser;
 let UnsafeSupabaseEnvironmentError: typeof import('@/lib/supabase/env-guard.server').UnsafeSupabaseEnvironmentError;
 
 before(async () => {
@@ -217,9 +217,8 @@ before(async () => {
     getUserDriveConnection,
     testUserDriveConnection,
     disconnectUserDrive,
-    getDriveConnectionStats,
-    getAuthorizedDriveClientForUser,
   } = await import('../actions'));
+  ({ getDriveConnectionStats, getAuthorizedDriveClientForUser } = await import('../drive.server'));
   ({ UnsafeSupabaseEnvironmentError } = await import('@/lib/supabase/env-guard.server'));
 });
 

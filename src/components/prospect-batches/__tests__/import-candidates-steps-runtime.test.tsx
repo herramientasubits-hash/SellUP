@@ -183,8 +183,6 @@ describe('lo que se envía al crear el lote', () => {
 function inputStep(overrides: Record<string, unknown> = {}) {
   const calls = { selected: [] as File[], removed: 0, retry: 0 };
   const props = {
-    countryCode: '',
-    onCountryChange: () => {},
     catalogLoading: false,
     catalogError: null,
     onRetryCatalog: () => {
@@ -211,10 +209,12 @@ function inputStep(overrides: Record<string, unknown> = {}) {
 }
 
 describe('paso de entrada — subir archivo', () => {
-  it('sin «Industria por defecto» (dueña 13-11): la industria es la de cada fila y la IA completa las vacías', () => {
+  it('sin «País de referencia» ni «Industria por defecto» (dueña 13-11): se toman de cada fila', () => {
     inputStep();
     assert.equal(screen.queryByText('Industria por defecto'), null);
-    assert.ok(screen.getByText('Se toma la de cada fila del archivo. Las filas sin industria la reciben de la IA después de importar.'));
+    assert.equal(screen.queryByText('País de referencia'), null);
+    assert.ok(screen.getByText('País e industria'));
+    assert.ok(screen.getByText(/Si falta el país, lo detectamos \(por la web o con IA\)/));
   });
 
   it('ofrece la zona para arrastrar o elegir, con los límites a la vista', () => {

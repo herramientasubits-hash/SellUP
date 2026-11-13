@@ -61,10 +61,10 @@ import {
 
 const NOW_ISO = '2026-08-24T12:00:00.000Z';
 
-/** Los roles que el contrato de Product declara equivalentes (11-11: + líder y vendedor). */
-const REVEAL_ROLES = ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd'] as const;
+/** Los roles que el contrato de Product declara equivalentes (11-11: + líder y vendedor; 13-11: + Growth). */
+const REVEAL_ROLES = ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd', 'growth'] as const;
 /** Roles que no pueden revelar teléfono. */
-const NON_REVEAL_ROLES = ['growth', 'seller', 'lead', 'viewer', '', null] as const;
+const NON_REVEAL_ROLES = ['seller', 'lead', 'viewer', '', null] as const;
 
 // ── Fixtures de candidato ──────────────────────────────────────
 
@@ -199,7 +199,7 @@ describe('§ 1-2 — autoridad canónica única', () => {
   test('«Buscar más números» conserva su propia lista (11-11: los mismos cuatro roles)', () => {
     // No es el botón «Revelar teléfono»: es una compra ADICIONAL. Ensanchar el
     // waterfall NO la ensancha, y este test es lo que impide que se acople otra vez.
-    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd']);
+    assert.deepEqual([...SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS], ['admin', 'commercial_manager', 'commercial_lead', 'seller_bd', 'growth']);
     assert.notEqual(
       SEARCH_MORE_PHONES_AUTHORIZED_ROLE_KEYS,
       PHONE_REVEAL_AUTHORIZED_ROLE_KEYS,

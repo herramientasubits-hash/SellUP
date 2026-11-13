@@ -27,7 +27,7 @@
 //     email, linkedin, nombre, empresa, API key, token ni el payload crudo.
 
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import {
   recoverApolloPhoneRevealForCandidate,
   recoverStaleApolloPhoneRevealRequests,
@@ -55,32 +55,9 @@ import {
  * cuando roleKey === 'admin'.
  */
 async function requireAdminActor(): Promise<RecoveryRuntimeActor> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-  if (!internalUser) redirect('/settings');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-  if (roleKey !== 'admin') redirect('/settings');
-
-  return { internalUserId: internalUser.id as string, roleKey };
+  const actor = await requireActiveActor('/settings');
+  if (!actor.isAdmin) redirect('/settings');
+  return { internalUserId: actor.internalUserId, roleKey: 'admin' };
 }
 
 // ── Server Action — Modo 1: recuperación de UN candidato ───────

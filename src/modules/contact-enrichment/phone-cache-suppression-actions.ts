@@ -77,8 +77,7 @@
 // previously contradict each other. A failed propagation is reported as
 // `candidate_phone_collection_failed` and the suppression is NOT reported as ok.
 
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { PHONE_CACHE_PROVIDER } from './phone-cache-core';
 import { DSAR_CANDIDATE_PHONE_SUPPRESSION_SCOPE } from './candidate-phone-collection-suppression-core';
@@ -163,34 +162,9 @@ function failed(
 
 // ── Auth ADMIN-only ────────────────────────────────────────────
 
-async function resolveActor(): Promise<{
-  internalUserId: string;
-  roleKey: string | null;
-}> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-  return { internalUserId: internalUser.id as string, roleKey };
+async function resolveActor(): Promise<{ internalUserId: string; roleKey: string | null }> {
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 // ── Lectura del id de contacto para DESCUBRIR filas (sin PII) ───

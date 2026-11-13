@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { runSourceDiscovery } from '@/server/source-catalog/run-source-discovery';
 import type { SourceDiscoveryCriteria } from '@/server/source-catalog/source-discovery-types';
 
@@ -78,13 +79,8 @@ async function requireAdminUser(): Promise<{ id: string | null; error?: string }
 
   if (!internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado — se requiere rol admin' };
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { id: null, error: 'No autorizado — se requiere rol admin' };
 
   return { id: internalUser.id };
 }

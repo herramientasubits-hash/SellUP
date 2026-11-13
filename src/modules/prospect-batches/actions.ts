@@ -1,7 +1,15 @@
 'use server';
 
-import { listAssignableUsers } from '@/modules/assignment/assignment.server';
-import { requireBatchInScope, requireCandidateInScope } from '@/modules/access/record-scope.server';
+import { listAssignableUsers, loadAssignmentActor, loadAssignmentTarget } from '@/modules/assignment/assignment.server';
+import {
+  OUT_OF_SCOPE_MESSAGE,
+  canActOnBatch,
+  requireBatchInScope,
+  requireCandidateInScope,
+} from '@/modules/access/record-scope.server';
+import { loadDirectoryUser, loadDirectoryUsers } from '@/modules/access/user-directory.server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { logProspectCandidateAudit } from './candidate-audit.server';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient, type SupabaseClient } from '@supabase/supabase-js';
 import { formatInAppZone } from '@/lib/format-date';
@@ -151,7 +159,6 @@ import {
   type UpdateCandidateInput,
   type MarkDuplicateInput,
   type InternalUserOption,
-  type CandidateAuditAction,
   type BatchStatus,
   type DuplicateStatus,
 } from './types';
@@ -229,31 +236,13 @@ export async function requireActiveUser(): Promise<{ internalUserId: string }> {
   return { internalUserId: internalUser.id };
 }
 
+// Respeta «Ver como…»: mientras se prueba otro rol, no es administrador.
 async function requireAdmin(): Promise<{ internalUserId: string }> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  const { internalUserId } = await requireActiveUser();
+  if (!(await isCurrentUserAdmin().catch(() => false))) {
     throw new Error('Acceso restringido: se requiere rol admin');
   }
-
-  return { internalUserId: internalUser.id };
+  return { internalUserId };
 }
 
 /**
@@ -266,31 +255,8 @@ async function requireAdmin(): Promise<{ internalUserId: string }> {
  * the client. Returns a boolean only — never the role, never the user id.
  */
 async function resolveIsAdminForLegacyGate(): Promise<boolean> {
-  try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { data: internalUser } = await supabase
-      .from('internal_users')
-      .select('id, role_id')
-      .eq('auth_user_id', user.id)
-      .eq('access_status', 'active')
-      .single();
-
-    if (!internalUser) return false;
-
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-
-    return role?.key === 'admin';
-  } catch {
-    // Fail-closed: an unreadable role is not an admin.
-    return false;
-  }
+  // Respeta «Ver como…» (isCurrentUserAdmin). Fail-closed: si no se puede leer, no es admin.
+  return isCurrentUserAdmin().catch(() => false);
 }
 
 /**
@@ -370,37 +336,9 @@ function extractDomain(website: string): string | null {
 
 // ── Auditoría ─────────────────────────────────────────────────
 
-export async function logProspectCandidateAudit(params: {
-  batchId: string;
-  candidateId?: string;
-  actorUserId?: string;
-  actionType: CandidateAuditAction;
-  details?: Record<string, unknown>;
-}): Promise<void> {
-  const supabase = await createClient();
-  const { error } = await supabase.from('prospect_candidate_audit').insert({
-    batch_id: params.batchId,
-    candidate_id: params.candidateId ?? null,
-    actor_user_id: params.actorUserId ?? null,
-    action_type: params.actionType,
-    details: params.details ?? {},
-  });
-
-  // Q3F-5BB.11K-FIX — observability only: the audit insert used to swallow its
-  // error silently, so a failed audit row was indistinguishable from a written
-  // one. We now SURFACE it in the server log (action type + safe error info,
-  // never the details payload — it can carry candidate PII). Control flow is
-  // deliberately unchanged: no throw, no retry, no transaction. Making the
-  // status write + audit atomic is a separate hito.
-  if (error) {
-    console.error(
-      '[prospect-batches] audit insert failed:',
-      params.actionType,
-      params.candidateId ?? null,
-      error.message,
-    );
-  }
-}
+// La auditoría vive en `candidate-audit.server.ts`: exportada desde este
+// archivo 'use server' sería una acción invocable por el cliente con cualquier
+// actor (permisos 13-11).
 
 // ── Summaries ─────────────────────────────────────────────────
 
@@ -520,11 +458,7 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
 
   let batchesQuery = supabase
     .from('prospect_batches')
-    .select(`
-      *,
-      owner:internal_users!prospect_batches_owner_id_fkey(id, full_name, email),
-      created_by_user:internal_users!prospect_batches_created_by_fkey(id, full_name)
-    `)
+    .select('*')
     .is('archived_at', null);
   if (allowedBatchIds !== null) batchesQuery = batchesQuery.in('id', allowedBatchIds);
   const { data: batches, error } = await batchesQuery.order('created_at', { ascending: false });
@@ -538,7 +472,7 @@ export async function getProspectBatchesList(): Promise<ProspectBatchWithMeta[]>
     await fetchDurableCandidateCountRows({ batchIds }),
   );
 
-  return batches.map((b) => {
+  return (await attachBatchPeople(batches)).map((b) => {
     const counts = countsByBatch.get(b.id) ?? EMPTY_BATCH_CANDIDATE_COUNTS;
 
     return {
@@ -573,11 +507,7 @@ export async function getSearchesForViewer(): Promise<SearchForViewer[]> {
   const supabase = await createClient();
   const scopeUserIds = await resolveCandidateScopeUserIds();
 
-  const SELECT = `
-      *,
-      owner:internal_users!prospect_batches_owner_id_fkey(id, full_name, email),
-      created_by_user:internal_users!prospect_batches_created_by_fkey(id, full_name)
-    `;
+  const SELECT = '*';
   const withCounts = (
     batches: Array<Record<string, unknown> & { id: string }>,
     counts: Map<string, typeof EMPTY_BATCH_CANDIDATE_COUNTS>,
@@ -607,7 +537,7 @@ export async function getSearchesForViewer(): Promise<SearchForViewer[]> {
     if (error) throw new Error(`Error al cargar las búsquedas: ${error.message}`);
     const batches = (data ?? []) as Array<Record<string, unknown> & { id: string }>;
     const counts = computeCountsByBatch(await fetchDurableCandidateCountRows({ batchIds: batches.map((b) => b.id) }));
-    return withCounts(batches, counts, 'full');
+    return withCounts(await attachBatchPeople(batches), counts, 'full');
   }
   if (scopeUserIds.length === 0) return [];
 
@@ -658,7 +588,11 @@ export async function getSearchesForViewer(): Promise<SearchForViewer[]> {
     fetchDurableCandidateCountRows({ batchIds: assigned.map((b) => b.id) }, scopeUserIds).then(computeCountsByBatch),
   ]);
 
-  return [...withCounts(owned, ownedCounts, 'full'), ...withCounts(assigned, assignedCounts, 'assigned')].sort(
+  const [ownedWithPeople, assignedWithPeople] = await Promise.all([attachBatchPeople(owned), attachBatchPeople(assigned)]);
+  return [
+    ...withCounts(ownedWithPeople, ownedCounts, 'full'),
+    ...withCounts(assignedWithPeople, assignedCounts, 'assigned'),
+  ].sort(
     (a, b) => String(b.created_at).localeCompare(String(a.created_at)),
   );
 }
@@ -674,6 +608,53 @@ export async function getSearchesForViewer(): Promise<SearchForViewer[]> {
 // outside a batch). Gated behind ENABLE_COMMERCIAL_SCOPE.
 
 const BATCH_OWNER_COLUMNS = ['owner_id', 'created_by'] as const;
+
+/**
+ * Dueño y creador de cada búsqueda, por el directorio (cliente de servicio): la
+ * RLS de `internal_users` no deja a un no-admin leer a otra persona y el embed
+ * volvía vacío. Misma forma que el embed de antes (`owner`, `created_by_user`).
+ * Las filas ya pasaron por el alcance.
+ */
+async function attachBatchPeople<T extends object>(
+  batches: T[],
+): Promise<Array<T & Pick<ProspectBatchWithMeta, 'owner' | 'created_by_user'>>> {
+  const idOf = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : null);
+  const ids = (b: T) => {
+    const row = b as { owner_id?: unknown; created_by?: unknown };
+    return { ownerId: idOf(row.owner_id), creatorId: idOf(row.created_by) };
+  };
+  const people = await loadDirectoryUsers(batches.flatMap((b) => Object.values(ids(b))));
+  return batches.map((b) => {
+    const { ownerId, creatorId } = ids(b);
+    const owner = ownerId ? people.get(ownerId) : undefined;
+    const creator = creatorId ? people.get(creatorId) : undefined;
+    return {
+      ...b,
+      owner: owner ? { id: owner.id, full_name: owner.fullName, email: owner.email ?? '' } : null,
+      created_by_user: creator ? { id: creator.id, full_name: creator.fullName } : null,
+    };
+  });
+}
+
+/**
+ * ¿Tiene el alcance de quien mira candidatas ASIGNADAS en esta búsqueda ajena?
+ * Es la búsqueda «Sólo las que te asignaron» de Búsquedas: se abre, pero sólo con
+ * esa parte (misma regla que `canActOnCandidate`).
+ */
+async function hasAssignedCandidatesInBatch(batchId: string, scopeUserIds: readonly string[]): Promise<boolean> {
+  if (scopeUserIds.length === 0) return false;
+  const { data, error } = await createSupabaseAdminClient()
+    .from('prospect_candidates')
+    .select('id')
+    .eq('batch_id', batchId)
+    .in('assigned_to', [...scopeUserIds])
+    .limit(1);
+  if (error) {
+    console.error('[prospect-batches] no se pudo leer la parte asignada de la búsqueda:', error.message);
+    return false;
+  }
+  return (data ?? []).length > 0;
+}
 
 /**
  * Resolve the prospect_batches.ids whose candidates the current user may see.
@@ -753,18 +734,17 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
 
   const { data: batch, error } = await supabase
     .from('prospect_batches')
-    .select(`
-      *,
-      owner:internal_users!prospect_batches_owner_id_fkey(id, full_name, email),
-      created_by_user:internal_users!prospect_batches_created_by_fkey(id, full_name)
-    `)
+    .select('*')
     .eq('id', id)
     .single();
 
   if (error || !batch) return null;
 
   // Scope guard: a non-admin must not open a batch (or its candidates via a
-  // ?sourceId= deep link) outside their allowed owner/creator set.
+  // ?sourceId= deep link) outside their allowed owner/creator set — salvo que le
+  // hayan asignado empresas de ella («Sólo las que te asignaron»): entonces se
+  // abre y las cifras cuentan sólo esa parte.
+  let assignedOnlyTo: string[] | undefined;
   if (isCommercialScopeEnabled()) {
     const scope = await resolveCommercialScope();
     if (!scope) return null;
@@ -773,16 +753,20 @@ export async function getProspectBatchById(id: string): Promise<ProspectBatchWit
       const ownerInScope = batch.owner_id != null && allowed.has(batch.owner_id);
       const creatorInScope =
         batch.created_by != null && allowed.has(batch.created_by);
-      if (!ownerInScope && !creatorInScope) return null;
+      if (!ownerInScope && !creatorInScope) {
+        if (!(await hasAssignedCandidatesInBatch(id, scope.allowedUserIds))) return null;
+        assignedOnlyTo = [...scope.allowedUserIds];
+      }
     }
   }
 
   const counts = computeBatchCandidateCounts(
-    await fetchDurableCandidateCountRows({ batchId: id }),
+    await fetchDurableCandidateCountRows({ batchId: id }, assignedOnlyTo),
   );
+  const [withPeople] = await attachBatchPeople([batch]);
 
   return {
-    ...batch,
+    ...withPeople,
     total_candidates: counts.total,
     approved_count: counts.approved,
     discarded_count: counts.discarded,
@@ -819,6 +803,13 @@ const MVP_MAX_CANDIDATES = 25;
 
 export async function createProspectBatch(input: CreateBatchInput): Promise<ProspectBatch> {
   const { internalUserId } = await requireActiveUser();
+  // Un responsable elegido que no es quien crea pasa por la regla de «Asignar a…»
+  // (vendedor: sólo a sí mismo; la persona tiene que estar activa).
+  if (input.owner_id && input.owner_id !== internalUserId) {
+    const actor = await loadAssignmentActor();
+    const check = actor ? await loadAssignmentTarget(actor, input.owner_id) : null;
+    if (!check?.ok) throw new Error(check?.error ?? 'Tu sesión no está activa. Vuelve a entrar.');
+  }
   const supabase = await createClient();
 
   if (input.target_count !== undefined && input.target_count > MVP_MAX_CANDIDATES) {
@@ -953,6 +944,20 @@ export async function archiveProspectBatch(id: string): Promise<void> {
  * reutilizada en la fila y revalidada en el servidor.
  */
 const BATCH_CANDIDATE_PAGE_SIZE = 1000;
+
+/**
+ * Quién revisó cada candidata, por el directorio (cliente de servicio), con la
+ * forma del embed de antes (`reviewer: { id, full_name, email }`).
+ */
+async function attachCandidateReviewers<T extends { reviewed_by?: string | null }>(
+  candidates: T[],
+): Promise<Array<T & { reviewer: ProspectCandidateWithReviewer['reviewer'] }>> {
+  const people = await loadDirectoryUsers(candidates.map((c) => c.reviewed_by ?? null));
+  return candidates.map((c) => {
+    const reviewer = c.reviewed_by ? people.get(c.reviewed_by) : undefined;
+    return { ...c, reviewer: reviewer ? { id: reviewer.id, full_name: reviewer.fullName, email: reviewer.email ?? '' } : null };
+  });
+}
 /** Tope de seguridad: alcanzarlo es un error, nunca un truncado mudo. */
 const BATCH_CANDIDATE_MAX_PAGES = 100;
 
@@ -961,7 +966,14 @@ export async function getCandidatesByBatch(
 ): Promise<ProspectCandidateWithReviewer[]> {
   await requireActiveUser();
   // Alcance comercial propio: no depende de que la página haya verificado antes el lote.
-  if (!(await isBatchInScope(batchId))) return [];
+  // Búsqueda ajena con empresas asignadas a su alcance: sólo esas (misma regla que
+  // `canActOnCandidate`); sin ninguna, nada.
+  let assignedOnlyTo: string[] | null = null;
+  if (!(await isBatchInScope(batchId))) {
+    const scopeUserIds = await resolveCandidateScopeUserIds();
+    if (!scopeUserIds || !(await hasAssignedCandidatesInBatch(batchId, scopeUserIds))) return [];
+    assignedOnlyTo = scopeUserIds;
+  }
   const supabase = await createClient();
 
   const rows: ProspectCandidateWithReviewer[] = [];
@@ -991,21 +1003,20 @@ export async function getCandidatesByBatch(
   };
 
   for (let page = 0; page < BATCH_CANDIDATE_MAX_PAGES; page++) {
-    const { data, error } = await supabase
+    let pageQuery = supabase
       .from('prospect_candidates')
-      .select(`
-        *,
-        reviewer:internal_users!prospect_candidates_reviewed_by_fkey(id, full_name, email)
-      `)
+      .select('*')
       .eq('batch_id', batchId)
-      .in('status', [...DURABLE_PROSPECT_CANDIDATE_STATUSES])
+      .in('status', [...DURABLE_PROSPECT_CANDIDATE_STATUSES]);
+    if (assignedOnlyTo) pageQuery = pageQuery.in('assigned_to', assignedOnlyTo);
+    const { data, error } = await pageQuery
       .order('created_at', { ascending: true })
       .order('id', { ascending: true })
       .range(from, from + BATCH_CANDIDATE_PAGE_SIZE - 1);
 
     if (error) throw new Error(`Error al cargar candidatos: ${error.message}`);
 
-    const pageRows = (data ?? []) as ProspectCandidateWithReviewer[];
+    const pageRows = await attachCandidateReviewers((data ?? []) as Array<Omit<ProspectCandidateWithReviewer, 'reviewer'>>);
     if (pageRows.length === 0) return rows;
     rows.push(...(await withAssigneeFlag(pageRows)));
     from += pageRows.length;
@@ -1748,7 +1759,8 @@ async function updateAccountHubSpotMeta(
  * Normaliza el email a lowercase y remueve espacios en blanco.
  * En caso de error o de no encontrar el mapeo, retorna null para aplicar el fallback seguro.
  */
-export async function getHubSpotOwnerMapping(email: string | null | undefined): Promise<string | null> {
+// Sin `export`: en un archivo 'use server' sería una acción pública.
+async function getHubSpotOwnerMapping(email: string | null | undefined): Promise<string | null> {
   if (!email) return null;
   const cleanEmail = email.toLowerCase().trim();
   if (!cleanEmail) return null;
@@ -2933,13 +2945,12 @@ async function convertClaimedCandidate(ctx: {
 
       // HUBSPOT-ACCOUNT-SYNC-1 — el dueño en HubSpot es quien LANZÓ la búsqueda del
       // Agente 1 (creador del lote), no quien aprueba. Sin creador, cae en quien aprueba.
-      const { data: userRow } = await supabase
-        .from('internal_users')
-        .select('email, full_name')
-        .eq('id', searcherUserId)
-        .single();
+      // Directorio (cliente de servicio): la RLS no deja a un líder leer el correo
+      // de su vendedor y la empresa nacía en HubSpot sin dueño. El alcance ya se
+      // comprobó al decidir la candidata.
+      const userRow = await loadDirectoryUser(searcherUserId);
       const userEmail = userRow?.email?.toLowerCase().trim() ?? '';
-      const userFullName = userRow?.full_name ?? '';
+      const userFullName = userRow?.fullName ?? '';
 
       // Resolviendo el mapping dinámicamente desde Supabase
       let mappedOwnerId: string | null = null;
@@ -3017,11 +3028,7 @@ async function convertClaimedCandidate(ctx: {
           link: freePoolLink,
           nowIso: nowStr,
           resolveSellerHubSpotOwnerId: async () => {
-            const { data: sellerRow } = await supabase
-              .from('internal_users')
-              .select('email')
-              .eq('id', searcherUserId)
-              .single();
+            const sellerRow = await loadDirectoryUser(searcherUserId);
             return resolveLiveSellerHubSpotOwnerId(sellerRow?.email, getHubSpotOwnerMapping);
           },
         })
@@ -3417,14 +3424,17 @@ export async function getBatchAudit(batchId: string): Promise<ProspectCandidateA
 
   const { data } = await supabase
     .from('prospect_candidate_audit')
-    .select(`
-      *,
-      actor:internal_users!prospect_candidate_audit_actor_user_id_fkey(full_name, email)
-    `)
+    .select('*')
     .eq('batch_id', batchId)
     .order('created_at', { ascending: false });
 
-  return (data ?? []) as ProspectCandidateAudit[];
+  // Autor por el directorio (la RLS no deja a un no-admin leer a otra persona).
+  const rows = (data ?? []) as ProspectCandidateAudit[];
+  const actors = await loadDirectoryUsers(rows.map((row) => row.actor_user_id));
+  return rows.map((row) => {
+    const actor = row.actor_user_id ? actors.get(row.actor_user_id) : undefined;
+    return { ...row, actor: actor ? { full_name: actor.fullName, email: actor.email ?? '' } : null };
+  });
 }
 
 // ── Cambio de estado de lote (shortcut) ───────────────────────
@@ -4489,6 +4499,22 @@ async function detectImportedCandidate(
   }
 }
 
+/** `null` si quien llama es el usuario activo de la sesión y el lote es de su alcance. */
+async function checkImportValidationActor(batchId: string, userId: string): Promise<string | null> {
+  const session = await createClient();
+  const { data: { user } } = await session.auth.getUser();
+  if (!user) return 'No autorizado';
+  const { data: me } = await session
+    .from('internal_users')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .eq('access_status', 'active')
+    .maybeSingle();
+  if (!me?.id || me.id !== userId) return 'No autorizado';
+  if (!(await canActOnBatch(batchId))) return OUT_OF_SCOPE_MESSAGE;
+  return null;
+}
+
 export async function validateImportedCandidatesBatch(
   batchId: string,
   userId: string,
@@ -4496,6 +4522,12 @@ export async function validateImportedCandidatesBatch(
   options?: ValidateImportedCandidatesOptions,
 ): Promise<{ success: boolean; error?: string; pendingRevalidationCount?: number }> {
   try {
+    // Exportada desde un archivo 'use server' (la usan dos rutas): es invocable
+    // como acción. Guarda explícita: el actor tiene que ser quien tiene la sesión
+    // y el lote tiene que estar en su alcance (permisos 13-11).
+    const guard = await checkImportValidationActor(batchId, userId);
+    if (guard) return { success: false, error: guard };
+
     const supabase = supabaseClient || (await createClient());
 
     // 1. Cargar batch
@@ -4976,7 +5008,8 @@ export interface GlobalCandidatesResult {
  * `created_by`, `source='manual'`, sin archivar) y el fallback a creación son
  * exactamente los de antes; sólo se amplían las columnas que se traen de vuelta.
  */
-export async function getOrCreateTechnicalManualBatch(
+// Sin `export`: en un archivo 'use server' sería una acción con un userId cualquiera.
+async function getOrCreateTechnicalManualBatch(
   userId: string,
 ): Promise<AdoptedBatchProvenance> {
   const supabase = await createClient();
@@ -5104,7 +5137,6 @@ export async function getGlobalCandidatesList(
     .from('prospect_candidates')
     .select(`
       *,
-      reviewer:internal_users!prospect_candidates_reviewed_by_fkey(id, full_name, email),
       batch:prospect_batches!prospect_candidates_batch_id_fkey(name, source, created_at, owner_id, created_by)
     `, { count: 'exact' });
 
@@ -5198,7 +5230,10 @@ export async function getGlobalCandidatesList(
     throw new Error(`Error al consultar candidatos globales: ${error.message}`);
   }
 
-  const candidates = (data ?? []) as GlobalCandidatesResult['candidates'];
+  // Quién la revisó, por el directorio (antes un embed que volvía vacío a un no-admin).
+  const candidates = (await attachCandidateReviewers(
+    (data ?? []) as Array<Omit<GlobalCandidatesResult['candidates'][number], 'reviewer'>>,
+  )) as GlobalCandidatesResult['candidates'];
   const needing = await findCandidatesNeedingAssignee(
     candidates.map((candidate) => ({
       id: candidate.id,
@@ -5208,7 +5243,7 @@ export async function getGlobalCandidatesList(
       batchCreatedBy: candidate.batch?.created_by ?? null,
     })),
   );
-  const withResponsibles = await attachCandidateResponsibles(supabase, candidates, needing);
+  const withResponsibles = await attachCandidateResponsibles(candidates, needing);
   return {
     candidates: withResponsibles.map((candidate) => ({ ...candidate, needs_assignee: needing.has(candidate.id) })),
     total: count ?? 0,
@@ -5225,7 +5260,6 @@ export async function getGlobalCandidatesList(
  * responsable; va como `launchedBy` y la columna dice «Sin asignar».
  */
 async function attachCandidateResponsibles(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   candidates: GlobalCandidatesResult['candidates'],
   needing: ReadonlySet<string> = new Set(),
 ): Promise<GlobalCandidatesResult['candidates']> {
@@ -5240,19 +5274,17 @@ async function attachCandidateResponsibles(
   const userIds = [...new Set(withIds.map((row) => row.responsibleId).filter((id): id is string => !!id))];
   if (userIds.length === 0) return candidates.map((candidate) => ({ ...candidate, responsible: null, launchedBy: null }));
 
-  const { data: users, error } = await supabase
-    .from('internal_users')
-    .select('id, full_name, email')
-    .in('id', userIds);
-  if (error) {
-    console.error('[getGlobalCandidatesList] responsible names read failed:', error.message);
+  // Directorio (cliente de servicio): con la sesión, un líder sólo leía su
+  // propio nombre y la columna «Responsable» salía vacía para su equipo.
+  let users: Map<string, { fullName: string | null; email: string | null }>;
+  try {
+    users = await loadDirectoryUsers(userIds);
+  } catch (error) {
+    console.error('[getGlobalCandidatesList] responsible names read failed:', error instanceof Error ? error.message : error);
     return candidates;
   }
   const names = new Map(
-    (users ?? []).map((u: { id: string; full_name: string | null; email: string | null }) => [
-      u.id,
-      u.full_name?.trim() || u.email || 'Sin nombre',
-    ]),
+    [...users.entries()].map(([id, u]) => [id, u.fullName?.trim() || u.email || 'Sin nombre']),
   );
   return withIds.map(({ candidate, responsibleId }) => ({
     ...candidate,

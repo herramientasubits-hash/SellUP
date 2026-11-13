@@ -145,10 +145,12 @@ mock.module('@/components/contacts/edit-contact-drawer', {
 });
 
 let ContactDetailSheet: (typeof import('../contact-detail-sheet'))['ContactDetailSheet'];
+let NavAccessProvider: (typeof import('@/components/layout/nav-access-context'))['NavAccessProvider'];
 
 before(async () => {
   ({ render, screen, within, fireEvent, cleanup } = await import('@testing-library/react'));
   ({ ContactDetailSheet } = await import('../contact-detail-sheet'));
+  ({ NavAccessProvider } = await import('@/components/layout/nav-access-context'));
 });
 
 beforeEach(() => {
@@ -157,8 +159,12 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-async function renderSheet() {
-  render(<ContactDetailSheet contactId={CONTACT.id} open onClose={() => {}} />);
+async function renderSheet(access = { isAdmin: true, roleKey: 'admin' }) {
+  render(
+    <NavAccessProvider value={access}>
+      <ContactDetailSheet contactId={CONTACT.id} open onClose={() => {}} />
+    </NavAccessProvider>,
+  );
   return screen.findByRole('region', { name: 'Resumen del contacto' });
 }
 
@@ -249,5 +255,14 @@ describe('Detalle de contacto — pie', () => {
     assert.ok(await screen.findByRole('menuitem', { name: /Archivar contacto/ }));
     assert.equal(screen.queryByRole('menuitem', { name: /Ver detalle/ }), null);
     assert.equal(screen.queryByRole('menuitem', { name: /Editar/ }), null);
+  });
+
+  it('archivar es sólo de admin: a un no admin el pie no lo ofrece', async () => {
+    await renderSheet({ isAdmin: false, roleKey: 'commercial_lead' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Más acciones' }));
+
+    await screen.findAllByRole('menuitem');
+    assert.equal(screen.queryByRole('menuitem', { name: /Archivar contacto/ }), null);
   });
 });

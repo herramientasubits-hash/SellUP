@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
+import { getAccountById } from '@/modules/accounts/actions';
 import { parseFirstCallRequest } from '@/modules/speech/first-call-request';
 import { parseFirstContactRunMeta } from '@/modules/speech/first-contact-run-registry';
 import { resolveActiveInternalUserId } from '@/server/agents/first-call/request-user.server';
@@ -43,6 +44,15 @@ export async function POST(request: NextRequest) {
   if (userId === null) return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Inicia sesión.' }, { status: 401 });
   if (userId === 'forbidden') {
     return NextResponse.json({ ok: false, code: 'forbidden', message: 'Tu usuario no tiene acceso.' }, { status: 403 });
+  }
+
+  // Alcance en cascada ANTES de registrar nada: una empresa de otro equipo no existe para
+  // quien pide (ni corrida a su nombre, ni gasto de investigación).
+  if (!(await getAccountById(parsed.request.accountId))) {
+    return NextResponse.json(
+      { ok: false, code: 'not_found', message: 'No encontramos esa empresa.' },
+      { status: 404, headers: NO_STORE },
+    );
   }
 
   // La corrida queda en el servidor (si el navegador mandó su id): se ve desde otro equipo

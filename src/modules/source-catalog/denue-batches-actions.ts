@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { resolveSourceCredential } from '@/server/source-catalog/source-connection-resolver';
 import {
   runDenueCandidateDryRun,
@@ -48,13 +49,8 @@ async function requireAdminForDenueAction(): Promise<{
   if (!internalUser)
     return { internalUserId: null, errorMessage: 'Usuario no autorizado' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) {
     return {
       internalUserId: null,
       errorMessage: 'Acceso restringido: se requiere rol admin para crear lotes DENUE.',
