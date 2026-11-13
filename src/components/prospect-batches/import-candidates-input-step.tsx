@@ -13,22 +13,10 @@ import { FilePreview } from '@/components/upload/FilePreview';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { LATAM_COUNTRIES } from '@/modules/accounts/types';
-import { getFlagEmoji } from '@/components/accounts/account-form-helpers';
 import { ImportCandidatesGuide } from './import-candidates-guide';
 import { FILE_METHOD_OPTIONS, type FileMethod } from './import-candidates-helpers';
 
 interface ImportCandidatesInputStepProps {
-  // Valores por defecto del lote
-  countryCode: string;
-  onCountryChange: (value: string | null) => void;
   // Catálogo de industrias
   catalogLoading: boolean;
   catalogError: string | null;
@@ -48,8 +36,6 @@ interface ImportCandidatesInputStepProps {
 }
 
 export function ImportCandidatesInputStep({
-  countryCode,
-  onCountryChange,
   catalogLoading,
   catalogError,
   onRetryCatalog,
@@ -68,31 +54,12 @@ export function ImportCandidatesInputStep({
     <div className="space-y-4">
       <DrawerSection title="Configuración de importación" icon={Settings2}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field
-            label="País de referencia"
-            required
-            description="Se usará en filas que no incluyan país."
-            className="min-w-0"
-          >
-            <Select value={countryCode} onValueChange={onCountryChange}>
-              <SelectTrigger className="!w-full">
-                <SelectValue placeholder="País" />
-              </SelectTrigger>
-              <SelectContent className="!w-auto !min-w-[200px]">
-                {LATAM_COUNTRIES.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>
-                    {getFlagEmoji(c.code)} {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          {/* Dueña 13-11 — sin «Industria por defecto». */}
+          {/* Dueña 13-11 — sin «País de referencia» ni «Industria por defecto». */}
           <div className="min-w-0 rounded-xl bg-surface-muted p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Industria</p>
+            <p className="font-medium text-foreground">País e industria</p>
             <p className="mt-1">
-              Se toma la de cada fila del archivo. Las filas sin industria la reciben de la IA después de importar.
+              Se toman de cada fila del archivo. Si falta el país, lo detectamos (por la web o con IA) antes de la vista
+              previa; si falta la industria, la IA la asigna después de importar.
             </p>
             {catalogLoading && (
               <p role="status" className="mt-2 flex items-center gap-2">
