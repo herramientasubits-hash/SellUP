@@ -275,6 +275,17 @@ export type SuccessPanelProps = {
   shortfallReasons?: WizardShortfallReason[] | null;
 };
 
+export const WIZARD_PAUSED_HEADING = 'La búsqueda sigue en segundo plano';
+
+/** Qué ya quedó guardado y dónde seguir la corrida en pausa. */
+export function describeWizardPausedRun(candidateCount: number | null | undefined): string {
+  const saved =
+    candidateCount && candidateCount > 0
+      ? `Ya hay ${candidateCount} ${candidateCount === 1 ? 'empresa' : 'empresas'} en «Por revisar». `
+      : '';
+  return `${saved}El resto lo termina el Centro de procesos aunque cierres este panel; ahí ves cómo va.`;
+}
+
 /** AGENT1-CRITERIA-QUICK-WINS-1 § 2 — la lista corta de «por qué faltaron empresas». */
 function WizardShortfallReasonList({ reasons }: { reasons: readonly WizardShortfallReason[] }) {
   if (reasons.length === 0) return null;
@@ -416,12 +427,18 @@ export function SuccessPanel({ status, continuationPending = false, noveltyExhau
 
   // § 4 — con trabajo pendiente NO se pinta el bloque de «no encontramos
   // empresas nuevas». Todavía hay organizaciones pagadas sin evaluar, así que
-  // la pregunta «¿hubo empresas nuevas?» aún no tiene respuesta. Quien cuenta
-  // cómo va es el panel de continuación de la cabecera del mago; aquí sólo
-  // queda la salida.
+  // la pregunta «¿hubo empresas nuevas?» aún no tiene respuesta. Cómo va lo
+  // cuenta el Centro de procesos (la continuación ya no vive en el mago); aquí
+  // se dice eso mismo, porque el panel sólo con «Cerrar» parecía vacío (Prod 13-11).
   if (continuationPending) {
     return (
       <div className="space-y-3 animate-su-fade-in" data-testid="wizard-success-paused">
+        <Alert variant="info" role="status">
+          <AlertTitle className="text-sm">{WIZARD_PAUSED_HEADING}</AlertTitle>
+          <AlertDescription className="break-words text-xs">
+            {describeWizardPausedRun(candidateCount)}
+          </AlertDescription>
+        </Alert>
         <div className="flex gap-2">
           <Button size="sm" variant="ghost" onClick={onClose}>
             Cerrar

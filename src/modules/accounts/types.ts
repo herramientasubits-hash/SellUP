@@ -149,6 +149,8 @@ export interface InternalUserOption {
   id: string;
   full_name: string | null;
   email: string;
+  /** Es quien asigna (con «Ver como…», la persona real, no la que se previsualiza). */
+  is_self?: boolean;
 }
 
 export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {

@@ -96,6 +96,7 @@ import { createClient } from '@/lib/supabase/client';
 import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { TeamFilterUrlButton } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
+import { applyAssignedNow, markAssigned, type AssignedNow } from './assigned-now';
 
 // ── Derived types ──────────────────────────────────────────────
 
@@ -216,10 +217,15 @@ export function ProspectsDataTableClient({
 }: ProspectsDataTableClientProps) {
   const router = useRouter();
 
-  // Attach batch data from the original fetch
+  // Lo recién asignado se ve al momento, sin esperar a que vuelva la página: la
+  // fila quedaba con el responsable viejo hasta recargar (Prod 13-11). Cada
+  // marca se ignora en cuanto la base ya dice lo mismo.
+  const [assignedNow, setAssignedNow] = React.useState<AssignedNow>(
+    () => new Map(),
+  );
   const rows: Row[] = React.useMemo(
-    () => candidates as Row[],
-    [candidates],
+    () => applyAssignedNow(candidates as Row[], assignedNow),
+    [candidates, assignedNow],
   );
 
   const [detailCandidate, setDetailCandidate] = React.useState<Row | null>(null);
@@ -1130,8 +1136,9 @@ export function ProspectsDataTableClient({
         users={assignableUsers}
         currentUserId={scopeFilterOptions?.currentUserId}
         onAssign={assignCandidatesToUser}
-        onAssigned={() => {
+        onAssigned={({ ids, user }) => {
           dataTableRef.current?.clearSelection();
+          if (ids.length > 0) setAssignedNow((prev) => markAssigned(prev, ids, user));
           router.refresh();
         }}
       />
