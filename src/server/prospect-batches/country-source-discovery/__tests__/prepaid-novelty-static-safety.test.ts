@@ -395,6 +395,8 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       '164_keep_crm_phone_over_provider_phone.sql',
       // Dueña 11-11 mueve el techo a la 165 (avisos de Slack por rol/persona, historial de boletines y enlace del aviso de pendientes; tablas nuevas, sin tocar datos). AUTORIZADA y NO APLICADA.
       '165_slack_notification_settings_and_bulletins.sql',
+      // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
+      '166_commercial_scope_rls.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol, la forma de búsqueda del uso de IA desde la metadata del lote, quién le vende a cada entidad pública, el endurecimiento de claim_enrichment_jobs y el cruce NIT/dominio/LinkedIn de los reclamos de identidad',
   );

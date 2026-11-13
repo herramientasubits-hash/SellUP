@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import {
   isOwnWebsiteRow,
   ownDomainsWithoutCandidate,
@@ -69,9 +70,12 @@ export async function loadCorporateTreeBatchRelationships(batchId: string): Prom
     const reasonByDomain = new Map(valid.filter((n) => typeof n.domain === 'string').map((n) => [n.domain!.toLowerCase(), n.reason]));
     // Lotes del 15-10 sin la web en el motivo: por nombre y país.
     const reasonByName = new Map(valid.map((n) => [`${n.name.trim().toLowerCase()}|${n.countryCode}`, n.reason]));
+    // Migración 166: «ya está en SellUp» mira TODO SellUp (una empresa, un vendedor), no
+    // sólo lo que la sesión ve. Sólo devuelve dominios: sí/no por empresa.
+    const everyone = createSupabaseAdminClient();
     const [candidates, accounts] = await Promise.all([
-      supabase.from('prospect_candidates').select('domain').in('domain', ownDomains).neq('batch_id', batchId).limit(MAX_ROWS),
-      supabase.from('accounts').select('domain').in('domain', ownDomains).is('archived_at', null).limit(MAX_ROWS),
+      everyone.from('prospect_candidates').select('domain').in('domain', ownDomains).neq('batch_id', batchId).limit(MAX_ROWS),
+      everyone.from('accounts').select('domain').in('domain', ownDomains).is('archived_at', null).limit(MAX_ROWS),
     ]);
     const known = new Set(
       [...(candidates.data ?? []), ...(accounts.data ?? [])].map((r) => String(r.domain ?? '').toLowerCase()).filter(Boolean),

@@ -818,10 +818,10 @@ describe('la migración 128 — su contrato', () => {
     // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth: dos tablas nuevas de sólo service_role y su RPC de reclamo; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
     // Dueña 28-10 mueve el techo a la 160 (reserva del asistente sin topes del piloto: los límites salen de Configuración; sin teléfonos, contactos ni HubSpot). AUTORADA y NO APLICADA.
     // Dueña 28-10 mueve el techo a la 161 (descripción del rol Growth; sólo un UPDATE de texto en roles; sin teléfonos, contactos, presupuesto ni HubSpot). AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '165_slack_notification_settings_and_bulletins.sql');
+    assert.equal(files[files.length - 1], '166_commercial_scope_rls.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 165);
-    assert.equal(files.length, 165,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 166);
+    assert.equal(files.length, 166,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

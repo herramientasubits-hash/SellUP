@@ -1016,6 +1016,14 @@ jobs:
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 
+      # La 166 (RLS por alcance comercial) aplicada de verdad y leída como `authenticated` con
+      # cada rol: admin todo, líder su equipo en cascada, vendedor/Growth lo suyo, nadie actualiza
+      # por id lo ajeno, service_role sin cambios.
+      - name: Run commercial-scope RLS migration tests against real PostgreSQL
+        run: npm run test:commercial-scope-rls:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # APOLLO-SAVED-CONTACT-PHONES-1 — la 155 aplicada de verdad: nunca pisa un teléfono,
       # re-chequea la supresión de la persona bajo lock, respeta tombstones, sólo service_role
       # la ejecuta, y una DSAR de Apollo (115) SÍ borra el número importado.
