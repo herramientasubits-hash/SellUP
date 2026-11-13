@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { timingSafeEqual } from 'node:crypto';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://lrdruowtadwbdulndlph.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -26,6 +27,13 @@ function sanitizeHeaders(raw: Headers): Record<string, string> {
   return out;
 }
 
+function secretsMatch(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const receivedAt = new Date().toISOString();
 
@@ -33,10 +41,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const expectedSecret = process.env.SAMU_WEBHOOK_SECRET;
   const providedSecret = request.headers.get('x-sellup-webhook-secret');
 
-  if (expectedSecret) {
-    if (!providedSecret || providedSecret !== expectedSecret) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
+  // Sin secreto configurado se cierra (antes aceptaba cualquier llamada).
+  if (!expectedSecret) {
+    return NextResponse.json({ ok: false, error: 'Webhook not configured' }, { status: 503 });
+  }
+  if (!providedSecret || !secretsMatch(providedSecret, expectedSecret)) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   // ── Parse body ───────────────────────────────────────────────

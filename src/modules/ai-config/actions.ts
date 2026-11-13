@@ -27,41 +27,17 @@ import type {
   AIProvidersWithModels,
   AICongifSummary
 } from './types';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 
-async function getAdminUserId(supabase: any): Promise<{ id: string | null; error?: string }> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { id: null, error: 'No autenticado' };
-
-  const { data: internalUser, error } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (error || !internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado' };
-
-  return { id: internalUser.id };
-}
-
-export async function isCurrentUserAdmin(): Promise<boolean> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-
-  const { data } = await supabase.rpc('is_admin', { p_auth_user_id: user.id });
-  return data ?? false;
+// Comprobación de administración con «Ver como…» incluido: mientras se prueba
+// otro rol, no se es administrador (antes este módulo tenía su propia copia que
+// leía el rol real y se saltaba la vista previa).
+async function denyUnlessAdmin(): Promise<boolean> {
+  return !(await isCurrentUserAdmin());
 }
 
 export async function getAllAIProviders(): Promise<AIProvider[]> {
+  if (await denyUnlessAdmin()) return [];
   const adminSupabase = getAdminSupabaseClient();
 
   const { data: providers, error } = await (adminSupabase as any)
@@ -116,6 +92,7 @@ export async function getAllAIProviders(): Promise<AIProvider[]> {
 }
 
 export async function getAIModelsByProvider(providerId: string): Promise<AIModel[]> {
+  if (await denyUnlessAdmin()) return [];
   const supabase = await createClient();
   
   const [modelsResult, pricingResult] = await Promise.all([
@@ -145,6 +122,7 @@ export async function getAIModelsByProvider(providerId: string): Promise<AIModel
 }
 
 export async function getAllAIModels(): Promise<AIModel[]> {
+  if (await denyUnlessAdmin()) return [];
   const supabase = await createClient();
   
   const [modelsResult, pricingResult] = await Promise.all([
@@ -182,6 +160,9 @@ function getAdminSupabaseClient(): SupabaseClient {
   return createAdminClient(supabaseUrl, supabaseServiceKey);
 }
 
+// Sin guarda de sesión a propósito: la usa el worker de enriquecimiento
+// (src/server/prospect-batches/candidate-enrichment.ts), que corre sin sesión.
+// Sólo devuelve el proveedor/modelo activos (nombres), nada secreto.
 export async function getAIActiveConfig(): Promise<AIActiveConfig | null> {
   const admin = getAdminSupabaseClient();
   const configId = '00000000-0000-0000-0000-000000000001';
@@ -212,6 +193,9 @@ export async function getAIActiveConfig(): Promise<AIActiveConfig | null> {
 }
 
 export async function getAIConfigSummary(): Promise<AICongifSummary> {
+  if (await denyUnlessAdmin()) {
+    return { activeProvider: null, activeModel: null, totalModels: 0, activeModels: 0, lastPricingUpdate: null };
+  }
   const admin = getAdminSupabaseClient();
   const configId = '00000000-0000-0000-0000-000000000001';
 
@@ -250,6 +234,7 @@ export async function getAIConfigSummary(): Promise<AICongifSummary> {
 }
 
 export async function getCurrentPricing(modelId: string): Promise<AIModelPricing | null> {
+  if (await denyUnlessAdmin()) return null;
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('ai_model_pricing')
@@ -443,6 +428,9 @@ export async function getProviderConnectionStatus(providerKey: string): Promise<
   last_tested_at: string | null;
   last_connection_error: string | null;
 }> {
+  if (await denyUnlessAdmin()) {
+    return { credentials_status: 'missing', connection_status: 'not_configured', last_tested_at: null, last_connection_error: null };
+  }
   const resolution = await resolveAIProviderCredential(providerKey);
   const hasKey = resolution.available;
   const credentialsStatus = hasKey ? 'configured' : 'missing';
@@ -525,15 +513,9 @@ export async function connectAiProvider(
     .eq('access_status', 'active')
     .single();
 
-  // Verificar si el rol es admin
+  // Verificar si el rol es admin («Ver como…» incluido)
   if (adminUser) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', adminUser.role_id)
-      .single();
-    
-    if (role?.key !== 'admin') {
+    if (await denyUnlessAdmin()) {
       debugLogs.push('ERROR: Usuario no es admin');
       console.log('[connectAiProvider] ERROR: No es admin');
       return { success: false, error: 'No autorizado. Solo administradores pueden conectar proveedores.', debugLogs };
@@ -631,13 +613,7 @@ export async function updateAiProviderCredential(
     return { success: false, error: 'No autorizado' };
   }
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', adminUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  if (await denyUnlessAdmin()) {
     return { success: false, error: 'No autorizado' };
   }
 
@@ -699,13 +675,7 @@ export async function disconnectAiProvider(
     return { success: false, error: 'No autorizado' };
   }
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', adminUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
+  if (await denyUnlessAdmin()) {
     return { success: false, error: 'No autorizado' };
   }
 
@@ -793,14 +763,8 @@ export async function testAiProviderConnectionWithVault(
     return { success: false, error: 'No autorizado', debugLogs: logs };
   }
 
-  const { data: role, error: roleError } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', adminUser.role_id)
-    .single();
-  log('[testVault] role: ' + (role?.key ?? 'NONE') + ' error: ' + (roleError?.message ?? 'none'));
-
-  if (role?.key !== 'admin') {
+  if (await denyUnlessAdmin()) {
+    log('[testVault] no es administrador');
     return { success: false, error: 'No autorizado', debugLogs: logs };
   }
 
@@ -954,8 +918,7 @@ export async function syncAnthropicModels(): Promise<SyncAnthropicModelsResult> 
   const { data: adminUser } = await supabase.from('internal_users').select('id, role_id').eq('auth_user_id', user.id).eq('access_status', 'active').single();
   if (!adminUser) return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
 
-  const { data: role } = await supabase.from('roles').select('key').eq('id', adminUser.role_id).single();
-  if (role?.key !== 'admin') return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
+  if (await denyUnlessAdmin()) return { success: false, error: 'No autorizado', api_models_found: 0, models_checked: [], models_marked_unavailable: [], models_added: [] };
 
   // Get Anthropic API key from Vault via unified helper
   const credResult = await getAIProviderCredentialValue('anthropic');
@@ -1110,6 +1073,9 @@ export async function getAiProviderConnectionStatus(
   last_connection_error: string | null;
   can_activate: boolean;
 }> {
+  if (await denyUnlessAdmin()) {
+    return { has_credential: false, connection_status: 'not_configured', last_tested_at: null, last_connection_error: null, can_activate: false };
+  }
   const resolution = await resolveAIProviderCredential(providerKey);
   const hasCredential = resolution.available;
 

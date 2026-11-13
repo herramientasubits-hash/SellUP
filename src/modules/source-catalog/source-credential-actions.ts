@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { testDenueConnection } from '@/server/source-catalog/connectors/denue-mexico/denue-client';
 import { testChileCompraConnection } from '@/server/source-catalog/connectors/chilecompra-chile/chilecompra-client';
@@ -75,13 +76,8 @@ async function getAdminInternalUserId(
 
   if (!internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado' };
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { id: null, error: 'No autorizado' };
 
   return { id: internalUser.id };
 }

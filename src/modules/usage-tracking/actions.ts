@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getVisibleSince } from '@/lib/visible-since';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import type { UsageSummary, RecentUsageActivity } from './types';
 import { fetchAllPages } from '@/lib/supabase/paginated-read';
 
@@ -35,13 +36,8 @@ async function requireAdmin(): Promise<void> {
 
   if (!internalUser) redirect('/settings');
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') redirect('/settings');
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) redirect('/settings');
 }
 
 // ============================================================

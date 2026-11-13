@@ -44,16 +44,11 @@ export interface MyNotificationSettings {
 }
 
 async function me(): Promise<{ id: string; name: string; roleKey: string | null } | null> {
+  // getCurrentUser respeta «Ver como…»: el rol es el que se está probando (la
+  // identidad sigue siendo la propia). Releer roles aquí se saltaba la vista previa.
   const user = await getCurrentUser();
-  if (!user) return null;
-  const { data } = await createSupabaseAdminClient()
-    .from('internal_users')
-    .select('id, full_name, email, access_status, roles(key)')
-    .eq('id', user.id)
-    .maybeSingle();
-  const row = data as unknown as { id: string; full_name: string | null; email: string | null; access_status: string; roles: { key: string } | null } | null;
-  if (!row || row.access_status !== 'active') return null;
-  return { id: row.id, name: row.full_name ?? row.email ?? 'Tú', roleKey: row.roles?.key ?? null };
+  if (!user || user.access_status !== 'active') return null;
+  return { id: user.id, name: user.full_name ?? user.email ?? 'Tú', roleKey: user.role_key ?? null };
 }
 
 export async function getMyNotificationSettings(): Promise<Result<MyNotificationSettings>> {

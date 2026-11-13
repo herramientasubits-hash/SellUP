@@ -18,6 +18,7 @@
  */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { readRolePreview } from '@/modules/access/role-preview.server';
 import {
   buildProviderRunScorecard,
   summarizeProviderRunScorecard,
@@ -34,9 +35,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
-  const { data: isAdmin } = await supabase.rpc('is_admin', {
+  const { data: isAdminRpc } = await supabase.rpc('is_admin', {
     p_auth_user_id: user.id,
   });
+  // «Ver como…» activo ⇒ no es administración (como isCurrentUserAdmin).
+  const isAdmin = isAdminRpc === true && !(await readRolePreview());
   if (!isAdmin) {
     return NextResponse.json({ error: 'Acceso restringido a administradores' }, { status: 403 });
   }

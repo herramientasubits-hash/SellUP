@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   storeApolloApiKey,
   removeApolloApiKey,
@@ -47,6 +48,7 @@ function getAdminSupabase() {
  * prospecting_provider_connections para mostrar estado operativo.
  */
 export async function getAllProspectingProviders(): Promise<ProspectingProvider[]> {
+  if (!(await isCurrentUserAdmin())) return [];
   const admin = getAdminSupabase();
 
   const { data, error } = await admin
@@ -67,6 +69,7 @@ export async function getAllProspectingProviders(): Promise<ProspectingProvider[
  * selección de proveedor activo en la tabla de configuración global.
  */
 export async function getProspectingStats(): Promise<ProspectingStats> {
+  if (!(await isCurrentUserAdmin())) return { total: 0, prepared: 0, active_provider: null };
   const providers = await getAllProspectingProviders();
 
   const total = providers.length;
@@ -122,13 +125,8 @@ async function getAdminActorId(
 
   if (!internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado' };
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { id: null, error: 'No autorizado' };
 
   return { id: internalUser.id };
 }
@@ -162,6 +160,7 @@ async function getApolloProviderId(): Promise<string | null> {
 // ============================================================
 
 export async function getApolloConnection(): Promise<ProspectingProviderConnection | null> {
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = getAdminSupabase();
 
   const providerId = await getApolloProviderId();
@@ -412,6 +411,7 @@ async function logLushaAuditEvent(
 // ============================================================
 
 export async function getLushaConnection(): Promise<ProspectingProviderConnection | null> {
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = getAdminSupabase();
 
   const providerId = await getLushaProviderId();

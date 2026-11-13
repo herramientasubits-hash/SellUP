@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseServerClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import type { SystemAutomation, AutomationExecutionMode, AutomationsSummary } from './types';
 
 function getAdminSupabaseClient() {
@@ -22,18 +23,14 @@ async function getAdminInternalUserId(): Promise<{ id: string | null; error?: st
 
   if (error || !internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado. Solo administradores pueden gestionar automatizaciones.' };
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { id: null, error: 'No autorizado. Solo administradores pueden gestionar automatizaciones.' };
 
   return { id: internalUser.id };
 }
 
 export async function getAllAutomations(): Promise<SystemAutomation[]> {
+  if (!(await isCurrentUserAdmin())) return [];
   const admin = getAdminSupabaseClient();
   const { data, error } = await admin
     .from('system_automations')
@@ -50,6 +47,7 @@ export async function getAllAutomations(): Promise<SystemAutomation[]> {
 }
 
 export async function getAutomationsSummary(): Promise<AutomationsSummary> {
+  if (!(await isCurrentUserAdmin())) return { total: 0, automatic: 0, suggested: 0, manual: 0 };
   const admin = getAdminSupabaseClient();
   const { data, error } = await admin
     .from('system_automations')
@@ -80,6 +78,7 @@ export async function getAutomationsSummary(): Promise<AutomationsSummary> {
  *   if (config?.execution_mode === 'automatic') { ... ejecutar enriquecimiento ... }
  */
 export async function getAutomationConfig(triggerKey: string): Promise<SystemAutomation | null> {
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = getAdminSupabaseClient();
   const { data, error } = await admin
     .from('system_automations')
