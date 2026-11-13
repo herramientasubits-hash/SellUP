@@ -62,6 +62,13 @@ export interface HubSpotContactCreateInput {
   phone: string | null;
   mobilePhone: string | null;
   /**
+   * AGENT2A-HUBSPOT-ALL-PHONES-CREATE-LINK: números adicionales de la colección del contacto que
+   * caen en `company_phone` / `telefono_alterno` según `planRevealedPhonesForHubSpot`. Opcionales
+   * (ausente = no viaja); el escritor descarta además cualquier campo APAGADO.
+   */
+  companyPhone?: string | null;
+  alternatePhone?: string | null;
+  /**
    * URL del perfil de LinkedIn → propiedad `hs_linkedin_url` de HubSpot.
    *
    * AGENT2A-HUBSPOT-LINKEDIN-ON-CREATE: hasta este corte el LinkedIn sólo viajaba cuando el
@@ -124,7 +131,7 @@ export type CompanyAssociationStatus = 'associated' | 'failed';
 
 /**
  * Propiedades de HubSpot que SellUp LEE del contacto existente y puede completar si están vacías.
- * Nombres REALES de HubSpot. `company_phone` y `telefono_2` se leen siempre, pero sólo se
+ * Nombres REALES de HubSpot. `company_phone` y `telefono_alterno` se leen siempre, pero sólo se
  * escriben si su interruptor está encendido (`HUBSPOT_PHONE_SLOT_WRITE_ENABLED`).
  */
 export const HUBSPOT_FILL_EMPTY_PROPERTY_NAMES = [
@@ -134,7 +141,7 @@ export const HUBSPOT_FILL_EMPTY_PROPERTY_NAMES = [
   'phone',
   'mobilephone',
   'company_phone',
-  'telefono_2',
+  'telefono_alterno',
   'hs_linkedin_url',
 ] as const;
 
@@ -148,39 +155,37 @@ export type HubSpotFillEmptyPropertyName = (typeof HUBSPOT_FILL_EMPTY_PROPERTY_N
 //   1. `phone`          («Phone Number»)
 //   2. `mobilephone`    («Mobile Phone Number»)
 //   3. `company_phone`  («Company phone»)  — APAGADO hasta que se apruebe su uso
-//   4. `telefono_2`     («Teléfono 2»)     — APAGADO hasta que se apruebe su uso
+//   4. `telefono_alterno` («Teléfono alterno») — encendido (12-11; reemplaza a `telefono_2`)
 
 /** Orden de los campos de teléfono de HubSpot. Nombres REALES de HubSpot. */
-export const HUBSPOT_PHONE_SLOT_ORDER = ['phone', 'mobilephone', 'company_phone', 'telefono_2'] as const;
+export const HUBSPOT_PHONE_SLOT_ORDER = ['phone', 'mobilephone', 'company_phone', 'telefono_alterno'] as const;
 
 export type HubSpotPhoneSlotName = (typeof HUBSPOT_PHONE_SLOT_ORDER)[number];
 
 /**
- * Qué campos de teléfono se pueden ESCRIBIR hoy. Habilitar `company_phone` o `telefono_2` es
- * cambiar aquí su `false` por `true`: el orden, la lectura, la regla de duplicados y el reintento
- * sin ellos si HubSpot los rechaza (400) ya están cableados. Apagados, SÍ se leen: un número que
- * el CRM ya tiene en ellos no se reenvía a `phone` / `mobilephone`.
+ * Qué campos de teléfono se pueden ESCRIBIR hoy. Habilitar `company_phone` es cambiar aquí su
+ * `false` por `true`: el orden, la lectura, la regla de duplicados y el reintento sin él si
+ * HubSpot lo rechaza (400) ya están cableados. Apagado, SÍ se lee: un número que el CRM ya tiene
+ * en él no se reenvía a otro campo.
  *
- * Antes de encender `telefono_2`: en HubSpot es de tipo NÚMERO (no teléfono). Viaja sólo con
- * dígitos (`formatPhoneForHubSpotSlot`); conviene confirmar con quien administra el portal si se
- * cambia a tipo teléfono.
+ * 12-11 (decisión de Bryan): `telefono_2` se borró del portal; en su lugar va `telefono_alterno`
+ * («Teléfono alterno»), de tipo TELÉFONO, y queda ENCENDIDO. `company_phone` sigue apagado.
  */
 export const HUBSPOT_PHONE_SLOT_WRITE_ENABLED: Readonly<Record<HubSpotPhoneSlotName, boolean>> = {
   phone: true,
   mobilephone: true,
   company_phone: false,
-  telefono_2: false,
+  telefono_alterno: true,
 };
 
 /**
- * Cómo viaja un número a cada campo. `telefono_2` es una propiedad de tipo NÚMERO en el portal de
- * Ubits (verificado el 11-11): no acepta `+`, espacios ni guiones, así que viaja sólo con dígitos
- * (el indicativo del país se conserva como dígitos). El resto, tal cual.
+ * Cómo viaja un número a cada campo. Los cuatro campos son de tipo teléfono/texto en el portal
+ * de Ubits (`telefono_alterno` incluido, a diferencia del borrado `telefono_2`, que era NÚMERO):
+ * el número viaja tal cual. Se conserva como punto único por si un campo futuro necesita formato.
  */
-export function formatPhoneForHubSpotSlot(name: HubSpotPhoneSlotName, value: string): string | null {
-  if (name !== 'telefono_2') return value;
-  const digits = value.replace(/\D+/g, '');
-  return digits.length > 0 ? digits : null;
+export function formatPhoneForHubSpotSlot(_name: HubSpotPhoneSlotName, value: string): string | null {
+  const cleaned = value.trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 export function isHubSpotPhoneSlot(name: string): name is HubSpotPhoneSlotName {
@@ -256,6 +261,7 @@ export interface HubSpotFillEmptyReport {
 export function buildHubSpotFillEmptyProperties(
   contact: ContactForSync,
   existing: HubSpotExistingContactProperties | null | undefined,
+  collectionPhones?: readonly RevealedPhoneForHubSpot[],
 ): HubSpotContactFillProperties | null {
   if (!existing || typeof existing !== 'object') return null;
 
@@ -270,11 +276,12 @@ export function buildHubSpotFillEmptyProperties(
   // AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER: los teléfonos del contacto (principal primero) no van
   // campo a campo: siguen la MISMA regla que lo revelado (cada número que HubSpot no tiene va al
   // primer campo vacío de `HUBSPOT_PHONE_SLOT_ORDER`).
-  const phones: RevealedPhoneForHubSpot[] = [];
-  for (const scalar of [contact.phone, contact.mobile_phone]) {
-    const value = cleanString(scalar);
-    if (value) phones.push({ phone: value });
-  }
+  //
+  // AGENT2A-HUBSPOT-ALL-PHONES-CREATE-LINK (12-11): además de los escalares viaja la colección
+  // oficial de teléfonos (el principal primero). La aprobación promueve TODOS los números a la
+  // colección pero sólo proyecta el principal a `contacts.phone` (y nunca toca `mobile_phone`),
+  // así que leyendo sólo los escalares un contacto con dos números llegaba a HubSpot con uno.
+  const phones = collectContactPhonesForHubSpot(contact, collectionPhones);
   const phonePlan = planRevealedPhonesForHubSpot(phones, existing);
 
   // El orden de las claves sigue `HUBSPOT_FILL_EMPTY_PROPERTY_NAMES` (el rastro lo refleja).
@@ -303,7 +310,7 @@ export function buildHubSpotFillEmptyProperties(
 //   1. Un número que HubSpot ya tiene —en CUALQUIERA de los campos de teléfono, encendido o no—
 //      no viaja otra vez (se compara con `isSameHubSpotPhone`).
 //   2. Cada número nuevo, en orden (el principal primero), va al PRIMER campo vacío de
-//      `HUBSPOT_PHONE_SLOT_ORDER`: `phone` → `mobilephone` → `company_phone` → `telefono_2`.
+//      `HUBSPOT_PHONE_SLOT_ORDER`: `phone` → `mobilephone` → `company_phone` → `telefono_alterno`.
 //      Un campo en uso o apagado se salta.
 //   3. Sin campo libre, el número no viaja: se queda en SellUp (su colección de teléfonos).
 //   4. NUNCA se sobrescribe ni se borra lo que el CRM ya tiene.
@@ -338,6 +345,36 @@ export function isSameHubSpotPhone(a: string | null | undefined, b: string | nul
   const [short, long] = da.length <= db.length ? [da, db] : [db, da];
   return short.length >= 7 && long.endsWith(short);
 }
+
+/**
+ * Los números de un contacto, en orden de preferencia, para la regla de campos: primero la
+ * colección oficial de teléfonos (ya ordenada con el principal primero y sin suprimidos ni
+ * inválidos) y al final los escalares legacy (`phone`, `mobile_phone`), que cubren el contacto
+ * sin filas en la colección. El planificador descarta los repetidos.
+ */
+export function collectContactPhonesForHubSpot(
+  contact: Pick<ContactForSync, 'phone' | 'mobile_phone'>,
+  collectionPhones?: readonly RevealedPhoneForHubSpot[] | null,
+): RevealedPhoneForHubSpot[] {
+  const phones: RevealedPhoneForHubSpot[] = [];
+  for (const entry of collectionPhones ?? []) {
+    const value = cleanString(entry?.phone ?? null);
+    if (value) phones.push({ phone: value, type: entry?.type ?? null });
+  }
+  for (const scalar of [contact.phone, contact.mobile_phone]) {
+    const value = cleanString(scalar);
+    if (value) phones.push({ phone: value });
+  }
+  return phones;
+}
+
+/** Un contacto que se va a CREAR: todos sus campos de teléfono están vacíos (y se «leyeron»). */
+export const NEW_HUBSPOT_CONTACT_PHONE_SLOTS: Readonly<HubSpotExistingContactProperties> = Object.freeze({
+  phone: null,
+  mobilephone: null,
+  company_phone: null,
+  telefono_alterno: null,
+});
 
 /**
  * ¿Está libre este campo? `phone` / `mobilephone` ausentes cuentan como vacíos (contrato de
@@ -510,21 +547,38 @@ export function normalizeLinkedinUrlForHubSpot(value: string | null | undefined)
 export function buildHubSpotContactProperties(
   contact: ContactForSync,
   email: string,
+  collectionPhones?: readonly RevealedPhoneForHubSpot[],
 ): HubSpotContactCreateInput {
   const { firstname, lastname } = splitContactName(contact);
-  return {
+  // AGENT2A Task A3: los DOS escalares viajan cada uno a SU campo (`phone` → `phone`,
+  // `mobile_phone` → `mobilephone`), simétrico con el PATCH de una edición (CUT-2/A4), que también
+  // es campo a campo: si el alta los reordenara, una edición posterior BORRARÍA en HubSpot lo que
+  // el alta puso en el campo «equivocado».
+  //
+  // AGENT2A-HUBSPOT-ALL-PHONES-CREATE-LINK (12-11): el resto de la colección oficial de teléfonos
+  // (el principal primero) llena los campos que quedan libres con LA regla de campos
+  // (`planRevealedPhonesForHubSpot`): `mobilephone` si está vacío → (`company_phone`, apagado) →
+  // `telefono_alterno`. Un número igual a un escalar no se repite. Antes la colección no viajaba
+  // y, como la aprobación nunca llena `mobile_phone`, un contacto con dos números llegaba con uno.
+  const phone = cleanString(contact.phone);
+  const mobilePhone = cleanString(contact.mobile_phone);
+  const plan = planRevealedPhonesForHubSpot(
+    collectContactPhonesForHubSpot({ phone: null, mobile_phone: null }, collectionPhones),
+    { ...NEW_HUBSPOT_CONTACT_PHONE_SLOTS, phone, mobilephone: mobilePhone },
+  );
+  const input: HubSpotContactCreateInput = {
     email,
     firstname,
     lastname,
     jobtitle: cleanString(contact.job_title),
-    // AGENT2A Task A3: los DOS teléfonos viajan de forma independiente, cada uno leído
-    // directamente de su propio campo. `resolveOutboundHubSpotPhone` colapsaba ambos en uno
-    // solo con prioridad al móvil — ese comportamiento se retira del payload de CREACIÓN
-    // porque HubSpot ahora tiene un campo propio (`mobilephone`) para el celular.
-    phone: cleanString(contact.phone),
-    mobilePhone: cleanString(contact.mobile_phone),
+    phone: phone ?? plan.phone ?? null,
+    mobilePhone: mobilePhone ?? plan.mobilephone ?? null,
     linkedinUrl: normalizeLinkedinUrlForHubSpot(contact.linkedin_url),
   };
+  // Los adicionales sólo aparecen con valor: el contrato del alta sin ellos no cambia.
+  if (plan.company_phone) input.companyPhone = plan.company_phone;
+  if (plan.telefono_alterno) input.alternatePhone = plan.telefono_alterno;
+  return input;
 }
 
 /**
@@ -752,6 +806,8 @@ export interface SyncContactDeps {
   /**
    * AGENT2A-REVEAL-PHONE-SLOTS — los números VIVOS del contacto (el principal primero) para un
    * pendiente que dejó un REVEAL. Opcional: sin ella (o si falla) viajan los escalares.
+   * AGENT2A-HUBSPOT-ALL-PHONES-CREATE-LINK: también la usan la CREACIÓN y el completado de
+   * vacíos al VINCULAR, para que viajen todos los números y no sólo `contacts.phone`.
    */
   loadRevealedPhones?: (contactId: string) => Promise<RevealedPhoneForHubSpot[]>;
   persistSync: (
@@ -875,7 +931,7 @@ export async function runSyncContactToHubSpot(
       // Un número que encontró un proveedor no es una edición de una persona: no tiene autoridad
       // para PISAR ni BORRAR lo que el CRM del cliente ya tiene. Se completan SÓLO campos vacíos
       // con la regla de `planRevealedPhonesForHubSpot` (cada número nuevo al primer campo vacío:
-      // `phone` → `mobilephone` → `company_phone` → `telefono_2`, estos dos apagados) y el pendiente se
+      // `phone` → `mobilephone` → `company_phone` → `telefono_alterno`; `company_phone` apagado) y el pendiente se
       // cierra: de este reveal ya no queda nada sin enviar, y lo que HubSpot tenía se respeta.
       //
       // 11-11 (feedback líder): una UNIÓN (`merge`) tampoco es una edición de una persona —
@@ -1122,7 +1178,7 @@ export async function runSyncContactToHubSpot(
     mode = 'linked_existing';
   } else {
     const createResult = await deps.createHubSpotContact(
-      buildHubSpotContactProperties(contact, email),
+      buildHubSpotContactProperties(contact, email, await loadContactPhonesSafely(contact, deps)),
     );
     if ('error' in createResult) {
       // Falló la creación en HubSpot → no marcamos como sincronizado. El código guardado es
@@ -1246,6 +1302,23 @@ async function fillEmptyOnLinkedContact(
 }
 
 /**
+ * La colección de teléfonos del contacto (AGENT2A-HUBSPOT-ALL-PHONES-CREATE-LINK). NUNCA lanza:
+ * sin lector cableado o si la lectura falla, `[]` y se sigue con los escalares (comportamiento
+ * anterior a este corte) — no poder leer la colección no debe impedir crear ni vincular.
+ */
+async function loadContactPhonesSafely(
+  contact: ContactForSync,
+  deps: SyncContactDeps,
+): Promise<RevealedPhoneForHubSpot[]> {
+  if (!deps.loadRevealedPhones) return [];
+  try {
+    return await deps.loadRevealedPhones(contact.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Ejecuta el completado de vacíos sobre un contacto existente. NUNCA lanza.
  *
  * Sin escritor cableado devuelve `null`: no se escribe nada ni se anota nada (comportamiento
@@ -1258,7 +1331,11 @@ async function fillEmptyOnExistingContact(
 ): Promise<HubSpotFillEmptyReport | null> {
   if (!deps.fillEmptyHubSpotContactProperties) return null;
 
-  const fill = buildHubSpotFillEmptyProperties(contact, existing.properties);
+  const fill = buildHubSpotFillEmptyProperties(
+    contact,
+    existing.properties,
+    await loadContactPhonesSafely(contact, deps),
+  );
   if (fill === null) return { outcome: 'existing_unreadable', properties: [], error: null };
   if (Object.keys(fill).length === 0) {
     return { outcome: 'nothing_to_fill', properties: [], error: null };

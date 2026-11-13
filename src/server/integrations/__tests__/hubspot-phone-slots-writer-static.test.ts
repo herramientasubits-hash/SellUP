@@ -2,7 +2,7 @@
  * AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER — guarda estática del escritor de HubSpot.
  *
  * `fillEmptyHubSpotContactProperties` es el único PATCH de «completar vacíos». Debe:
- *   1. descartar los campos de teléfono APAGADOS (`company_phone`, `telefono_2` hoy), aunque un
+ *   1. descartar los campos de teléfono APAGADOS (`company_phone` hoy), aunque un
  *      llamador se los pase;
  *   2. ante un 400, reintentar UNA vez sin las propiedades opcionales (LinkedIn y los campos de
  *      teléfono adicionales), para que nunca impidan que `phone` / `mobilephone` lleguen.
@@ -30,7 +30,7 @@ describe('escritor de completar vacíos (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER)', ()
   it('el reintento ante 400 quita LinkedIn y los campos de teléfono adicionales', () => {
     const optional = SOURCE.match(/HUBSPOT_FILL_OPTIONAL_PROPERTY_NAMES[^=]*=\s*\[([^\]]*)\]/);
     assert.ok(optional, 'existe la lista de opcionales');
-    for (const name of ['hs_linkedin_url', 'company_phone', 'telefono_2']) {
+    for (const name of ['hs_linkedin_url', 'company_phone', 'telefono_alterno']) {
       assert.ok(optional[1].includes(`'${name}'`), `${name} es opcional`);
     }
     assert.ok(!optional[1].includes("'phone'") && !optional[1].includes("'mobilephone'"), 'phone / mobilephone nunca se quitan');
