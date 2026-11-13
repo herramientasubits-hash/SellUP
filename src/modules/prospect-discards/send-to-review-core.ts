@@ -30,6 +30,13 @@ export interface SendToReviewCoreDeps {
    *  Injected so this module never resolves scope itself. */
   isBatchInScope: (batchId: string) => Promise<boolean>;
   /**
+   * Alcance de UNA candidata (su asignado o el dueño/creador de su búsqueda, como
+   * `canActOnCandidate`). Si se inyecta, manda sobre `isBatchInScope` para las
+   * candidatas: una empresa asignada a alguien del alcance, en una búsqueda ajena,
+   * también se puede devolver a revisión. Opcional: sin él, la regla por lote.
+   */
+  isCandidateInScope?: (candidateId: string) => Promise<boolean>;
+  /**
    * AGENT1-SEND-TO-REVIEW-RECLAIM-1 — «una empresa, un vendedor» también al
    * volver de Descartadas. Descartar LIBERA el reclamo global (disparador de la
    * 140, #468); devolver a revisión tiene que volver a reclamarlo, o la empresa
@@ -141,7 +148,7 @@ export async function sendCandidateToReviewCore(
   // deliberately clears reviewed_by/reviewed_at rather than stamping this
   // actor as the reviewer of a decision they are overriding) — the caller
   // still receives it via auditDetails-independent logging using its own copy.
-  const { supabase, isBatchInScope } = deps;
+  const { supabase, isBatchInScope, isCandidateInScope } = deps;
 
   const { data: current, error } = await supabase
     .from('prospect_candidates')
@@ -151,7 +158,10 @@ export async function sendCandidateToReviewCore(
   if (error) return { outcome: 'write_failed', message: error.message };
   if (!current) return { outcome: 'not_found' };
 
-  if (!(await isBatchInScope(current.batch_id as string))) {
+  const inScope = isCandidateInScope
+    ? await isCandidateInScope(current.id as string)
+    : await isBatchInScope(current.batch_id as string);
+  if (!inScope) {
     return { outcome: 'out_of_scope' };
   }
 

@@ -11,6 +11,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { loadDirectoryUser } from '@/modules/access/user-directory.server';
 import {
   getAccountAudit,
   getAccountById,
@@ -72,7 +73,7 @@ const ORIGIN_SELECT = `
   id, batch_id, source_primary, fit_score, confidence_score, data_completeness_score,
   estimated_cost_usd, tax_identifier, tax_identifier_type, record_origin,
   commercial_fit_status, reviewed_at, metadata,
-  reviewer:internal_users!prospect_candidates_reviewed_by_fkey(full_name, email),
+  reviewed_by,
   batch:prospect_batches!prospect_candidates_batch_id_fkey(name, source)
 `;
 
@@ -90,11 +91,11 @@ interface OriginRow {
   commercial_fit_status: string | null;
   reviewed_at: string | null;
   metadata: unknown;
-  reviewer: { full_name: string | null; email: string } | null;
+  reviewed_by: string | null;
   batch: { name: string; source: string | null } | null;
 }
 
-function toOriginCandidate(row: OriginRow): OriginCandidate {
+function toOriginCandidate(row: OriginRow, reviewerName: string | null): OriginCandidate {
   const approval = readApprovalMetadata(row.metadata);
   return {
     id: row.id,
@@ -111,12 +112,22 @@ function toOriginCandidate(row: OriginRow): OriginCandidate {
     recordOrigin: row.record_origin,
     commercialFitStatus: row.commercial_fit_status,
     reviewedAt: row.reviewed_at,
-    reviewerName: row.reviewer?.full_name ?? row.reviewer?.email ?? null,
+    reviewerName,
     approvedAt: approval.approvedAt,
     hubspotAction: approval.hubspotAction,
     hubspotCompanyId: approval.hubspotCompanyId,
     claudeClassification: readClaudeClassificationDisplay(row.metadata),
   };
+}
+
+/**
+ * Quién la aprobó, por el directorio (cliente de servicio): la RLS de
+ * `internal_users` no deja a un no-admin leer a otra persona. La cuenta ya pasó
+ * por el alcance (`getAccountById`) antes de llegar aquí.
+ */
+async function withReviewerName(row: OriginRow): Promise<OriginCandidate> {
+  const reviewer = await loadDirectoryUser(row.reviewed_by);
+  return toOriginCandidate(row, reviewer ? reviewer.fullName ?? reviewer.email ?? null : null);
 }
 
 /**
@@ -136,7 +147,7 @@ async function loadOriginCandidate(
     .limit(1)
     .maybeSingle();
   if (byConversion.error) throw new Error(`getAccountOriginCandidate: ${byConversion.error.message}`);
-  if (byConversion.data) return toOriginCandidate(byConversion.data as unknown as OriginRow);
+  if (byConversion.data) return withReviewerName(byConversion.data as unknown as OriginRow);
 
   if (!fallbackCandidateId) return null;
   const byMetadata = await supabase
@@ -145,7 +156,7 @@ async function loadOriginCandidate(
     .eq('id', fallbackCandidateId)
     .maybeSingle();
   if (byMetadata.error) throw new Error(`getAccountOriginCandidate: ${byMetadata.error.message}`);
-  return byMetadata.data ? toOriginCandidate(byMetadata.data as unknown as OriginRow) : null;
+  return byMetadata.data ? withReviewerName(byMetadata.data as unknown as OriginRow) : null;
 }
 
 function readConvertedFromCandidateId(metadata: Record<string, unknown>): string | null {

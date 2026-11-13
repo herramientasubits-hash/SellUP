@@ -83,8 +83,8 @@ export interface ReviewRuleOptions {
 
 /**
  * ¿Puede decidir (aprobar, descartar, marcar duplicada) sobre ESTA candidata?
- * Admin, sobre cualquiera. Su responsable (el asignado o el dueño/creador de la
- * búsqueda), siempre (dueña 11-11). Y quien tiene a ese responsable en su equipo
+ * Admin, sobre cualquiera. Su responsable, siempre (dueña 11-11): si tiene
+ * asignado, SÓLO el asignado (decisión 4); si no, el dueño/creador de la búsqueda. Y quien tiene a ese responsable en su equipo
  * hacia abajo: el líder y el manager deciden lo de su gente (dueña 12-11:
  * «cascada hacia abajo»). Ya no depende de ENABLE_ROLE_CAPABILITIES.
  */
@@ -96,7 +96,11 @@ export function canReviewCandidate(
   if (hasCapability(access, 'revisarTodasLasCandidatas', { enforced })) return true;
   if (!access.userId) return false;
   const allowed = new Set([access.userId, ...(team ?? [])]);
-  return [owner.assignedTo, owner.batchOwnerId, owner.batchCreatedBy].some(
+  // Una candidata reasignada la decide SÓLO su asignado y la cadena de ese
+  // asignado (dueña, decisión 4): el dueño de la búsqueda ya no cuenta.
+  const assignee = typeof owner.assignedTo === 'string' && owner.assignedTo.length > 0 ? owner.assignedTo : null;
+  if (assignee) return allowed.has(assignee);
+  return [owner.batchOwnerId, owner.batchCreatedBy].some(
     (id) => typeof id === 'string' && id.length > 0 && allowed.has(id),
   );
 }

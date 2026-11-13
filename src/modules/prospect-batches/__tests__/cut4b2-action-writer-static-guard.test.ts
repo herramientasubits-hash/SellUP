@@ -54,7 +54,9 @@ const HARDCODED_PRODUCTION = [
  * del archivo entero, que tiene 40 exports más.
  */
 function writerBody(src: string, name: string): string {
-  const start = src.indexOf(`export async function ${name}(`);
+  const exported = src.indexOf(`export async function ${name}(`);
+  // Un helper que dejó de exportarse (no es acción pública) se busca sin `export`.
+  const start = exported !== -1 ? exported : src.indexOf(`async function ${name}(`);
   assert.notEqual(start, -1, `no se encontró el writer ${name} en ${ACTIONS}`);
   const rest = src.slice(start + 1);
   const end = rest.indexOf('\nexport ');

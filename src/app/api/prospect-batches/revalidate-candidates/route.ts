@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
+import { canActOnBatch } from '@/modules/access/record-scope.server';
 
 // AUDIT-HARDENING-1 — la revalidación recorre las filas con búsquedas de NIT y de
 // HubSpot (la misma validación que la importación, que ya tiene 300 s): es la vía
@@ -34,6 +35,11 @@ export async function POST(request: NextRequest) {
 
     if (!batchId || typeof batchId !== 'string') {
       return NextResponse.json({ error: 'batchId es requerido' }, { status: 400 });
+    }
+
+    // Sólo quien tiene la búsqueda en su alcance (suya o de su gente) la revalida.
+    if (!(await canActOnBatch(batchId))) {
+      return NextResponse.json({ error: 'No tienes acceso a esta búsqueda' }, { status: 403 });
     }
 
     const result = await validateImportedCandidatesBatch(batchId, internalUser.id, supabase);

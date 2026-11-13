@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { requireActiveUser } from '@/modules/prospect-batches/actions';
+import { OUT_OF_SCOPE_MESSAGE, canActOnCandidate } from '@/modules/access/record-scope.server';
 import { readCompetitorReference } from './competitor-reference';
 import {
   MORE_LIKE_THIS_COOLDOWN_MS,
@@ -35,6 +36,8 @@ export async function findMoreLikeThisAction(request: unknown): Promise<MoreLike
   const { internalUserId } = await requireActiveUser();
   const parsed = requestSchema.safeParse(request);
   if (!parsed.success) return { ok: false, message: 'Solicitud inválida.' };
+  // Gasta Apollo: sólo sobre una candidata de su alcance (suya o de su gente).
+  if (!(await canActOnCandidate(parsed.data.candidateId))) return { ok: false, message: OUT_OF_SCOPE_MESSAGE };
 
   // Con la sesión (RLS): sólo lo que la persona puede ver.
   const supabase = await createClient();
@@ -137,6 +140,7 @@ export async function prepareCompetitorOfCompetitorRunAction(request: unknown): 
   await requireActiveUser();
   const parsed = requestSchema.safeParse(request);
   if (!parsed.success) return { ok: false, message: 'Solicitud inválida.' };
+  if (!(await canActOnCandidate(parsed.data.candidateId))) return { ok: false, message: OUT_OF_SCOPE_MESSAGE };
   const supabase = await createClient();
   const { data: candidate } = await supabase
     .from('prospect_candidates')

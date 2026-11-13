@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
 import { redirect } from 'next/navigation';
 import { checkCompanyDuplicate } from '@/server/agents/prospecting-toolkit';
 import type { DuplicateCheckInput, DuplicateCheckResult } from '@/server/agents/prospecting-toolkit';
@@ -9,33 +9,12 @@ import type { DuplicateCheckInput, DuplicateCheckResult } from '@/server/agents/
 // Auth — solo admins pueden invocar esta tool de diagnóstico
 // ============================================================
 
+// Respeta «Ver como…» (getCurrentUser / isCurrentUserAdmin).
 async function requireAdmin(): Promise<{ internalUserId: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') {
-    redirect('/');
-  }
-
-  return { internalUserId: internalUser.id };
+  const me = await getCurrentUser();
+  if (!me || me.access_status !== 'active') redirect('/login');
+  if (!(await isCurrentUserAdmin())) redirect('/');
+  return { internalUserId: me.id };
 }
 
 // ============================================================

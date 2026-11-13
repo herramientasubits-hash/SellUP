@@ -179,3 +179,29 @@ describe('cargar archivos de empresas (dueña 12-11)', () => {
     assert.equal(hasCapability(anon, 'importarArchivos', ON), false);
   });
 });
+
+describe('decisión 4: una candidata reasignada la decide sólo su asignado y su cadena', () => {
+  const vendedor: AccessSnapshot = { userId: 'u-v1', roleKey: 'seller_bd', isAdmin: false };
+  const lider: AccessSnapshot = { userId: 'u-lider', roleKey: 'commercial_lead', isAdmin: false };
+  const reasignada = { assignedTo: 'u-otro', batchOwnerId: 'u-v1', batchCreatedBy: 'u-v1' };
+
+  it('el dueño de la búsqueda ya no decide la candidata que reasignó a otro', () => {
+    assert.equal(canReviewCandidate(vendedor, reasignada, ON), false);
+    assert.equal(decideCandidateApproval(vendedor, reasignada, {}, ON).ok, false);
+  });
+
+  it('ni el líder del dueño de la búsqueda, si el asignado no es de su equipo', () => {
+    assert.equal(canReviewCandidate(lider, reasignada, { enforced: true, team: ['u-lider', 'u-v1'] }), false);
+  });
+
+  it('sí el asignado y el líder del asignado', () => {
+    assert.equal(canReviewCandidate({ userId: 'u-otro', roleKey: 'seller_bd', isAdmin: false }, reasignada, ON), true);
+    assert.equal(canReviewCandidate(lider, reasignada, { enforced: true, team: ['u-lider', 'u-otro'] }), true);
+  });
+
+  it('sin asignado, el dueño o creador de la búsqueda como antes; admin siempre', () => {
+    assert.equal(canReviewCandidate(vendedor, { batchOwnerId: 'u-v1' }, ON), true);
+    assert.equal(canReviewCandidate(vendedor, { assignedTo: null, batchCreatedBy: 'u-v1' }, ON), true);
+    assert.equal(canReviewCandidate(admin, reasignada, ON), true);
+  });
+});

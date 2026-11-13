@@ -294,8 +294,9 @@ describe('Prospectos action zone — collects the reason with the shared contrac
 });
 
 describe('audit trail — the insert error is no longer swallowed (Q3F-5BB.11K-FIX A+)', () => {
+  // La auditoría se mudó a un módulo de servidor sin 'use server' (permisos 13-11).
   const BATCH_ACTIONS_SRC = readFileSync(
-    join(SRC, 'modules', 'prospect-batches', 'actions.ts'),
+    join(SRC, 'modules', 'prospect-batches', 'candidate-audit.server.ts'),
     'utf8',
   );
 

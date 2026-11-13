@@ -14,6 +14,7 @@ import {
 import type { InternalUserOption } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { ArchiveAccountDialog } from './archive-account-dialog';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface AccountDetailActionsProps {
   accountId: string;
@@ -43,6 +44,8 @@ export function AccountDetailActions({
   onArchived,
 }: AccountDetailActionsProps) {
   const router = useRouter();
+  // Archivar es sólo de admin (decisión 6); respeta «Ver como…». El servidor lo exige igual.
+  const { isAdmin } = useNavAccess();
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
 
@@ -71,11 +74,15 @@ export function AccountDetailActions({
             <Pencil className="h-3.5 w-3.5" />
             Editar empresa
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>
-            <Archive className="h-3.5 w-3.5" />
-            Archivar empresa
-          </DropdownMenuItem>
+          {isAdmin ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>
+                <Archive className="h-3.5 w-3.5" />
+                Archivar empresa
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
