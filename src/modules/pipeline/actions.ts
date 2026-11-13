@@ -11,6 +11,7 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { loadDirectoryUser } from '@/modules/access/user-directory.server';
 import {
   getAccountAudit,
@@ -135,10 +136,13 @@ async function withReviewerName(row: OriginRow): Promise<OriginCandidate> {
  * y, si no hay, `accounts.metadata.converted_from_candidate_id`.
  */
 async function loadOriginCandidate(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   accountId: string,
   fallbackCandidateId: string | null,
 ): Promise<OriginCandidate | null> {
+  // Migración 166: la cuenta es de quien mira (`getAccountById` ya lo comprobó), pero la
+  // candidata de la que salió puede estar en una búsqueda de otro equipo; la sesión no la
+  // vería y el «Origen» saldría vacío. Se lee sólo la candidata de ESTA cuenta.
+  const supabase = createSupabaseAdminClient();
   const byConversion = await supabase
     .from('prospect_candidates')
     .select(ORIGIN_SELECT)
@@ -169,9 +173,7 @@ export async function getAccountOriginCandidate(accountId: string): Promise<Orig
   await requireActiveUser();
   const account = await getAccountById(accountId);
   if (!account) return null;
-  const supabase = await createClient();
   return loadOriginCandidate(
-    supabase,
     accountId,
     readConvertedFromCandidateId(safeAccountMetadata(account.metadata)),
   );
@@ -193,7 +195,6 @@ export async function getAccountJourney(accountId: string): Promise<AccountJourn
     getContactsByAccount(accountId),
     getContactEnrichmentRunsByAccountId(accountId),
     loadOriginCandidate(
-      supabase,
       accountId,
       readConvertedFromCandidateId(safeAccountMetadata(account.metadata)),
     ),

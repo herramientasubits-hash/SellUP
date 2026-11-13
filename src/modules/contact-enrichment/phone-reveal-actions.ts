@@ -28,6 +28,7 @@ import { canSeeContactCandidate } from './candidate-scope.server';
 import { readPhoneRevealSuppression } from './provider-suppression-store';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { requireActiveActor } from './current-actor.server';
 import {
   isApolloPhoneCacheEnabled,
@@ -485,7 +486,11 @@ export async function revealCandidatePhoneAction(
       if (candidate.linkedinUrl) identifiers.push(candidate.linkedinUrl);
       if (identifiers.length === 0) return false;
 
-      const { data, error } = await supabase
+      // Migración 166: la empresa pudo pasar a otro equipo después de lanzar la búsqueda y
+      // la sesión ya no vería sus contactos: «no contactar» se leería vacío y se revelaría
+      // (y pagaría) el teléfono de alguien que pidió no ser contactado. `canSeeContactCandidate`
+      // ya corrió antes; esto sólo lee.
+      const { data, error } = await createSupabaseAdminClient()
         .from('contacts')
         .select('id, email, linkedin_url, contact_status')
         .eq('account_id', accountId)

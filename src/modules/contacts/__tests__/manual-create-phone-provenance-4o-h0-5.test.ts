@@ -712,7 +712,9 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // Dueña 10-11 mueve el techo a la 163 (aprobadores, solicitudes y recargas de las reglas de presupuesto: tablas nuevas y una columna en budget_rules; sin teléfonos, contactos ni HubSpot). AUTORIZADA y NO APLICADA.
       // Dueña 11-11 mueve el techo a la 164 (el teléfono de HubSpot/manual no se reemplaza por el de Apollo/Lusha: dos triggers BEFORE UPDATE OF phone, sin esquema ni datos). AUTORIZADA y NO APLICADA.
       // Dueña 11-11 mueve el techo a la 165 (avisos de Slack configurables e historial de boletines; sin teléfono).
-      '165_slack_notification_settings_and_bulletins.sql',
+      // (la 165 fue el techo anterior)
+      // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
+      '166_commercial_scope_rls.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

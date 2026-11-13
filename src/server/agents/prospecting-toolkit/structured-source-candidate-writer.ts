@@ -88,6 +88,13 @@ const WRITER_HARD_MAX = 20;
 
 export type StructuredSourceCandidateWriterInput = {
   dryRun?: boolean;
+  /**
+   * Migración 166 (RLS por alcance): con qué cliente se arma el índice de novedad por
+   * número fiscal. Tiene que ver las cuentas y candidatas de TODO SellUp; con la sesión
+   * de un vendedor sólo vería lo suyo y escribiría empresas que ya tiene otro equipo.
+   * Sin él se usa el cliente del writer (admin y procesos de servicio: ya lo ven todo).
+   */
+  noveltyReader?: SupabaseClient;
   requestedByUserId?: string | null; // For legacy compatibility
   ownerId?: string | null;
   country: string;
@@ -622,7 +629,7 @@ export async function writeStructuredSourceCandidatesPreview(
   // ── Paso 1: Índice de novedad por tax_id ──────────────────
   const taxIds = candidates.map((c) => c.taxId);
   const noveltyIndex = await buildTaxIdNoveltyIndex({
-    supabase,
+    supabase: input.noveltyReader ?? supabase,
     taxIds,
     countryCode: input.countryCode,
   });

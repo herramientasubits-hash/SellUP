@@ -599,6 +599,8 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '164_keep_crm_phone_over_provider_phone.sql',
       // Dueña 11-11 mueve el techo a la 165 (avisos de Slack por rol/persona, historial de boletines y enlace del aviso de pendientes; tablas nuevas, sin tocar datos). AUTORIZADA y NO APLICADA.
       '165_slack_notification_settings_and_bulletins.sql',
+      // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
+      '166_commercial_scope_rls.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -724,7 +726,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 165);
+    assert.equal(numbered[numbered.length - 1], 166);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

@@ -539,7 +539,11 @@ export async function updateAccount(
   if (input.pipeline_status !== undefined) payload.pipeline_status = input.pipeline_status;
   if (input.pipeline_substatus !== undefined) payload.pipeline_substatus = input.pipeline_substatus;
 
-  const { error } = await supabase.from('accounts').update(payload).eq('id', id);
+  // Migración 166: si cambia el responsable, la empresa puede salir del alcance de quien
+  // la edita y con la sesión Postgres lo rechaza. `getAccountById` ya comprobó el alcance
+  // y `loadAssignmentTarget` la regla de a quién se asigna.
+  const writer = ownerChanged ? createSupabaseAdminClient() : supabase;
+  const { error } = await writer.from('accounts').update(payload).eq('id', id);
   if (error) return { success: false, error: error.message };
 
   if (statusChanged) {
@@ -719,7 +723,10 @@ export async function assignAccountsToUser(
 
   let changed: typeof toChange = [];
   if (toChange.length > 0) {
-    const { data: updated, error: updateError } = await supabase
+    // Migración 166: reasignar a alguien de fuera saca la empresa del alcance de quien
+    // asigna, y con la sesión Postgres lo rechaza. El alcance ya se filtró arriba
+    // (`visible`) y la regla de a quién se puede asignar también (`loadAssignmentTarget`).
+    const { data: updated, error: updateError } = await createSupabaseAdminClient()
       .from('accounts')
       .update({ owner_id: target.id, updated_by: internalUserId })
       .in('id', toChange.map((row) => row.id))

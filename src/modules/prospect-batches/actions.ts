@@ -1576,7 +1576,9 @@ export async function markCandidateDuplicateReviewedAction(
     const candidateMeta = (candidate.metadata || {}) as unknown as ActionsCandidateMeta;
     const recheck = decideDuplicateRecheck(
       await detectCandidateDuplicates({
-        supabase,
+        // Migración 166: los duplicados se buscan en TODO SellUp (la sesión sólo ve su
+        // alcance). El acceso a esta candidata ya se comprobó arriba.
+        supabase: createSupabaseAdminClient(),
         candidate: {
           id: candidate.id,
           name: candidate.name,
@@ -2626,6 +2628,11 @@ async function convertClaimedCandidate(ctx: {
   effects: ApprovalEffects;
 }): Promise<CandidateApprovalResult> {
   const { supabase, id, candidate, internalUserId, originalCandidateStatus, reviewStatus, nowStr, lockToken, effects } = ctx;
+  // Migración 166 (RLS por alcance): la empresa existente puede ser de otro equipo y la
+  // sesión ya no la ve. Leerla (y actualizarla) con la sesión dejaba `accountId` en null y
+  // se creaba una cuenta DUPLICADA. El alcance de quien aprueba ya se comprobó antes
+  // (`checkCandidateApproval` + candado de la candidata), así que aquí se lee con servicio.
+  const accountsDb = createSupabaseAdminClient();
 
   // AGENT1-AUDIT-WS4 — si cambió el NIT, las comprobaciones de duplicados
   // guardadas están desactualizadas (`metadata.duplicate_check_stale`): no se usa
@@ -2655,7 +2662,7 @@ async function convertClaimedCandidate(ctx: {
   let existingAccountOwnerId: string | null = null;
 
   if (accountId) {
-    const { data: existingAccount } = await supabase
+    const { data: existingAccount } = await accountsDb
       .from('accounts')
       .select('id, name, metadata, hubspot_company_id, owner_id')
       .eq('id', accountId)
@@ -2675,7 +2682,7 @@ async function convertClaimedCandidate(ctx: {
   // tax_identifier+country o dominio antes de insertar una nueva. Evita crear una
   // segunda cuenta para una empresa que ya existe (caso SITECO-like).
   if (!accountId) {
-    const existingMatch = await findExistingAccountForCandidate(supabase, {
+    const existingMatch = await findExistingAccountForCandidate(accountsDb, {
       tax_identifier: candidate.tax_identifier,
       country_code: candidate.country_code,
       domain: candidate.domain,
@@ -2683,7 +2690,7 @@ async function convertClaimedCandidate(ctx: {
     });
 
     if (existingMatch) {
-      const { data: existingAccount } = await supabase
+      const { data: existingAccount } = await accountsDb
         .from('accounts')
         .select('id, name, metadata, hubspot_company_id, owner_id')
         .eq('id', existingMatch.accountId)
@@ -3110,7 +3117,7 @@ async function convertClaimedCandidate(ctx: {
     accountUpdates.hubspot_company_id = hubspotCompanyId;
   }
 
-  const { error: accountUpdateError } = await supabase
+  const { error: accountUpdateError } = await accountsDb
     .from('accounts')
     .update(accountUpdates)
     .eq('id', accountId);
@@ -4467,7 +4474,9 @@ async function detectImportedCandidate(
 
     // --- Detección universal de duplicados ---
     const dupResult = await detectCandidateDuplicates({
-      supabase: ctx.supabase,
+      // Migración 166: duplicados contra TODO SellUp, no sólo lo que la sesión ve. Quien
+      // valida ya pasó `checkImportValidationActor`; esto sólo lee.
+      supabase: createSupabaseAdminClient(),
       candidate: {
         id: candidate.id,
         name: candidate.name,

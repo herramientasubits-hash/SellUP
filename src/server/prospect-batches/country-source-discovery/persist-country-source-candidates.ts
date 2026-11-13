@@ -186,6 +186,8 @@ export async function persistCountrySourceCandidates(
 
   try {
     const report = await writeStructuredSourceCandidatesPreview(client, {
+      // Migración 166: la novedad se mide contra TODO SellUp, aunque escriba la sesión.
+      noveltyReader: resolveNoveltyReader(client),
       // 🔴 Escritura real. La autoriza el hito para la capa gratuita: sin ella,
       // una corrida con `residualGap = 0` no dejaría NADA para revisar y el
       // ahorro se pagaría con el resultado del usuario (§ 22(A)).
@@ -236,6 +238,23 @@ export async function persistCountrySourceCandidates(
     };
   } catch {
     return { batchId: input.batchId ?? null, writtenCount: 0, skippedCount: 0, failed: true };
+  }
+}
+
+/**
+ * Migración 166 (RLS por alcance): el índice de novedad por número fiscal tiene que ver
+ * las cuentas y candidatas de TODO SellUp. Con la sesión de un vendedor sólo vería lo
+ * suyo y escribiría empresas que ya tiene otro equipo. Sin credenciales de servicio (sólo
+ * en pruebas) se queda con el cliente del llamador, como antes, y lo deja escrito.
+ */
+function resolveNoveltyReader(client: SupabaseClient): SupabaseClient {
+  try {
+    return createSupabaseAdminClient();
+  } catch (error) {
+    console.warn('[persist-country-source-candidates] sin cliente de servicio para la novedad; se usa el del llamador', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return client;
   }
 }
 

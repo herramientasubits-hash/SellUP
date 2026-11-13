@@ -13,6 +13,7 @@ import { redirect } from 'next/navigation';
 import { getVisibleSince } from '@/lib/visible-since';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { parseAgent2AInput } from './agent2a-input';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import { startContactEnrichmentRun } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-runner';
@@ -529,7 +530,9 @@ async function withCandidateAccountContext(
 ): Promise<PendingContactCandidate[]> {
   const accountIds = collectCandidateAccountIds(candidates);
   if (accountIds.length === 0) return candidates;
-  const { data, error } = await supabase
+  // Migración 166: las candidatas que se ven (por quien lanzó la búsqueda) pueden ser de
+  // una empresa que ya es de otro equipo; sus datos de empresa se leen igual.
+  const { data, error } = await createSupabaseAdminClient()
     .from('accounts')
     .select('id, website, domain, hubspot_company_id, country')
     .in('id', accountIds);
@@ -788,7 +791,9 @@ export async function getDuplicateCandidateMergeOffer(
   // Sin cuenta resuelta no hay conjunto contra el que comparar identidades ⇒ no se ofrece.
   if (!accountId) return { offered: false, reason: 'no_recorded_match' };
 
-  const { data: contacts, error: contactsError } = await supabase
+  // Migración 166: comparar contra TODOS los contactos de la empresa (la sesión sólo ve los
+  // de su alcance). El acceso a la candidata ya se comprobó.
+  const { data: contacts, error: contactsError } = await createSupabaseAdminClient()
     .from('contacts')
     .select('id, email, linkedin_url, full_name')
     .eq('account_id', accountId)
@@ -962,7 +967,9 @@ export async function approveContactCandidate(
         return record;
       },
       loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
-        const { data, error } = await supabase
+        // Migración 166: deduplicar contra TODOS los contactos de la empresa; con la sesión
+        // se crearía un contacto repetido si la empresa ya es de otro equipo.
+        const { data, error } = await createSupabaseAdminClient()
           .from('contacts')
           .select('id, email, linkedin_url, full_name')
           .eq('account_id', accountId)
@@ -1174,7 +1181,9 @@ export async function mergeContactCandidateIntoExistingContactAction(
       // La MISMA lectura que usa la deduplicación de la aprobación, para que la identidad se
       // resuelva sobre exactamente el mismo conjunto: contactos vivos de la cuenta.
       loadExistingContacts: async (accountId): Promise<ExistingContactForDedup[]> => {
-        const { data, error } = await supabase
+        // Migración 166: deduplicar contra TODOS los contactos de la empresa; con la sesión
+        // se crearía un contacto repetido si la empresa ya es de otro equipo.
+        const { data, error } = await createSupabaseAdminClient()
           .from('contacts')
           .select('id, email, linkedin_url, full_name')
           .eq('account_id', accountId)

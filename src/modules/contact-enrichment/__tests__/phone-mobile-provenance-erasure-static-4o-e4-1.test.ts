@@ -604,8 +604,9 @@ describe('4O-E4.1 estático — alcance', () => {
       // contactos, presupuesto ni HubSpot); no ASIGNA `mobile_phone`.
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth; sin teléfonos ni
       // contactos); no ASIGNA `mobile_phone`.
-      165,
-      'la 165 (avisos de Slack configurables e historial de boletines; tablas nuevas) es la última',
+      // La 165 (avisos de Slack configurables e historial de boletines) fue el techo anterior.
+      166,
+      'la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin teléfonos) es la última',
     );
   });
 

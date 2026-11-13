@@ -17,6 +17,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser } from '@/modules/access/actions';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
@@ -137,7 +138,11 @@ export async function assignCandidatesToUser(
 
     let changed: typeof toChange = [];
     if (toChange.length > 0) {
-      const { data: updated, error: updateError } = await supabase
+      // Migración 166: asignar a alguien de fuera puede sacar la candidata del alcance de
+      // quien asigna (si sólo la veía por estar asignada) y con la sesión Postgres lo
+      // rechaza. El alcance ya se filtró arriba (`isVisibleToScope`) y la regla de a
+      // quién se asigna también.
+      const { data: updated, error: updateError } = await createSupabaseAdminClient()
         .from('prospect_candidates')
         .update({
           assigned_to: target.id,

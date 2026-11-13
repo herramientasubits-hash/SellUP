@@ -636,7 +636,9 @@ export function buildLiveCorporateTreeDeps(params: {
       const sellupMatches = sellup.filter((m) => m.status === 'existing_in_sellup' && !!m.matchedId);
       const hubspotIdByAccount = new Map<string, string | null>();
       if (sellupMatches.length > 0) {
-        const { data } = await params.supabase
+        // Migración 166: la cuenta conocida puede ser de otro equipo (la sesión no la ve).
+        // Sólo se lee su ID de HubSpot, igual que `checkSellUpDuplicates` (servicio).
+        const { data } = await createSupabaseAdminClient()
           .from('accounts')
           .select('id, hubspot_company_id')
           .in('id', sellupMatches.map((m) => m.matchedId as string));
