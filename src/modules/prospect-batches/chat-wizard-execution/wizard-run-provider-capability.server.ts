@@ -73,10 +73,45 @@ export async function resolveWizardAdminAuthority(): Promise<WizardAdminAuthorit
   }
 }
 
-/** Compatibilidad con el gate de disponibilidad de Apollo, que sólo pide el rol. */
+/**
+ * ¿Puede quien pide ELEGIR el proveedor de una corrida (selector de pruebas)?
+ * Sólo administradores.
+ */
 export async function isWizardApolloDiscoveryRolePermitted(): Promise<boolean> {
   const authority = await resolveWizardAdminAuthority();
   return authority.isAdmin;
+}
+
+/**
+ * ¿Puede quien pide BUSCAR empresas con Apollo desde Rumbo? Cualquier usuario
+ * interno activo (dueña 28-10: las formas normales de Rumbo son de todos). El
+ * tope real lo pone el presupuesto de su regla, que se reserva aparte.
+ *
+ * Antes este gate exigía admin: ningún líder ni vendedor podía buscar por
+ * criterios («Esta búsqueda de empresas no está disponible», Prod 12-11, Pedro
+ * Tapia). No se notaba porque el asistente se quedaba antes en «Escribiendo…».
+ * Falla cerrado: sin sesión o sin usuario activo, no.
+ */
+export async function isWizardApolloDiscoveryAllowedForUser(): Promise<boolean> {
+  const authority = await resolveWizardAdminAuthority();
+  if (authority.isAdmin) return true;
+  if (!authority.isAuthenticated) return false;
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+    const { data } = await supabase
+      .from('internal_users')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .eq('access_status', 'active')
+      .maybeSingle();
+    return Boolean(data);
+  } catch {
+    return false;
+  }
 }
 
 /**

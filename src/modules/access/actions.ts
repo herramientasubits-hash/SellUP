@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import type { Role, InternalUser, AccessAuditEntry, UsersSummary, UserPreapproval, OrganizationGroup } from './types';
 import { sendSlackAccessActivated, sendSlackInvitation } from './slack-invitation.server';
 import type { SlackInviteOutcome } from './slack-invitation-message';
+import { readRolePreview } from './role-preview.server';
 
 export async function getCurrentUser(): Promise<InternalUser | null> {
   const supabase = await createClient();
@@ -19,7 +20,14 @@ export async function getCurrentUser(): Promise<InternalUser | null> {
 
   if (!data || data.length === 0) return null;
 
-  return data[0] as InternalUser;
+  const current = data[0] as InternalUser;
+  // «Ver como…» (sólo la persona autorizada): el rol que se está probando.
+  // La identidad sigue siendo la suya: lo que haga queda a su nombre.
+  const preview = await readRolePreview();
+  if (preview && preview.realUserId === current.id) {
+    return { ...current, role_key: preview.roleKey };
+  }
+  return current;
 }
 
 export async function isCurrentUserAdmin(): Promise<boolean> {
@@ -29,6 +37,8 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
   } = await supabase.auth.getUser();
 
   if (!user) return false;
+  // «Ver como…» otro rol: mientras dure, no es administrador (sólo restringe).
+  if (await readRolePreview()) return false;
 
   const { data } = await supabase.rpc('is_admin', {
     p_auth_user_id: user.id,

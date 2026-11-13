@@ -4,6 +4,7 @@ import * as React from "react";
 import type { User } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 import { AppHeader } from "@/components/layout/app-header";
+import { RolePreviewBanner } from "@/components/layout/role-preview-banner";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { SidebarProvider, useSidebar } from "@/components/layout/sidebar-context";
 import { ShellAgentPanelSlotProvider } from "@/components/layout/shell-agent-panel-slot";
@@ -60,6 +61,7 @@ function ShellLayout({ children, className, user, initialUnreadCount = 0, navAcc
             páginas pueden optar por <DataTablePage> (cabecera y métricas fijas,
             la tabla desplaza). */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {navAccess.rolePreview?.active && <RolePreviewBanner active={navAccess.rolePreview.active} />}
           <AppHeader
             user={user}
             initialUnreadCount={initialUnreadCount}

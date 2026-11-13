@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { AppShell } from '@/components/layout/app-shell';
 import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
 import type { NavAccessContext } from '@/config/navigation';
+import { readRealUser, readRolePreview } from '@/modules/access/role-preview.server';
+import { canUseRolePreview } from '@/modules/access/role-preview';
 
 export default async function SellUpLayout({
   children,
@@ -36,13 +38,15 @@ export default async function SellUpLayout({
     redirect(accessRedirects[accessStatus] ?? '/access-pending');
   }
 
-  const [{ count }, isAdmin, internalUserRecord] = await Promise.all([
+  const [{ count }, isAdmin, internalUserRecord, realUser, rolePreview] = await Promise.all([
     supabase
       .from('user_notifications')
       .select('id', { count: 'exact', head: true })
       .eq('is_read', false),
     isCurrentUserAdmin(),
     getCurrentUser(),
+    readRealUser(),
+    readRolePreview(),
   ]);
 
   const unreadCount = count ?? 0;
@@ -53,6 +57,10 @@ export default async function SellUpLayout({
   const navAccess: NavAccessContext = {
     isAdmin,
     roleKey: internalUserRecord?.role_key ?? null,
+    rolePreview: {
+      allowed: !!realUser && canUseRolePreview(realUser),
+      active: rolePreview ? { roleKey: rolePreview.roleKey, asName: rolePreview.asUser.name } : null,
+    },
   };
 
   return (

@@ -23,6 +23,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import type { CommercialScope } from './commercial-scope-logic';
 import { resolveCommercialScopeForUser, type ScopeUserRow } from './commercial-scope-core.server';
+import { readRolePreview } from './role-preview.server';
 
 const ACTIVE_USER_STATUS = 'active';
 
@@ -31,6 +32,12 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 async function resolveCurrentUserRow(
   admin: AdminClient,
 ): Promise<ScopeUserRow | null> {
+  // «Ver como…»: el alcance es el de la persona elegida, con su rol y su lugar
+  // en el organigrama (su equipo en cascada). Sólo restringe lo de un admin.
+  const preview = await readRolePreview();
+  if (preview) {
+    return { id: preview.asUser.id, email: preview.asUser.email, groupId: preview.asUser.groupId, roleKey: preview.roleKey };
+  }
   const supabase = await createClient();
   const {
     data: { user },
