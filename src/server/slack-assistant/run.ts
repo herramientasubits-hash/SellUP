@@ -49,6 +49,11 @@ export interface AnswerQuestionInput {
   today: string;
   /** Página principal de SellUp (para remitir lo que no se hace por Slack). */
   appUrl: string;
+  /**
+   * Por qué esta persona no puede confirmar acciones por Slack (p. ej. nunca
+   * entró a SellUp). Si viene, no se le ofrecen propuestas y se le explica.
+   */
+  actionsUnavailableNote?: string | null;
 }
 
 export interface AnswerQuestionDeps {
@@ -69,7 +74,9 @@ export interface AnswerQuestionResult {
   errorCode: string | null;
 }
 
-export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'asker' | 'today' | 'appUrl'>): string {
+export function buildAssistantSystemPrompt(
+  input: Pick<AnswerQuestionInput, 'asker' | 'today' | 'appUrl' | 'actionsUnavailableNote'>,
+): string {
   const who = input.asker.name ? `${input.asker.name} (${input.asker.roleLabel})` : input.asker.roleLabel;
   return [
     'Eres el asistente de SellUp, la plataforma de prospección comercial de UBITS, y respondes por Slack.',
@@ -87,6 +94,7 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- «mi equipo», «mis vendedores», «mi gente» → de=mi_equipo (quien pregunta y su gente a cargo, en cascada).',
     '- «de Carla», «lo de Luis» → responsable con ese nombre (sirve nombre parcial o correo); «el equipo de Carla» → responsable + equipo=true.',
     '- «general», «de todos», «toda la operación», o si no dice de quién → de=todo.',
+    '- Si una herramienta responde `problema: varias_personas`, NO sumes ni elijas: pregunta a cuál de las `opciones` se refiere. Con `fuera_de_alcance`, di que esa persona está fuera de su alcance (no digas «0»). Con `sin_coincidencias`, di que no encontraste a esa persona.',
     '- Di en una línea de quién son los datos (campo `alcance`) y, si fue sólo lo suyo y tiene equipo, ofrece «¿quieres el de tu equipo?».',
     '- Descartadas, aprobadas o duplicadas → prospectos con ese estado.',
     '- «Uso de IA», consumo, costos → uso_de_ia (admin ve todo; manager y líder su equipo en cascada). Vendedores y Growth no tienen Uso de IA: si preguntan, explica que lo ven su líder o un administrador.',
@@ -109,6 +117,9 @@ export function buildAssistantSystemPrompt(input: Pick<AnswerQuestionInput, 'ask
     '- Ideas generales de prospección (sin pasos de la plataforma) puedes darlas breves, aclarando que son sugerencias.',
     '- Formato de Slack: *negrita* con un asterisco, listas con «•», enlaces como <url|texto>. Sin tablas ni títulos con #. Listas de hasta ~20 líneas.',
     '- Dinero en dólares con 2 decimales (US$1,25). Fechas como «11 nov».',
+    ...(input.actionsUnavailableNote
+      ? ['', `Acciones: esta persona NO puede confirmar acciones por Slack (no tienes herramientas proponer_*). Si pide una, explícale: «${input.actionsUnavailableNote}».`]
+      : []),
   ].join('\n');
 }
 
@@ -153,7 +164,7 @@ export async function answerQuestion(input: AnswerQuestionInput, deps: AnswerQue
           model: input.model,
           max_tokens: ASSISTANT_MAX_TOKENS,
           system,
-          tools: [...toolsForRole(Boolean(deps.adminData), deps.data.usageVisible !== false)],
+          tools: [...toolsForRole(Boolean(deps.adminData), deps.data.usageVisible !== false, Boolean(deps.actions))],
           messages,
         },
         input.apiKey,

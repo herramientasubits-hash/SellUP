@@ -440,6 +440,57 @@ export async function getSlackUserEmail(slackUserId: string): Promise<string | n
   }
 }
 
+/**
+ * Abre (o encuentra) el mensaje directo entre el bot y una persona de Slack y
+ * devuelve su canal. Requiere scope: im:write. `null` si no se pudo. Nunca lanza.
+ */
+export async function openSlackDirectChannel(slackUserId: string): Promise<string | null> {
+  const token = await getSlackToken();
+  if (!token || !slackUserId) return null;
+  try {
+    const res = await fetch('https://slack.com/api/conversations.open', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ users: slackUserId }),
+    });
+    const body = (await res.json()) as { ok: boolean; channel?: { id?: string }; error?: string };
+    if (!body.ok || !body.channel?.id) {
+      console.error('[slack] conversations.open', body.error);
+      return null;
+    }
+    return body.channel.id;
+  } catch (error) {
+    console.error('[slack] conversations.open', error instanceof Error ? error.message : 'error');
+    return null;
+  }
+}
+
+/**
+ * El espacio de trabajo y la app de Slack conectados (para rechazar eventos de
+ * otro espacio u otra app). Primero las variables `SLACK_TEAM_ID` /
+ * `SLACK_APP_ID`; si no, lo que guardó la conexión (metadata). Lo que no esté
+ * configurado vuelve `null` (y no se valida). Nunca lanza.
+ */
+export async function getSlackWorkspaceIdentity(): Promise<{ teamId: string | null; appId: string | null }> {
+  const envTeam = process.env.SLACK_TEAM_ID?.trim() || null;
+  const envApp = process.env.SLACK_APP_ID?.trim() || null;
+  if (envTeam && envApp) return { teamId: envTeam, appId: envApp };
+  try {
+    const integrationId = await getSlackIntegrationId();
+    if (!integrationId) return { teamId: envTeam, appId: envApp };
+    const { data } = await createSupabaseAdminClient()
+      .from('external_integration_connections')
+      .select('metadata')
+      .eq('integration_id', integrationId)
+      .maybeSingle();
+    const meta = ((data as { metadata?: unknown } | null)?.metadata ?? {}) as Record<string, unknown>;
+    const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    return { teamId: envTeam ?? text(meta.team_id), appId: envApp ?? text(meta.app_id) };
+  } catch {
+    return { teamId: envTeam, appId: envApp };
+  }
+}
+
 /** Un mensaje anterior de la conversación (para darle memoria al asistente). */
 export interface SlackHistoryMessage {
   ts: string;
@@ -448,6 +499,10 @@ export interface SlackHistoryMessage {
   fromBot: boolean;
   /** Trae botones (invitaciones y avisos de SellUp): no es parte de la charla. */
   hasActions: boolean;
+  /** Quién lo escribió (id de Slack); `null` si no viene (mensajes de bots). */
+  userId: string | null;
+  /** App que lo publicó (mensajes de bots); `null` si no viene. */
+  appId: string | null;
 }
 
 /**
@@ -480,7 +535,15 @@ export async function getSlackConversationHistory(params: {
     const body = (await res.json()) as {
       ok: boolean;
       error?: string;
-      messages?: Array<{ ts?: string; text?: string; bot_id?: string; subtype?: string; blocks?: Array<{ type?: string }> }>;
+      messages?: Array<{
+        ts?: string;
+        text?: string;
+        user?: string;
+        bot_id?: string;
+        app_id?: string;
+        subtype?: string;
+        blocks?: Array<{ type?: string }>;
+      }>;
     };
     if (!body.ok) {
       console.error(`[slack] ${method}`, body.error);
@@ -493,6 +556,8 @@ export async function getSlackConversationHistory(params: {
         text: m.text ?? '',
         fromBot: Boolean(m.bot_id) || m.subtype === 'bot_message',
         hasActions: (m.blocks ?? []).some((b) => b.type === 'actions'),
+        userId: typeof m.user === 'string' && m.user ? m.user : null,
+        appId: typeof m.app_id === 'string' && m.app_id ? m.app_id : null,
       }))
       .sort((a, b) => Number(a.ts) - Number(b.ts));
   } catch (error) {

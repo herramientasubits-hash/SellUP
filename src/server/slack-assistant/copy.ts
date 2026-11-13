@@ -15,6 +15,12 @@ export const SLACK_ASSISTANT_COPY = {
     'No pude responder: Claude no está configurado en SellUp. Un administrador debe revisarlo en Configuración › IA.',
   unexpected:
     'No pude responder en este momento. Vuelve a intentarlo en unos minutos; si sigue pasando, avísale a un administrador de SellUp.',
+  /** En el hilo del canal cuando alguien menciona al bot: la respuesta va por mensaje directo. */
+  answeredByDirectMessage: 'Te respondí por mensaje directo.',
+  /** En el hilo del canal si no se pudo abrir el mensaje directo: no se responde en el canal. */
+  directMessageFailed: 'No pude escribirte por mensaje directo. Escríbeme directamente y te respondo ahí.',
+  /** Sin `auth_user_id`: nunca entró a SellUp, no hay sesión con qué confirmar acciones. */
+  mustSignInFirst: 'Para confirmar acciones, entra primero una vez a SellUp',
 } as const;
 
 /** Qué ve la persona, dicho para Claude. */

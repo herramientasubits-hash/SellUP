@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createAssistantDataSource } from '../data-source.server';
+import { PersonFilterProblem } from '../query-helpers';
 
 type Call = { table: string; method: string; args: unknown[] };
 
@@ -61,10 +62,12 @@ describe('permisos por rol — empresas', () => {
     assert.equal(calls.some((c) => c.table === 'accounts' && c.method === 'in'), false);
   });
 
-  it('🔴 pedir un responsable FUERA del equipo no amplía nada: no se consulta ninguna empresa', async () => {
-    const { client, calls } = fakeSupabase({ internal_users: [{ id: 'otro-equipo' }] });
-    const result = await createAssistantDataSource(client, LEADER, OPTIONS).accounts({ responsable: 'Ana', periodo: 'todo' }, 10);
-    assert.equal(result.total, 0);
+  it('🔴 pedir un responsable FUERA del equipo no amplía nada: no se consulta ninguna empresa y se dice «fuera de tu alcance»', async () => {
+    const { client, calls } = fakeSupabase({ internal_users: [{ id: 'otro-equipo', full_name: 'Ana Ruiz', email: 'ana@x.co', manager_id: null }] });
+    await assert.rejects(
+      () => createAssistantDataSource(client, LEADER, OPTIONS).accounts({ responsable: 'Ana', periodo: 'todo' }, 10),
+      (error: unknown) => error instanceof PersonFilterProblem && error.problema === 'fuera_de_alcance',
+    );
     assert.equal(calls.some((c) => c.table === 'accounts'), false);
   });
 
@@ -216,8 +219,10 @@ describe('de quién: mío, mi equipo, de otra persona o todo', () => {
     await createAssistantDataSource(team.client, SELLER, { ...OPTIONS, askerId: 'me' }).accounts({ de: 'mi_equipo', periodo: 'todo' }, 10);
     assert.deepEqual(ors(team.calls, 'accounts'), [{ clause: 'owner_id.in.(me),created_by.in.(me)', options: undefined }]);
     const other = fakeSupabase({ internal_users: PEOPLE });
-    const result = await createAssistantDataSource(other.client, SELLER, { ...OPTIONS, askerId: 'me' }).accounts({ responsable: 'carla', periodo: 'todo' }, 10);
-    assert.equal(result.total, 0);
+    await assert.rejects(
+      () => createAssistantDataSource(other.client, SELLER, { ...OPTIONS, askerId: 'me' }).accounts({ responsable: 'carla', periodo: 'todo' }, 10),
+      (error: unknown) => error instanceof PersonFilterProblem && error.problema === 'fuera_de_alcance',
+    );
     assert.equal(other.calls.some((c) => c.table === 'accounts'), false);
   });
 });
