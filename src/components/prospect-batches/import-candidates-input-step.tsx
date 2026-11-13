@@ -3,7 +3,7 @@
 // ── Importar candidatos — paso 1: configuración y datos ───────────────────────
 // Solo pantalla: el estado y las validaciones viven en el drawer.
 
-import { RefreshCw, Settings2, Table2 } from '@/icons';
+import { RefreshCw, Table2 } from '@/icons';
 import { DrawerSection } from '@/components/shared/drawer-section';
 import { Field } from '@/components/forms/field';
 import { Spinner } from '@/components/feedback/spinner';
@@ -52,39 +52,32 @@ export function ImportCandidatesInputStep({
 }: ImportCandidatesInputStepProps) {
   return (
     <div className="space-y-4">
-      <DrawerSection title="Configuración de importación" icon={Settings2}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Dueña 13-11 — sin «País de referencia» ni «Industria por defecto». */}
-          <div className="min-w-0 rounded-xl bg-surface-muted p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">País e industria</p>
-            <p className="mt-1">
-              Se toman de cada fila del archivo. Si falta el país, lo detectamos (por la web o con IA) antes de la vista
-              previa; si falta la industria, la IA la asigna después de importar.
-            </p>
-            {catalogLoading && (
-              <p role="status" className="mt-2 flex items-center gap-2">
-                <Spinner decorative size="sm" /> Cargando catálogo…
-              </p>
-            )}
-            {catalogError && (
-              <span className="mt-2 flex flex-wrap items-center gap-x-2 text-destructive">
-                No pudimos cargar el catálogo.
-                <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onRetryCatalog}>
-                  <RefreshCw className="h-3 w-3" />
-                  Reintentar
-                </Button>
-              </span>
-            )}
-          </div>
-        </div>
-      </DrawerSection>
-
       <DrawerSection
         title="Datos a importar"
         icon={Table2}
         hint="Pega una tabla, una lista o un texto, o sube un archivo."
         contentClassName="space-y-4"
       >
+        {/* Dueña 13-11 — sin sección de configuración: país e industria salen de cada fila
+            (el país que falte se detecta; la industria la asigna la IA). Sólo queda el aviso
+            si el catálogo no carga. */}
+        {catalogLoading && (
+          <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner decorative size="sm" /> Cargando catálogo…
+          </p>
+        )}
+        {catalogError && (
+          <Alert variant="destructive" className="p-3">
+            <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+              <span>No pudimos cargar el catálogo.</span>
+              <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={onRetryCatalog}>
+                <RefreshCw className="h-3 w-3" />
+                Reintentar
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Selector de método */}
         <div role="radiogroup" aria-label="Método de carga" className="grid grid-cols-2 gap-2">
           {FILE_METHOD_OPTIONS.map((option) => (

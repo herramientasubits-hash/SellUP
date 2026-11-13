@@ -213,8 +213,7 @@ describe('paso de entrada — subir archivo', () => {
     inputStep();
     assert.equal(screen.queryByText('Industria por defecto'), null);
     assert.equal(screen.queryByText('País de referencia'), null);
-    assert.ok(screen.getByText('País e industria'));
-    assert.ok(screen.getByText(/Si falta el país, lo detectamos \(por la web o con IA\)/));
+    assert.equal(screen.queryByText('Configuración de importación'), null, 'sin sección de configuración (dueña 13-11)');
   });
 
   it('ofrece la zona para arrastrar o elegir, con los límites a la vista', () => {
