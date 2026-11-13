@@ -50,6 +50,7 @@ import {
   hubspotContactUrl,
 } from '@/components/contact-enrichment/hubspot-company-url';
 import type { ContactListItem } from '@/modules/contacts/actions';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import {
   EMPTY_SCOPE_FILTER,
@@ -171,6 +172,8 @@ export function ContactsDataTableClient({
   hubspotPortalId = null,
 }: ContactsDataTableClientProps) {
   const router = useRouter();
+  // Archivar contactos es sólo de admin (el servidor lo niega a los demás): ni se ofrece.
+  const { isAdmin } = useNavAccess();
   // Agente 3: el panel del agente para la empresa de los decisores elegidos.
   const [firstContact, setFirstContact] = React.useState<FirstContactTarget | null>(null);
   const closeFirstContact = React.useCallback(() => setFirstContact(null), []);
@@ -775,19 +778,21 @@ export function ContactsDataTableClient({
           });
         });
 
-        items.push({
-          id: 'archive',
-          label: 'Archivar contacto',
-          icon: Archive,
-          variant: 'destructive' as const,
-          separator: true,
-          onClick: () => setArchiving(row),
-        });
+        if (isAdmin) {
+          items.push({
+            id: 'archive',
+            label: 'Archivar contacto',
+            icon: Archive,
+            variant: 'destructive' as const,
+            separator: true,
+            onClick: () => setArchiving(row),
+          });
+        }
 
         return items;
       },
     }),
-    [openDetail, openEdit, firstCallEnabled, router],
+    [openDetail, openEdit, firstCallEnabled, router, isAdmin],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -854,18 +859,22 @@ export function ContactsDataTableClient({
         disabled: (rows) => rows.length !== 1 || rows[0].is_primary || rows[0].contact_status !== 'active',
         onClick: (rows) => handleSetPrimary(rows[0]),
       },
-      {
-        id: 'archive',
-        // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
-        scope: ['single'],
-        label: 'Archivar contacto',
-        icon: Archive,
-        variant: 'destructive',
-        disabled: (rows) => rows.length !== 1,
-        onClick: (rows) => setArchiving(rows[0]),
-      },
+      ...(isAdmin
+        ? [
+            {
+              id: 'archive',
+              // Solo tiene sentido sobre una fila: con varias marcadas sale de la barra.
+              scope: ['single'],
+              label: 'Archivar contacto',
+              icon: Archive,
+              variant: 'destructive',
+              disabled: (rows) => rows.length !== 1,
+              onClick: (rows) => setArchiving(rows[0]),
+            } satisfies DataTableBulkAction<Row>,
+          ]
+        : []),
     ],
-    [openDetail, openEdit, firstCallEnabled, router],
+    [openDetail, openEdit, firstCallEnabled, router, isAdmin],
   );
 
   // ── Vista de lista ────────────────────────────────────────────

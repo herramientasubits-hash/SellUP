@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { parseAgent2AInput } from '@/modules/contact-enrichment/agent2a-input';
 import { activeInternalUserIdForRoute } from '@/modules/contact-enrichment/route-auth.server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
+import { currentScopeUserIds } from '@/modules/access/record-scope.server';
 
 /**
  * Agente 2 · identificar la empresa (SellUp y HubSpot) antes de buscar contactos.
@@ -22,7 +23,10 @@ export async function POST(request: NextRequest) {
   }
   try {
     const input = parseAgent2AInput(await request.json().catch(() => null));
-    const data = await resolveCompanyForContactEnrichment(input);
+    // Sólo se ofrecen cuentas de SellUp propias o del equipo (en cascada); HubSpot no se filtra.
+    const data = await resolveCompanyForContactEnrichment(input, {
+      sellupScopeUserIds: await currentScopeUserIds(),
+    });
     return NextResponse.json({ success: true, data }, { headers: NO_STORE });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error buscando empresa';

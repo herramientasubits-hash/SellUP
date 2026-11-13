@@ -50,8 +50,9 @@
 // Lusha, el id de la corrida ni el de la reserva. En éxito devuelve CUÁNTOS números
 // adicionales se añadieron, y la UI recarga el resumen —que es quien muestra los números.
 
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
+import { canSeeContactCandidate } from './candidate-scope.server';
 import { isSearchMorePhonesEnabled } from '@/lib/feature-flags.server';
 import { readSearchMorePreflight } from './search-more-phones-read';
 import type { SearchMorePreflightSummary } from './search-more-phones-read';
@@ -99,36 +100,9 @@ export interface SearchMorePhonesActionResult {
  * `/login`, y un actor sin rol conocido llega como `null` y queda no autorizado por el
  * planificador.
  */
-async function resolveActorForSearchMore(): Promise<{
-  internalUserId: string;
-  roleKey: string | null;
-}> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase
-      .from('roles')
-      .select('key')
-      .eq('id', internalUser.role_id)
-      .single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-
-  return { internalUserId: internalUser.id, roleKey };
+async function resolveActorForSearchMore(): Promise<{ internalUserId: string; roleKey: string | null }> {
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 function cleanCandidateId(value: unknown): string {
@@ -168,6 +142,8 @@ export async function getSearchMorePhonesPreflightAction(input: {
   const actor = await resolveActorForSearchMore();
 
   try {
+    // Alcance en cascada: un candidato de otro equipo no ofrece el CTA (sin revelar nada).
+    if (!(await canSeeContactCandidate(await createClient(), candidateId))) return { status: 'unavailable' };
     const preflight = await readSearchMorePreflight({
       candidateId,
       // El permiso de PRODUCTO es el flag DEDICADO de este hito (AGENT2A-SEARCH-MORE-PHONES-1H):
@@ -223,6 +199,17 @@ export async function searchMoreCandidatePhonesAction(input: {
   }
 
   const actor = await resolveActorForSearchMore();
+
+  // Alcance en cascada: sólo candidatos propios o del equipo. Nunca se gasta en uno ajeno.
+  if (!(await canSeeContactCandidate(await createClient(), candidateId))) {
+    return {
+      outcome: 'not_started',
+      reason: 'out_of_scope',
+      newDistinctPhoneCount: 0,
+      lushaOutcome: null,
+      maxCreditsAuthorized: null,
+    };
+  }
 
   const result = await executeSearchMorePhonesForCandidate({ candidateId, actor });
 

@@ -264,6 +264,11 @@ export interface ReassignCandidateCompanyDeps {
     candidateId: string,
     metadata: Record<string, unknown>,
   ) => Promise<{ updated: boolean; error?: string }>;
+  /**
+   * ¿La cuenta DESTINO es de quien reasigna o de su equipo (en cascada)? Sin ella no se
+   * comprueba (pruebas antiguas); la acción real siempre la pasa.
+   */
+  isAccountInScope?: (accountId: string) => Promise<boolean>;
 }
 
 export type ReassignCandidateCompanyErrorCode =
@@ -272,6 +277,7 @@ export type ReassignCandidateCompanyErrorCode =
   | 'NOT_PENDING'
   | 'COMPANY_NOT_FOUND'
   | 'ACCOUNT_RESOLUTION_FAILED'
+  | 'ACCOUNT_OUT_OF_SCOPE'
   | 'WRITE_FAILED';
 
 export type ReassignCandidateCompanyResult =
@@ -285,6 +291,7 @@ export const REASSIGN_MSG: Record<ReassignCandidateCompanyErrorCode, string> = {
   COMPANY_NOT_FOUND:
     'No pudimos confirmar la empresa seleccionada en SellUp ni en HubSpot. Vuelve a buscarla.',
   ACCOUNT_RESOLUTION_FAILED: 'No fue posible vincular la empresa a una cuenta SellUp.',
+  ACCOUNT_OUT_OF_SCOPE: 'No tienes acceso a esa empresa: es de alguien fuera de tu equipo.',
   WRITE_FAILED: 'No fue posible guardar la nueva empresa del candidato.',
 };
 
@@ -344,6 +351,9 @@ export async function runReassignCandidateCompany(
     accountResolution = resolved.outcome;
   } else {
     return fail('COMPANY_NOT_FOUND');
+  }
+  if (deps.isAccountInScope && !(await deps.isAccountInScope(accountId))) {
+    return fail('ACCOUNT_OUT_OF_SCOPE');
   }
 
   const metadata = candidate.enrichment_metadata ?? {};

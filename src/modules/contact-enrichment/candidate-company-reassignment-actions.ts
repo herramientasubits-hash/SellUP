@@ -15,6 +15,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { canActOnAccount, currentScopeUserIds } from '@/modules/access/record-scope.server';
 import { resolveCompanyForContactEnrichment } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import {
   buildHubSpotAccountResolutionDeps,
@@ -88,6 +89,7 @@ export async function reassignContactCandidateCompanyAction(
           sel.source === 'sellup'
             ? { sellupAccountId: sel.sellupAccountId }
             : { hubspotCompanyId: sel.hubspotCompanyId },
+          { sellupScopeUserIds: await currentScopeUserIds() },
         );
         return pickReassignmentCompany(sel, resolution.candidates);
       },
@@ -109,6 +111,8 @@ export async function reassignContactCandidateCompanyAction(
         if (error) return { updated: false, error: error.message };
         return { updated: (data ?? []).length > 0 };
       },
+      // La empresa destino: sólo una de quien reasigna o de su equipo (en cascada).
+      isAccountInScope: (accountId) => canActOnAccount(accountId),
     });
 
     if (!result.ok) return { ok: false, error: result.error, code: result.code };

@@ -19,9 +19,9 @@
 // guarda, sin esperar a la aprobación: se completan sólo las propiedades VACÍAS del contacto que
 // ya existía (nunca sobrescribe). El teléfono lo envían los caminos que lo guardan.
 
-import { redirect } from 'next/navigation';
 import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { requireActiveActor } from './current-actor.server';
 import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { canSeeContactCandidate } from './candidate-scope.server';
@@ -48,26 +48,8 @@ function getServiceRoleClient() {
 
 /** Usuario interno activo + rol (mismo patrón que el reveal de teléfono). */
 async function resolveActor(): Promise<{ internalUserId: string; roleKey: string | null }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
-
-  const { data: internalUser } = await supabase
-    .from('internal_users')
-    .select('id, role_id')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .single();
-  if (!internalUser) redirect('/login');
-
-  let roleKey: string | null = null;
-  if (internalUser.role_id) {
-    const { data: role } = await supabase.from('roles').select('key').eq('id', internalUser.role_id).single();
-    roleKey = typeof role?.key === 'string' ? role.key : null;
-  }
-  return { internalUserId: internalUser.id, roleKey };
+  const { internalUserId, roleKey } = await requireActiveActor();
+  return { internalUserId, roleKey };
 }
 
 const CANDIDATE_SELECT = `id, status, source, source_contact_id, apollo_person_id, email, linkedin_url,

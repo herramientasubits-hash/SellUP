@@ -1,7 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
+import { resolveCurrentActor } from '@/modules/contact-enrichment/current-actor.server';
 import {
   diagnoseLushaCredentialResolution,
   diagnoseLushaExecutionPreflight,
@@ -13,20 +12,26 @@ export type DiagnoseLushaCredentialsActionResult =
   | { ok: true; diagnostic: LushaCredentialDiagnosticResult }
   | { ok: false; error: string };
 
+const ADMIN_ONLY_ERROR = 'Sólo un administrador puede usar el diagnóstico de Lusha.';
+
+/** Administrador ACTIVO (respeta «Ver como…»). `null` si no lo es. */
+async function requireActiveAdminId(): Promise<string | null> {
+  const actor = await resolveCurrentActor();
+  return actor && actor.active && actor.isAdmin ? actor.internalUserId : null;
+}
+
 /**
  * Server action controlada para diagnóstico seguro de credenciales Lusha.
- * Requiere usuario autenticado. No llama Lusha. No crea candidatos ni contactos.
+ * Requiere administrador activo. No llama Lusha. No crea candidatos ni contactos.
  */
 export async function diagnoseLushaCredentialsAction(): Promise<DiagnoseLushaCredentialsActionResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  const internalUserId = await requireActiveAdminId();
+  if (!internalUserId) return { ok: false, error: ADMIN_ONLY_ERROR };
 
   try {
     const diagnostic = await diagnoseLushaCredentialResolution({
-      triggeredBy: user.id,
+      // El id INTERNO (internal_users.id), no el de autenticación.
+      triggeredBy: internalUserId,
       source: 'manual_debug',
     });
 
@@ -59,11 +64,7 @@ export type DiagnoseLushaPreflightActionResult =
  * No consume créditos. No crea runs. No crea candidatos. No crea usage logs.
  */
 export async function diagnoseLushaExecutionPreflightAction(): Promise<DiagnoseLushaPreflightActionResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  if (!(await requireActiveAdminId())) return { ok: false, error: ADMIN_ONLY_ERROR };
 
   try {
     const preflight = await diagnoseLushaExecutionPreflight();
