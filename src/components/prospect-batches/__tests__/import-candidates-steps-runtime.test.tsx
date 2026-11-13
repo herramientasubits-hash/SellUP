@@ -185,16 +185,6 @@ function inputStep(overrides: Record<string, unknown> = {}) {
   const props = {
     countryCode: '',
     onCountryChange: () => {},
-    industryId: '',
-    onIndustryChange: () => {},
-    industryOptions: [{ value: 'i1', label: 'Tecnología' }],
-    subindustriesEnabled: false,
-    subindustryId: '',
-    onSubindustryChange: () => {},
-    subindustryOptions: [],
-    subindustryCountryWarning: false,
-    catalogReady: true,
-    catalogEmpty: false,
     catalogLoading: false,
     catalogError: null,
     onRetryCatalog: () => {
@@ -221,6 +211,12 @@ function inputStep(overrides: Record<string, unknown> = {}) {
 }
 
 describe('paso de entrada — subir archivo', () => {
+  it('sin «Industria por defecto» (dueña 13-11): la industria es la de cada fila y la IA completa las vacías', () => {
+    inputStep();
+    assert.equal(screen.queryByText('Industria por defecto'), null);
+    assert.ok(screen.getByText('Se toma la de cada fila del archivo. Las filas sin industria la reciben de la IA después de importar.'));
+  });
+
   it('ofrece la zona para arrastrar o elegir, con los límites a la vista', () => {
     inputStep();
     assert.ok(screen.getByText('Arrastra el archivo aquí o haz clic para elegirlo'));
