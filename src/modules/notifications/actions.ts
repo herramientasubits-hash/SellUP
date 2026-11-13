@@ -1,11 +1,16 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
+import { hasActiveAccess } from '@/modules/access/actions';
 import type { UserNotification, NotificationFilter } from './types';
+
+// La campanita es sólo para personas con acceso activo (pendientes y
+// suspendidas no leen ni marcan avisos).
 
 export async function getMyNotifications(
   filter: NotificationFilter = 'all'
 ): Promise<UserNotification[]> {
+  if (!(await hasActiveAccess())) return [];
   const supabase = await createClient();
 
   let query = supabase
@@ -26,6 +31,7 @@ export async function getMyNotifications(
 }
 
 export async function getMyUnreadCount(): Promise<number> {
+  if (!(await hasActiveAccess())) return 0;
   const supabase = await createClient();
 
   const { count, error } = await supabase
@@ -38,6 +44,7 @@ export async function getMyUnreadCount(): Promise<number> {
 }
 
 export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  if (!(await hasActiveAccess())) return;
   const supabase = await createClient();
   await supabase
     .from('user_notifications')
@@ -46,6 +53,7 @@ export async function markNotificationAsRead(notificationId: string): Promise<vo
 }
 
 export async function markAllMyNotificationsAsRead(): Promise<void> {
+  if (!(await hasActiveAccess())) return;
   const supabase = await createClient();
   await supabase
     .from('user_notifications')

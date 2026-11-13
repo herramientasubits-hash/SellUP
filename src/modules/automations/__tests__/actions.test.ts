@@ -94,6 +94,10 @@ let currentAdminResponse: unknown = { data: [], error: null };
 let shouldThrowUnsafeEnv = false;
 
 before(() => {
+  // Los get* exigen administración (isCurrentUserAdmin); aquí se prueba la lectura.
+  mock.module('@/modules/access/actions', {
+    namedExports: { isCurrentUserAdmin: async () => true },
+  });
   mock.module('@/lib/supabase/admin', {
     namedExports: {
       createSupabaseAdminClient: () => {

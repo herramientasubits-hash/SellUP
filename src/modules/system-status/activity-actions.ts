@@ -1,6 +1,5 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
@@ -81,24 +80,13 @@ async function fetchUsersMap(
 
 // ─── Helper: get current internal user + hierarchy ───────────────
 
-async function resolveCurrentUser(admin: ReturnType<typeof getAdminClient>) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await admin
-    .from('internal_users')
-    .select('id, role_id, roles(key)')
-    .eq('auth_user_id', user.id)
-    .eq('access_status', 'active')
-    .maybeSingle();
-
-  if (!data) return null;
-
-  const roleKey = (data.roles as unknown as { key: string } | null)?.key ?? null;
-  return { id: data.id as string, roleKey };
+// «Ver como…»: resolveCommercialScope ya devuelve a la persona que se está
+// probando (su id, su rol y su lugar en el organigrama), así Actividad muestra
+// lo que vería ella. Antes se leía la identidad real y se saltaba la vista previa.
+async function resolveCurrentUser(): Promise<{ id: string; roleKey: string | null } | null> {
+  const scope = await resolveCommercialScope();
+  if (!scope) return null;
+  return { id: scope.currentUserId, roleKey: scope.currentUserRole };
 }
 
 /**
@@ -130,7 +118,7 @@ async function resolveActivityOtherIds(
 
 export async function getActivityViewerContext(): Promise<ActivityViewerContext | null> {
   const admin = getAdminClient();
-  const current = await resolveCurrentUser(admin);
+  const current = await resolveCurrentUser();
   if (!current) return null;
 
   const otherIds = await resolveActivityOtherIds(admin, current);
@@ -183,7 +171,7 @@ export async function getPlatformActivity(
   filter: PlatformActivityFilter = {},
 ): Promise<PlatformActivityResult> {
   const admin = getAdminClient();
-  const current = await resolveCurrentUser(admin);
+  const current = await resolveCurrentUser();
   if (!current) return { events: [], hasMore: false };
 
   // Build allowed ID set (null = no restriction for admin) — same rule as the viewer context.

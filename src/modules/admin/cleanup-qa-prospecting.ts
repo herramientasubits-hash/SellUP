@@ -16,6 +16,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 
 // ── Tipos públicos ────────────────────────────────────────────
 
@@ -88,8 +89,8 @@ async function requireAdmin(): Promise<{ ok: true } | { ok: false; error: string
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: 'No autenticado.' };
 
-  const { data: isAdmin } = await supabase.rpc('is_admin', { p_auth_user_id: user.id });
-  if (!isAdmin) return { ok: false, error: 'Se requiere rol admin.' };
+  // isCurrentUserAdmin respeta «Ver como…» (el RPC directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { ok: false, error: 'Se requiere rol admin.' };
 
   return { ok: true };
 }

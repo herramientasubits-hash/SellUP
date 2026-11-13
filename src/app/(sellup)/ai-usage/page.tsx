@@ -398,9 +398,12 @@ export default async function AIUsagePage({ searchParams }: PageProps) {
 
         <TabsContent value="detalle" className="space-y-6">
           <RecentActivitySection logs={recentLogs} limit={RECENT_LOGS_LIMIT} showMoney={moneyVisible} />
-          <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
-            <PhoneSuppressionNotEvaluablePanel />
-          </Suspense>
+          {/* Monitoreo técnico de teléfonos: sólo administración (su lectura es de admin). */}
+          {viewerIsAdmin ? (
+            <Suspense fallback={<PhoneSuppressionNotEvaluablePanelSkeleton />}>
+              <PhoneSuppressionNotEvaluablePanel />
+            </Suspense>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="mapa-de-uso" className="space-y-6">

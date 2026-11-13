@@ -7,7 +7,7 @@
 import 'server-only';
 import { resolvePeriodStart } from '@/modules/ai-usage/usage-filter-semantics';
 import { clampToVisibleSince } from '@/lib/visible-since';
-import type { UsageFilters } from '@/modules/ai-usage/queries';
+import { resolveUsagePeopleScope, type UsageFilters } from '@/modules/ai-usage/queries';
 import { buildApproachResultsDashboard, type ApproachResultsDashboard } from '@/server/agents/first-call/approach-results';
 import { readApproachResults } from '@/server/agents/first-call/approach-results.server';
 
@@ -21,7 +21,17 @@ export async function getAgent3ResultsDashboard(
     // «Todo» es todo; sin periodo elegido, el último año (como lo que aprende el redactor).
     const requested = filters.period === 'all' ? new Date(0).toISOString() : resolvePeriodStart(filters.period) ?? undefined;
     const sinceIso = clampToVisibleSince(requested) ?? undefined;
-    const { rows, truncated } = await readApproachResults({ sinceIso, countryCode: filters.country ?? null });
+    // Sólo las preparaciones de las personas que el que mira puede ver
+    // (admin: todas; manager/líder: su equipo en cascada).
+    const people = await resolveUsagePeopleScope({ period: filters.period, country: filters.country });
+    if (people === 'denied' || (Array.isArray(people) && people.length === 0)) {
+      return { status: 'ok', dashboard: buildApproachResultsDashboard([], countryLabel, false) };
+    }
+    const { rows, truncated } = await readApproachResults({
+      sinceIso,
+      countryCode: filters.country ?? null,
+      createdByIds: people ?? undefined,
+    });
     return { status: 'ok', dashboard: buildApproachResultsDashboard(rows, countryLabel, truncated) };
   } catch (err) {
     console.error('[agent3] results dashboard failed:', err instanceof Error ? err.message : err);

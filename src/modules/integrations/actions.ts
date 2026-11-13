@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { isCurrentUserAdmin } from '@/modules/access/actions';
 import {
   storeHubSpotCredential,
   removeHubSpotCredential,
@@ -58,20 +59,15 @@ async function getAdminInternalUserId(supabase: Awaited<ReturnType<typeof create
 
   const { data: internalUser } = await supabase
     .from('internal_users')
-    .select('id, role_id')
+    .select('id')
     .eq('auth_user_id', user.id)
     .eq('access_status', 'active')
     .single();
 
   if (!internalUser) return { id: null, error: 'Usuario no encontrado o inactivo' };
 
-  const { data: role } = await supabase
-    .from('roles')
-    .select('key')
-    .eq('id', internalUser.role_id)
-    .single();
-
-  if (role?.key !== 'admin') return { id: null, error: 'No autorizado' };
+  // isCurrentUserAdmin respeta «Ver como…» (leer el rol directo se lo saltaba).
+  if (!(await isCurrentUserAdmin())) return { id: null, error: 'No autorizado' };
 
   return { id: internalUser.id };
 }
@@ -96,6 +92,8 @@ async function logAuditEvent(
 // ============================================================
 
 export async function getAllIntegrations(): Promise<IntegrationWithConnection[]> {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return [];
   const admin = createSupabaseAdminClient();
 
   const { data: integrations } = await admin
@@ -119,6 +117,8 @@ export async function getAllIntegrations(): Promise<IntegrationWithConnection[]>
 }
 
 export async function getHubSpotIntegration(): Promise<IntegrationWithConnection | null> {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
@@ -400,6 +400,8 @@ export async function disconnectHubSpot(): Promise<{
 // ============================================================
 
 export async function getSlackIntegration(): Promise<IntegrationWithConnection | null> {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
@@ -695,6 +697,8 @@ export async function disconnectSlack(): Promise<{
 // ============================================================
 
 export async function getSamuIntegration(): Promise<IntegrationWithConnection | null> {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
@@ -970,6 +974,8 @@ export async function disconnectSamu(): Promise<{
 // ============================================================
 
 export async function getTavilyIntegration(): Promise<IntegrationWithConnection | null> {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin
@@ -1293,6 +1299,8 @@ export async function configureSlackOAuthApp(
 export async function getGoogleCSEIntegration(): Promise<
   (IntegrationWithConnection & { cx_masked?: string }) | null
 > {
+  // Configuración de integraciones: sólo administración.
+  if (!(await isCurrentUserAdmin())) return null;
   const admin = createSupabaseAdminClient();
 
   const { data: integration } = await admin

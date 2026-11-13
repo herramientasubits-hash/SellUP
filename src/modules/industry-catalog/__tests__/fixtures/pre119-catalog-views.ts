@@ -276,6 +276,9 @@ export function createCatalogSupabaseStub(
         error: null,
       }),
     },
+    // validateExploratorySearch exige acceso activo (hasActiveAccess → RPC).
+    rpc: async (fn: string) =>
+      fn === 'has_active_access' ? { data: true, error: null } : { data: null, error: null },
     from(table: string) {
       const response = fixture[table as keyof CatalogViewFixture];
       if (!response) {

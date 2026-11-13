@@ -9,6 +9,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { readRolePreview } from '@/modules/access/role-preview.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { randomBytes } from 'crypto';
 import { getSlackOAuthConfig } from '@/server/services/slack-connection';
@@ -43,7 +44,8 @@ async function getAdminInternalUserId(
     .eq('id', internalUser.role_id)
     .single();
 
-  if (role?.key !== 'admin') return null;
+  // «Ver como…» activo ⇒ no es administración (como isCurrentUserAdmin).
+  if (role?.key !== 'admin' || (await readRolePreview())) return null;
 
   return internalUser.id;
 }

@@ -123,6 +123,11 @@ function makeSessionClient() {
     auth: {
       getUser: async () => ({ data: { user: mockAuthUser }, error: null }),
     },
+    // isCurrentUserAdmin (access/actions) pregunta por RPC is_admin.
+    rpc: async (fn: string) =>
+      fn === 'is_admin'
+        ? { data: Boolean(mockAuthUser && mockInternalUser && mockRole?.key === 'admin'), error: null }
+        : { data: null, error: null },
     from(table: string) {
       sessionFromCalls[table] = (sessionFromCalls[table] ?? 0) + 1;
       const builder = {
