@@ -50,6 +50,7 @@ import {
   countryName,
 } from '@/components/shared/table-cells';
 import { PROSPECTOS_DISCARDED_TAB_ROUTE } from '@/config/navigation';
+import { describeDiscardReason } from '@/modules/prospect-discards/discard-reason-labels';
 import {
   COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
   COMPETITOR_SMALL_STATUS_LABEL,
@@ -360,17 +361,19 @@ export function DiscardedProspectsDataTableClient({
           const createdAt = row.original.createdAt;
           const isNew = createdAt ? isProspectCreatedToday(createdAt) : false;
           return (
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               {createdAt ? (
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
                   {formatProspectDate(createdAt)}
                 </span>
               ) : (
                 <EmptyCell label="Sin fecha" />
               )}
               {isNew && (
-                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
-                  Nuevo
+                // Si la columna es angosta, «Nuevo» se recorta con «…» y el tooltip global
+                // de texto recortado muestra la palabra completa (QA dueña 13-11).
+                <Badge variant="success" className="min-w-0 max-w-full shrink">
+                  <span className="truncate">Nuevo</span>
                 </Badge>
               )}
             </div>
@@ -397,7 +400,7 @@ export function DiscardedProspectsDataTableClient({
         header: ({ column }) => <DataTableColumnHeader column={column} title="Motivo" />,
         // Un solo chip de color por fila (el estado): el motivo va en texto.
         cell: ({ row }) => {
-          const reason = DISCARD_DISPOSITION_LABELS[row.original.disposition] ?? 'Otro motivo';
+          const reason = describeDiscardReason(row.original);
           return (
             <span className="block truncate text-xs text-foreground" title={reason}>
               {reason}
@@ -593,7 +596,7 @@ export function DiscardedProspectsDataTableClient({
             </RowTitleButton>
           }
           description={[
-            DISCARD_DISPOSITION_LABELS[item.disposition] ?? 'Otro motivo',
+            describeDiscardReason(item),
             countryName(item.countryCode),
             item.domain,
           ]

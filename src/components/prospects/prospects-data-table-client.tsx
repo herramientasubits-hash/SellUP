@@ -577,17 +577,19 @@ export function ProspectsDataTableClient({
           const c = row.original;
           const isNew = c.created_at ? isProspectCreatedToday(c.created_at) : false;
           return (
-            <div className="flex items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               {c.created_at ? (
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap">
                   {formatProspectDate(c.created_at)}
                 </span>
               ) : (
                 <EmptyCell label="Sin fecha" />
               )}
               {isNew && (
-                <Badge className="border-0 bg-success/10 text-success text-xs font-semibold px-1.5 py-0.5 shrink-0">
-                  Nuevo
+                // Si la columna es angosta, «Nuevo» se recorta con «…» y el tooltip global
+                // de texto recortado muestra la palabra completa (QA dueña 13-11).
+                <Badge variant="success" className="min-w-0 max-w-full shrink">
+                  <span className="truncate">Nuevo</span>
                 </Badge>
               )}
             </div>
