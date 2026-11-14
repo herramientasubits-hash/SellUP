@@ -22,7 +22,17 @@
  * El cliente se INYECTA y DEBE ser el administrativo (`service_role`): las tres
  * funciones y la tabla no admiten a `authenticated`.
  *
- * No llama a ningún proveedor, no lee un flag, no decide dedupe, no toca presupuesto.
+ * No llama a ningún proveedor, no lee un flag, no toca presupuesto.
+ *
+ * ── Única excepción de dedupe: la misma web con otra clave (dueña 14-11) ───────
+ *
+ * La 142 sólo ve choques de la MISMA clave. Una empresa guardada por su web
+ * (`claim_domain`, sin RUT) y luego por su RUT (`claim_fiscal`, que no reclama la web)
+ * entraba dos veces: Prod 14-11, Coca-Cola Embonor. Antes de enviar, se cruza la web
+ * de cada fila con las activas del banco (`banked`/`reserved`), con la regla de los
+ * reclamos globales (152): misma web = misma empresa, SALVO que las dos tengan RUT y
+ * sea distinto (filiales de un grupo). Las que chocan cuentan como `skippedInBank`.
+ * Si la lectura falla, se deposita como antes (la 142 sigue cuidando cada clave).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -161,12 +171,92 @@ function parseDrawn(row: unknown): CompanyBankDrawnCompany | null {
   };
 }
 
+type Obj = Record<string, unknown>;
+const asObj = (v: unknown): Obj | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : null);
+const asStr = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
+/** La web y el RUT con que se identifica una fila del banco (claves o payload). */
+export function bankItemIdentity(item: Pick<CompanyBankDepositItem, 'claims' | 'payload'>): {
+  domain: string | null;
+  fiscal: string | null;
+} {
+  const claim = (type: string) => asStr(item.claims.find((c) => c.type === type)?.key);
+  const payload = asObj(item.payload);
+  const domain =
+    claim('domain') ?? asStr(asObj(payload?.candidate)?.domain) ?? asStr(asObj(payload?.evidence)?.domain);
+  return { domain: domain ? domain.toLowerCase().replace(/^www\./, '') : null, fiscal: claim('fiscal') };
+}
+
+/** Misma web ⇒ misma empresa, salvo dos RUT distintos (filiales de un grupo). */
+export function isSameCompanyByDomain(fiscalA: string | null, fiscalB: string | null): boolean {
+  return !(fiscalA && fiscalB && fiscalA !== fiscalB);
+}
+
+type ActiveByDomain = Map<string, Array<string | null>>;
+
+/** Las filas activas del banco con alguna de estas webs: web → RUTs. `null` si falla la lectura. */
+async function loadActiveByDomain(client: SupabaseClient, domains: readonly string[]): Promise<ActiveByDomain | null> {
+  if (domains.length === 0) return new Map();
+  const list = domains.map((d) => `"${d.replace(/"/g, '')}"`).join(',');
+  try {
+    const { data, error } = await client
+      .from('agent1_company_bank')
+      .select('claim_fiscal, claim_domain, cd:payload->candidate->>domain, ed:payload->evidence->>domain')
+      .in('status', ['banked', 'reserved'])
+      .or(`claim_domain.in.(${list}),payload->candidate->>domain.in.(${list}),payload->evidence->>domain.in.(${list})`);
+    if (error) {
+      console.error('[company-bank] domain cross-check skipped:', reasonOf(error));
+      return null;
+    }
+    const byDomain: ActiveByDomain = new Map();
+    for (const row of (data ?? []) as Obj[]) {
+      const fiscal = asStr(row.claim_fiscal);
+      for (const raw of [row.claim_domain, row.cd, row.ed]) {
+        const domain = asStr(raw)?.toLowerCase().replace(/^www\./, '');
+        if (domain) byDomain.set(domain, [...(byDomain.get(domain) ?? []), fiscal]);
+      }
+    }
+    return byDomain;
+  } catch (error) {
+    console.error('[company-bank] domain cross-check skipped:', reasonOf(error));
+    return null;
+  }
+}
+
+/**
+ * Separa lo que ya está en el banco con OTRA clave (misma web) de lo que se envía.
+ * También dentro del mismo depósito: la segunda fila de la misma empresa no se envía.
+ */
+export function splitSameDomainDuplicates(
+  items: readonly CompanyBankDepositItem[],
+  active: ActiveByDomain,
+): { send: CompanyBankDepositItem[]; duplicates: number } {
+  const seen: ActiveByDomain = new Map(active);
+  const send: CompanyBankDepositItem[] = [];
+  let duplicates = 0;
+  for (const item of items) {
+    const { domain, fiscal } = bankItemIdentity(item);
+    if (domain && (seen.get(domain) ?? []).some((other) => isSameCompanyByDomain(fiscal, other))) {
+      duplicates++;
+      continue;
+    }
+    if (domain) seen.set(domain, [...(seen.get(domain) ?? []), fiscal]);
+    send.push(item);
+  }
+  return { send, duplicates };
+}
+
 export function createCompanyBankStore(client: SupabaseClient): CompanyBankStore {
   return {
     async deposit(items) {
-      const wellFormed = items.filter(isDepositItemWellFormed);
-      const dropped = items.length - wellFormed.length;
-      const total = { deposited: 0, skippedClaimed: 0, skippedInBank: 0, skippedInvalid: dropped };
+      const formed = items.filter(isDepositItemWellFormed);
+      const dropped = items.length - formed.length;
+      const domains = [...new Set(formed.map((i) => bankItemIdentity(i).domain).filter((d): d is string => !!d))];
+      const active = await loadActiveByDomain(client, domains);
+      const { send: wellFormed, duplicates } = active
+        ? splitSameDomainDuplicates(formed, active)
+        : { send: formed, duplicates: 0 };
+      const total = { deposited: 0, skippedClaimed: 0, skippedInBank: duplicates, skippedInvalid: dropped };
       if (wellFormed.length === 0) return { status: 'ok', ...total };
 
       for (let i = 0; i < wellFormed.length; i += COMPANY_BANK_DEPOSIT_CHUNK) {
