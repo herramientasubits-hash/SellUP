@@ -4,6 +4,8 @@
  * Sin red ni base de datos: Claude, Supabase y los reclamos son dobles.
  */
 
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
 import { officialSizeSignal } from '../official-size-signal';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -1016,7 +1018,7 @@ describe('K. tope de entrega: la IA revisa todo, lo que no cabe va al banco', ()
     assert.equal(s.dispositionsBanked, 2);
   });
 
-  it('lo que la IA no confirma se queda en Descartadas y no va al banco', async () => {
+  it('lo que la IA no confirma (sin industria del catálogo) se queda en Descartadas y no va al banco', async () => {
     const banked: unknown[] = [];
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
@@ -1024,7 +1026,11 @@ describe('K. tope de entrega: la IA revisa todo, lo que no cabe va al banco', ()
       deliverySlots: async () => 0,
       classify: async (company) =>
         company.candidateId === 'd1'
-          ? result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null })
+          ? result({
+              candidateId: company.candidateId,
+              sector: { ...result().sector!, industryId: null as unknown as string, matchesCurrentIndustry: false },
+              employeeRange: null,
+            })
           : result({ candidateId: company.candidateId }),
       ...bankDeps(banked),
     });
@@ -1055,5 +1061,74 @@ describe('K. tope de entrega: la IA revisa todo, lo que no cabe va al banco', ()
       assert.equal(s.ok && s.dispositionsAdmitted, 3);
       assert.equal(s.ok && s.dispositionsCapped, 0);
     }
+  });
+});
+
+
+// ─── L. Dueña 14-11 — de otro sector pero viable: al banco con SU industria ───
+
+describe('L. otro sector y viable ⇒ banco, no Descartadas', () => {
+  const RETAIL = 'Retail';
+  const otherSector = (candidateId?: string | null) =>
+    result({
+      candidateId: candidateId ?? 'x',
+      sector: { ...result().sector!, industryId: 'retail', industryName: RETAIL, matchesCurrentIndustry: false, quote: 'Cadena de supermercados' },
+      employeeRange: null,
+    });
+
+  it('descartada de otro sector sin tamaño confirmado: al banco con la macro de su industria', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition()],
+      classify: async (company) => otherSector(company.candidateId),
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'health', industryName: SALUD }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsBanked, 1);
+    assert.equal(f.admitted.length, 0);
+    assert.equal(banked[0]?.macroIndustryKey, resolveMacroIndustryKey({ slug: null, displayName: RETAIL }));
+    assert.equal(banked[0]?.tier, 'to_complete');
+    const mark = (f.evidenceWrites.at(-1)?.evidence as Record<string, Record<string, unknown>>).claude_rescue;
+    assert.equal(mark.banked, true);
+    assert.equal(mark.decision, 'discard', 'queda registrado el descarte de la IA');
+  });
+
+  it('un medio de comunicación no va al banco', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition()],
+      classify: async (company) =>
+        result({
+          candidateId: company.candidateId,
+          sector: { ...otherSector().sector!, quote: 'Diario de mayor circulación del país' },
+          employeeRange: null,
+        }),
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'health', industryName: SALUD }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsBanked, 0);
+    assert.equal(banked.length, 0);
+  });
+
+  it('candidata en revisión que la IA descarta por sector: sale de revisión y va al banco', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const marked: string[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [candidate({ metadata: NO_SIZE_GATE })],
+      loadDispositions: async () => [],
+      classify: async (company) => ({ ...otherSector(company.candidateId), sector: { ...otherSector().sector!, confidence: 0.95 } }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+      patchDiscardedCandidate: async (id, build) => (build({}) ? (marked.push(id), true) : false),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(banked.length, 1, 'la candidata descartada por sector va al banco');
+    assert.equal(banked[0]?.macroIndustryKey, resolveMacroIndustryKey({ slug: null, displayName: RETAIL }));
+    assert.deepEqual(marked, ['c1']);
   });
 });

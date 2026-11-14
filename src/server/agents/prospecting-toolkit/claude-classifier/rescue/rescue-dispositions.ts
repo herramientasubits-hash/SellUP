@@ -50,6 +50,10 @@ export const RESCUABLE_DISPOSITION_REASON_CODES = [
   'sub_industry_branch_parent_only',
   'enrichment_budget_exhausted_final',
   'sector_subindustry_rejected_final',
+  // Dueña 14-11 — el proveedor la declaró de otra industria: la IA lo comprueba. Si es de
+  // la pedida, vuelve; si es de otra y es viable, va al banco con su industria.
+  'excluding_industry_declared',
+  'declared_industry_outside_macro',
 ] as const;
 
 export type RescuableDispositionRow = {

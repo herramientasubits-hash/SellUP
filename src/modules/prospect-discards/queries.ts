@@ -93,6 +93,12 @@ function dispositionToItem(
   };
 }
 
+/** ¿El rescate de la IA la guardó en el banco? (`claude_rescue.banked`) */
+export function isBankedByRescue(metadata: unknown): boolean {
+  const rescue = (metadata as { claude_rescue?: { banked?: unknown } } | null | undefined)?.claude_rescue;
+  return rescue?.banked === true;
+}
+
 /** A manually-discarded `prospect_candidates` row, normalized to the same shape. */
 function readClaudeRescueDiscard(metadata: Record<string, unknown> | null | undefined): {
   disposition: DiscardDispositionCode;
@@ -249,11 +255,15 @@ export async function getDiscardedProspectsList(
       limit,
       offset: 0,
     });
-    candidateItems = candidates.map((c) =>
-      candidateToItem(
-        c as unknown as Parameters<typeof candidateToItem>[0],
-      ),
-    );
+    candidateItems = candidates
+      // Dueña 14-11 — la que la IA sacó por ser de otra industria y guardó en el banco
+      // no es una descartada: espera en el banco para quien busque esa industria.
+      .filter((c) => !isBankedByRescue((c as { metadata?: unknown }).metadata))
+      .map((c) =>
+        candidateToItem(
+          c as unknown as Parameters<typeof candidateToItem>[0],
+        ),
+      );
   }
 
   // ── Source C: importados que quedaron `duplicate` (AGENT1-IMPORT-DUPLICATES-VISIBLE-1)

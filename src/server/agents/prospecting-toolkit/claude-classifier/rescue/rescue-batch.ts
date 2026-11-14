@@ -46,7 +46,13 @@ import {
   type ParentGroupWebsite,
   type PriorDomainSearchRow,
 } from './domain-search';
-import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard, type RescueDecision } from './rescue-decision';
+import {
+  decideRescue,
+  DEFAULT_ICP_MIN_EMPLOYEES,
+  storedSmallSizeDiscard,
+  viableInOtherIndustry,
+  type RescueDecision,
+} from './rescue-decision';
 import { BANKED_MARKER, buildDispositionBankItem } from './rescue-bank';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
@@ -183,6 +189,8 @@ export type RescueBatchDeps = {
    */
   loadBatchBankTarget?: (batchId: string) => Promise<{ macroIndustryKey: string | null; industryName: string | null }>;
   depositToBank?: (item: CompanyBankDepositItem) => Promise<'deposited' | 'already_in_bank' | 'claimed' | 'failed'>;
+  /** Igual que `patchCandidate`, sobre una candidata ya `discarded` (marca de banco). */
+  patchDiscardedCandidate?: RescueBatchDeps['patchCandidate'];
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
   claimIdentities: (batchId: string, candidateIds: readonly string[]) => Promise<void>;
   /**
@@ -581,7 +589,19 @@ async function rescueCandidate(
   const cost = result.usage?.estimatedCostUsd ?? 0;
   if (!saved) return { tag: 'failed', cost };
   if (decision.kind === 'admit' && identity) ctx.fiscalIdentityCandidateIds?.push(row.id);
-  if (decision.kind === 'discard') return { tag: 'discarded', cost };
+  if (decision.kind === 'discard') {
+    // Dueña 14-11 — de otra industria y viable: además de salir de revisión, al banco.
+    const elsewhere = viableInOtherIndustry(result, decision, {
+      icpMinEmployees: minEmployees,
+      requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
+      sizeAlreadyConfirmed: official.measured || sizeAlreadyConfirmed(row.metadata),
+      sizePassedIcpGate: icpGatePassed(row.metadata),
+    });
+    if (elsewhere && (await bankDiscardedCandidate(row, ctx, deps, { result, decision: elsewhere, decidedAt }))) {
+      return { tag: 'banked', cost };
+    }
+    return { tag: 'discarded', cost };
+  }
   if (decision.kind === 'reassign') return { tag: 'reassigned', cost };
   if (decision.kind === 'admit') return { tag: 'completed', cost };
   return { tag: 'unchanged', cost };
@@ -1088,6 +1108,16 @@ async function rescueDisposition(
   if (decision.kind === 'reassign' && ctx.deliveryCapped) {
     return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
+  // Dueña 14-11 — de otra industria sin tamaño confirmado: no entra a revisión, pero es
+  // viable para quien busque esa industria ⇒ al banco con su industria (no a Descartadas).
+  const elsewhere = viableInOtherIndustry(result, decision, {
+    icpMinEmployees: official.minEmployees,
+    requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
+    ...(official.measured ? { sizeAlreadyConfirmed: true, officialSizeMeasured: true } : {}),
+  });
+  if (elsewhere) {
+    return bankOverCapDisposition(row, ctx, deps, { result, decision: elsewhere, recorded: decision, decidedAt, cost, withFound });
+  }
   if (goesBack) {
     const baseOrigin =
       decision.kind === 'reassign'
@@ -1161,6 +1191,8 @@ async function bankOverCapDisposition(
   verdict: {
     result: CompanyClassificationResult;
     decision: Extract<RescueDecision, { kind: 'admit' } | { kind: 'reassign' }>;
+    /** La decisión que queda registrada en la fila, si no es la misma (descarte por sector). */
+    recorded?: RescueDecision;
     decidedAt: string;
     cost: number;
     withFound: (evidence: Record<string, unknown> | null) => Record<string, unknown> | null;
@@ -1187,19 +1219,78 @@ async function bankOverCapDisposition(
   const outcome = item && deps.depositToBank ? await deps.depositToBank(item).catch(() => 'failed' as const) : 'failed';
   const banked = outcome === 'deposited' || outcome === 'already_in_bank';
   const saved = await deps.patchDispositionEvidence(row.id, (evidence) => {
-    const stays = buildDispositionStaysEvidence(withFound(evidence), result, decision, decidedAt);
+    const stays = buildDispositionStaysEvidence(withFound(evidence), result, verdict.recorded ?? decision, decidedAt);
     const rescue = stays[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
     return {
       ...stays,
       [CLAUDE_RESCUE_METADATA_KEY]: {
         ...(rescue ?? {}),
-        over_delivery_cap: true,
+        ...(reassigned ? { banked_industry_name: decision.industryName } : {}),
+        over_delivery_cap: verdict.recorded === undefined,
         ...(banked ? { [BANKED_MARKER]: true, banked_at: decidedAt } : { bank_outcome: outcome }),
       },
     };
   });
   if (!saved) return { tag: 'failed', cost };
   return { tag: banked ? 'banked' : 'kept', cost };
+}
+
+/**
+ * Dueña 14-11 — candidata que la IA sacó de revisión por ser de OTRA industria, pero
+ * viable para esa industria: al banco con su macro. El descarte ya liberó su reclamo
+ * (disparador de la 140); si otro vendedor la tiene, el banco no la acepta y queda en
+ * Descartadas como antes. `true` = guardada (y marcada para salir de Descartadas).
+ */
+async function bankDiscardedCandidate(
+  row: ClassifiableCandidateRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  verdict: {
+    result: CompanyClassificationResult;
+    decision: Extract<RescueDecision, { kind: 'reassign' }>;
+    decidedAt: string;
+  },
+): Promise<boolean> {
+  if (!deps.depositToBank || !deps.patchDiscardedCandidate || !row.name) return false;
+  const markBanked = deps.patchDiscardedCandidate;
+  const item = buildDispositionBankItem({
+    row: {
+      id: row.id,
+      batch_id: ctx.batchId,
+      candidate_id: row.id,
+      status: 'discarded',
+      name: row.name,
+      domain: row.domain,
+      country_code: row.country_code,
+      industry: row.industry ?? null,
+      reason_code: 'claude_sector_mismatch',
+      evidence: null,
+      provider_identifier: row.tax_identifier ? `tax:${row.tax_identifier}` : null,
+      source_primary: row.source_primary ?? null,
+    },
+    result: verdict.result,
+    decision: verdict.decision,
+    macroIndustryKey: resolveMacroIndustryKey({ slug: null, displayName: verdict.decision.industryName }),
+    industryName: verdict.decision.industryName,
+    decidedAt: verdict.decidedAt,
+  });
+  if (!item) return false;
+  const outcome = await deps.depositToBank(item).catch(() => 'failed' as const);
+  if (outcome !== 'deposited' && outcome !== 'already_in_bank') return false;
+  return markBanked(row.id, (metadata) => {
+    const rescue = (metadata?.[CLAUDE_RESCUE_METADATA_KEY] ?? {}) as Record<string, unknown>;
+    return {
+      metadata: {
+        ...(metadata ?? {}),
+        [CLAUDE_RESCUE_METADATA_KEY]: {
+          ...rescue,
+          [BANKED_MARKER]: true,
+          banked_at: verdict.decidedAt,
+          banked_industry_name: verdict.decision.industryName,
+        },
+      },
+    };
+  });
 }
 
 /** Marca final en la fila de Descartadas; un fallo sólo se registra (es informativo). */
