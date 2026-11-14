@@ -115,3 +115,17 @@ export function resolveEffectiveDeliveryCap(input: { cap: number | null; already
   const already = Number.isFinite(input.alreadyDelivered) ? Math.max(0, Math.trunc(input.alreadyDelivered)) : 0;
   return Math.max(Math.trunc(input.cap) - already, 0);
 }
+
+/**
+ * Dueña 14-11 — el tope de entrega es de «Empresas por criterios». Las búsquedas de
+ * Árbol corporativo, Competidores y Proveedores entregan todo lo que encuentran.
+ * Se reconoce por la metadata del lote (las mismas claves que escriben esos caminos).
+ */
+export const DELIVERY_CAP_EXEMPT_BATCH_KEYS = ['corporate_tree', 'competitor_search', 'supplier_search'] as const;
+
+export function isDeliveryCapExemptBatch(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false;
+  const record = metadata as Record<string, unknown>;
+  if (DELIVERY_CAP_EXEMPT_BATCH_KEYS.some((key) => record[key] != null)) return true;
+  return record.search_mode === 'suppliers' || record.search_mode === 'competitors';
+}

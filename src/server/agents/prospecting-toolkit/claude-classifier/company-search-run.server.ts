@@ -253,7 +253,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
       );
       return { pipelineOutput, calls: context.calls };
     },
-    writeCandidates: async ({ pipelineOutput, metadata, existingBatchId, depositSurplusToBank = true, batchName }) => {
+    writeCandidates: async ({ pipelineOutput, metadata, existingBatchId, depositSurplusToBank = true, batchName, uncapped = false }) => {
       // Paso del asistente: cuando Claude termina, el escritor de Apollo ya cerró el lote
       // (`ready_for_review`) y el escritor no admite lotes cerrados (Prod 02-10, lote
       // ab11727e: 2 llamadas pagadas, 0 escritas). Se reabre JUSTO antes de escribir, y
@@ -268,7 +268,7 @@ export function buildLiveClaudeCompanySearchDeps(userId: string): ClaudeCompanyS
           source: 'agent_1',
           dryRun: false,
           targetPersistibleCandidates: CLAUDE_COMPANY_SEARCH_TARGET,
-          maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
+          maxDeliveredCandidates: uncapped ? null : resolveMaxDeliveredCandidates(),
           extraBatchMetadata: metadata,
           ...(batchName ? { batchName } : {}),
           ...(existingBatchId ? { existingBatchId } : {}),

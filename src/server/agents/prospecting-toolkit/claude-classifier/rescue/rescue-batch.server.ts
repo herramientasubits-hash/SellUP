@@ -12,6 +12,7 @@
 
 import { withCorporateTreeGroupOpportunity } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import { isDeliveryCapExemptBatch } from '@/modules/prospect-batches/delivery-cap';
 import { resolveApolloCompanyBankPort } from '@/server/prospect-batches/company-bank/apollo-company-bank-port.server';
 import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
 import { buildLiveRescueOfficialIdentityResolver } from './rescue-official-identity.server';
@@ -411,6 +412,14 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     deliverySlots: async (batchId) => {
       const cap = resolveMaxDeliveredCandidates();
       if (cap === null) return null;
+      // Dueña 14-11 — el tope de 10 es de «Empresas por criterios»: Árbol, Competidores
+      // y Proveedores entregan todo lo que la IA rescate.
+      const { data: batch } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      if (isDeliveryCapExemptBatch((batch as { metadata?: unknown } | null)?.metadata)) return null;
       const { count, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
         .select('id', { count: 'exact', head: true })

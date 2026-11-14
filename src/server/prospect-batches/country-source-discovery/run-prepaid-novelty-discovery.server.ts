@@ -107,6 +107,8 @@ import type { CountrySourceCompany } from './country-source-types';
 import type { HubSpotFreePoolDrawer } from '@/server/prospect-batches/hubspot-free-pool/hubspot-free-pool-draw';
 
 export type PrePaidNoveltyDiscoveryInput = {
+  /** Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios»: Competidores y Proveedores entregan todo lo que encuentran (como el árbol). */
+  uncapped?: boolean;
   /**
    * ADDENDUM PROVIDER-SEEN §§ 5, 6 — qué proveedor de pago correría después.
    * Decide la CAPACIDAD de exclusión y de qué memoria se lee. Sin valor por
@@ -370,8 +372,9 @@ export async function runPrePaidNoveltyDiscovery(
 
   // Lo que sigue corre por el hueco, en el mismo lote, y con el tope de entrega ya
   // descontado de lo que HubSpot escribió.
-  const fullCap =
-    deps.maxDeliveredCandidates === undefined
+  const fullCap = input.uncapped
+    ? null
+    : deps.maxDeliveredCandidates === undefined
       ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
       : deps.maxDeliveredCandidates;
   const hubspotBatchId = hubspot.batchId;
@@ -672,8 +675,9 @@ async function runFreeCatalogLayer(
   // sólo lo GUARDADO cierra hueco, basta con no guardarla para que los
   // proveedores de pago corran por lo que falta.
   const { withDomain, withoutDomain } = partitionFreeCompaniesByDomain(selectedCompanies);
-  const deliveryCap =
-    deps.maxDeliveredCandidates === undefined
+  const deliveryCap = input.uncapped
+    ? null
+    : deps.maxDeliveredCandidates === undefined
       ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
       : deps.maxDeliveredCandidates;
   const deliveredFree = applyDeliveryCap(withDomain, deliveryCap, () => true).delivered;

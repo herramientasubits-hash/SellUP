@@ -181,7 +181,11 @@ export async function buildHubSpotFreePoolCandidate(
 /** La capa «primero HubSpot» de Producción. `null` ⇒ bandera apagada. */
 export function resolveProductionHubSpotFreePoolDrawer(
   industryName: string,
-  options: { reviewInline?: boolean } = {},
+  options: {
+    reviewInline?: boolean;
+    /** Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios»: Competidores y Proveedores entregan todo lo que encuentran (como el árbol). */
+    uncapped?: boolean;
+  } = {},
 ): HubSpotFreePoolDrawer | null {
   if (!isHubSpotFreePoolEnabled()) return null;
   return createHubSpotFreePoolDrawer({
@@ -189,7 +193,7 @@ export function resolveProductionHubSpotFreePoolDrawer(
     search: (input) => searchHubSpotFreeCompanies(input),
     listAlreadyOffered: listHubSpotFreePoolAlreadyOffered,
     buildCandidate: buildHubSpotFreePoolCandidate,
-    resolveCap: () => resolveMaxDeliveredCandidates(),
+    resolveCap: () => (options.uncapped ? null : resolveMaxDeliveredCandidates()),
     countAcceptedByDomain,
     reviewInline: options.reviewInline === false ? undefined : async ({ batchId, triggeredBy, windowMs }) => {
       if (!isAgent1ClaudeRescueEnabled()) return false;
@@ -219,7 +223,9 @@ export function resolveProductionHubSpotFreePoolDrawer(
         dryRun: false,
         existingBatchId: writeInput.batchId,
         targetPersistibleCandidates: writeInput.requestedTarget,
-        maxDeliveredCandidates: resolveMaxDeliveredCandidates(undefined, writeInput.requestedTarget),
+        maxDeliveredCandidates: options.uncapped
+          ? null
+          : resolveMaxDeliveredCandidates(undefined, writeInput.requestedTarget),
         holdBatchStatus: true,
         candidateProvenance: null,
         extraBatchMetadata: writeInput.metadata,

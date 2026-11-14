@@ -23,7 +23,6 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isApolloCompanySearchEnabled } from '@/lib/feature-flags.server';
 import { checkProviderQuotaAvailable } from '@/modules/budgets/budget-resolution';
 import { buildCompetitorBatchName } from '@/modules/prospect-batches/competitor-search/competitor-reference';
-import { resolveMaxDeliveredCandidates } from '@/modules/prospect-batches/delivery-cap';
 import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { creditCostUsd } from '@/modules/usage-tracking/provider-credit-cost';
 import type { CompetitorApolloRequest } from '@/modules/prospect-batches/chat-wizard-execution/wizard-competitor-run';
@@ -310,7 +309,8 @@ async function writeCompetitorApolloCandidates(
       existingBatchId: input.batchId,
       batchName: buildCompetitorBatchName(input.reference.name, input.countryName, input.industryName),
       targetPersistibleCandidates: input.target,
-      maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
+      // Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios».
+      maxDeliveredCandidates: null,
     });
     if (reopened && output.status === 'failed') await restoreClosedBatch(input.batchId);
     return {
