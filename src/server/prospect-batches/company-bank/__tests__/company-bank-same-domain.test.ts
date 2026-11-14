@@ -39,13 +39,18 @@ describe('identidad de una fila del banco', () => {
 
 describe('separar repetidas antes de enviar', () => {
   it('🔴 Embonor: ya en el banco por su web, no vuelve a entrar por su RUT', () => {
-    const r = splitSameDomainDuplicates([item({ domain: 'embonor.cl', fiscal: 'CL:93281000k' })], new Map([['embonor.cl', [null]]]));
+    const r = splitSameDomainDuplicates([item({ domain: 'embonor.cl', fiscal: 'CL:93281000k' })], new Map([['CL|embonor.cl', [null]]]));
     assert.equal(r.send.length, 0);
     assert.equal(r.duplicates, 1);
   });
 
   it('una filial con RUT distinto y la misma web del grupo sí entra', () => {
-    const r = splitSameDomainDuplicates([item({ domain: 'grupo.cl', fiscal: 'CL:2' })], new Map([['grupo.cl', ['CL:1']]]));
+    const r = splitSameDomainDuplicates([item({ domain: 'grupo.cl', fiscal: 'CL:2' })], new Map([['CL|grupo.cl', ['CL:1']]]));
+    assert.equal(r.send.length, 1);
+  });
+
+  it('la misma web en OTRO país es otra empresa para prospectar (AstraZeneca CO y MX)', () => {
+    const r = splitSameDomainDuplicates([item({ domain: 'astrazeneca.com' })], new Map([['MX|astrazeneca.com', ['MX:ast961231b69']]]));
     assert.equal(r.send.length, 1);
   });
 
@@ -73,7 +78,7 @@ describe('depósito con el cruce por web', () => {
   }
 
   it('cuenta la repetida como «ya en el banco» y no la envía', async () => {
-    const f = fakeClient([{ claim_fiscal: null, claim_domain: 'embonor.cl', cd: 'embonor.cl', ed: null }]);
+    const f = fakeClient([{ country_code: 'CL', claim_fiscal: null, claim_domain: 'embonor.cl', cd: 'embonor.cl', ed: null }]);
     const r = await createCompanyBankStore(f.client as never).deposit([
       item({ domain: 'embonor.cl', fiscal: 'CL:93281000k' }),
       item({ domain: 'soprole.cl', fiscal: 'CL:761018124' }),

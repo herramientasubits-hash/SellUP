@@ -29,9 +29,10 @@
  * La 142 sólo ve choques de la MISMA clave. Una empresa guardada por su web
  * (`claim_domain`, sin RUT) y luego por su RUT (`claim_fiscal`, que no reclama la web)
  * entraba dos veces: Prod 14-11, Coca-Cola Embonor. Antes de enviar, se cruza la web
- * de cada fila con las activas del banco (`banked`/`reserved`), con la regla de los
- * reclamos globales (152): misma web = misma empresa, SALVO que las dos tengan RUT y
- * sea distinto (filiales de un grupo). Las que chocan cuentan como `skippedInBank`.
+ * de cada fila con las activas del banco (`banked`/`reserved`) DEL MISMO PAÍS, con la
+ * regla de los reclamos globales (152): misma web = misma empresa, SALVO que las dos
+ * tengan RUT y sea distinto (filiales de un grupo). En otro país es otra empresa para
+ * prospectar (AstraZeneca CO y MX, SoftwareOne CO, EC y RD). Las que chocan cuentan como `skippedInBank`.
  * Si la lectura falla, se deposita como antes (la 142 sigue cuidando cada clave).
  */
 
@@ -192,16 +193,19 @@ export function isSameCompanyByDomain(fiscalA: string | null, fiscalB: string | 
   return !(fiscalA && fiscalB && fiscalA !== fiscalB);
 }
 
+/** País + web → RUTs de las filas activas con esa web en ese país. */
 type ActiveByDomain = Map<string, Array<string | null>>;
 
-/** Las filas activas del banco con alguna de estas webs: web → RUTs. `null` si falla la lectura. */
+const countryDomainKey = (countryCode: string, domain: string) => `${countryCode}|${domain}`;
+
+/** Las filas activas del banco con alguna de estas webs: país|web → RUTs. `null` si falla la lectura. */
 async function loadActiveByDomain(client: SupabaseClient, domains: readonly string[]): Promise<ActiveByDomain | null> {
   if (domains.length === 0) return new Map();
   const list = domains.map((d) => `"${d.replace(/"/g, '')}"`).join(',');
   try {
     const { data, error } = await client
       .from('agent1_company_bank')
-      .select('claim_fiscal, claim_domain, cd:payload->candidate->>domain, ed:payload->evidence->>domain')
+      .select('country_code, claim_fiscal, claim_domain, cd:payload->candidate->>domain, ed:payload->evidence->>domain')
       .in('status', ['banked', 'reserved'])
       .or(`claim_domain.in.(${list}),payload->candidate->>domain.in.(${list}),payload->evidence->>domain.in.(${list})`);
     if (error) {
@@ -211,9 +215,16 @@ async function loadActiveByDomain(client: SupabaseClient, domains: readonly stri
     const byDomain: ActiveByDomain = new Map();
     for (const row of (data ?? []) as Obj[]) {
       const fiscal = asStr(row.claim_fiscal);
-      for (const raw of [row.claim_domain, row.cd, row.ed]) {
-        const domain = asStr(raw)?.toLowerCase().replace(/^www\./, '');
-        if (domain) byDomain.set(domain, [...(byDomain.get(domain) ?? []), fiscal]);
+      const country = asStr(row.country_code);
+      if (!country) continue;
+      const domains = new Set(
+        [row.claim_domain, row.cd, row.ed]
+          .map((raw) => asStr(raw)?.toLowerCase().replace(/^www\./, ''))
+          .filter((d): d is string => !!d),
+      );
+      for (const domain of domains) {
+        const key = countryDomainKey(country, domain);
+        byDomain.set(key, [...(byDomain.get(key) ?? []), fiscal]);
       }
     }
     return byDomain;
@@ -236,11 +247,12 @@ export function splitSameDomainDuplicates(
   let duplicates = 0;
   for (const item of items) {
     const { domain, fiscal } = bankItemIdentity(item);
-    if (domain && (seen.get(domain) ?? []).some((other) => isSameCompanyByDomain(fiscal, other))) {
+    const key = domain ? countryDomainKey(item.countryCode, domain) : null;
+    if (key && (seen.get(key) ?? []).some((other) => isSameCompanyByDomain(fiscal, other))) {
       duplicates++;
       continue;
     }
-    if (domain) seen.set(domain, [...(seen.get(domain) ?? []), fiscal]);
+    if (key) seen.set(key, [...(seen.get(key) ?? []), fiscal]);
     send.push(item);
   }
   return { send, duplicates };
