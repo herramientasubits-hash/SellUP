@@ -48,6 +48,7 @@ import {
 } from './domain-search';
 import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard, type RescueDecision } from './rescue-decision';
 import { BANKED_MARKER, buildDispositionBankItem } from './rescue-bank';
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
 import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
 import {
@@ -468,6 +469,8 @@ type RescueRunContext = {
   companyDeadlineAtMs?: number;
   /** AGENT1-DELIVERY-CAP-HARD-1 — lugares libres bajo el tope de entrega. */
   slots: DeliverySlots;
+  /** ¿La búsqueda tiene tope de entrega? (`false` en Árbol, Competidores y Proveedores, o sin variable). */
+  deliveryCapped: boolean;
   /**
    * AGENT1-CORPORATE-TREE-8 — webs del grupo de un lote del árbol. Si el buscador encuentra una
    * de ellas para una filial con número fiscal, no es «duplicada»: usa la web de la matriz
@@ -1078,6 +1081,13 @@ async function rescueDisposition(
   if (goesBack && options.overCap && decision.kind === 'admit') {
     return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
+  // Dueña 14-11 (f2f36ff3: 14 de Consumo Masivo llevaron la búsqueda a 23 en revisión) —
+  // en una búsqueda CON tope, una de OTRA industria no entra a revisión (no es lo que se
+  // pidió y no debe pasar de 10): va al banco con su industria corregida. Sin tope
+  // (Árbol, Competidores, Proveedores) sigue volviendo a revisión como antes.
+  if (decision.kind === 'reassign' && ctx.deliveryCapped) {
+    return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
+  }
   if (goesBack) {
     const baseOrigin =
       decision.kind === 'reassign'
@@ -1150,7 +1160,7 @@ async function bankOverCapDisposition(
   deps: RescueBatchDeps,
   verdict: {
     result: CompanyClassificationResult;
-    decision: Extract<RescueDecision, { kind: 'admit' }>;
+    decision: Extract<RescueDecision, { kind: 'admit' } | { kind: 'reassign' }>;
     decidedAt: string;
     cost: number;
     withFound: (evidence: Record<string, unknown> | null) => Record<string, unknown> | null;
@@ -1160,13 +1170,17 @@ async function bankOverCapDisposition(
   const target = deps.loadBatchBankTarget
     ? await deps.loadBatchBankTarget(ctx.batchId).catch(() => null)
     : null;
+  // La de otra industria va al banco de SU industria (Consumo Masivo, no Agroindustria).
+  const reassigned = decision.kind === 'reassign';
   const item = target
     ? buildDispositionBankItem({
         row,
         result,
         decision,
-        macroIndustryKey: target.macroIndustryKey,
-        industryName: ctx.requestedIndustry?.name ?? target.industryName,
+        macroIndustryKey: reassigned
+          ? resolveMacroIndustryKey({ slug: null, displayName: decision.industryName })
+          : target.macroIndustryKey,
+        industryName: reassigned ? decision.industryName : (ctx.requestedIndustry?.name ?? target.industryName),
         decidedAt,
       })
     : null;
@@ -1400,6 +1414,7 @@ export async function rescueBatchWithClaude(
     halt: { accountError: false },
     companyDeadlineAtMs: startedMs + deadlineMs + RESCUE_COMPANY_GRACE_MS,
     slots: { remaining: freeSlots === null ? Number.POSITIVE_INFINITY : Math.max(0, freeSlots) },
+    deliveryCapped: freeSlots !== null,
     groupDomains: new Set(
       (deps.loadBatchGroupDomains ? await deps.loadBatchGroupDomains(params.batchId).catch(() => []) : []).map((d) =>
         d.toLowerCase(),

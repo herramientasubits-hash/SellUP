@@ -5,6 +5,8 @@
  * Sin red ni base de datos: Claude, Supabase y los reclamos son dobles.
  */
 
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -475,5 +477,45 @@ describe('G. marca final en Descartadas', () => {
     const f = fakeDeps({ markDispositionSent: async () => { throw new Error('boom'); } });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.reassigned, 2);
+  });
+});
+
+// ─── H. Dueña 14-11 — con tope, la de otra industria va al banco con SU industria ──
+
+describe('H. otra industria en una búsqueda con tope de 10', () => {
+  const live = () => ({ ...discardedDisposition(), evidence: {} });
+  const noStored = async () => ({ candidates: [], dispositions: [] });
+
+  it('no entra a revisión: va al banco con la macro de su industria (f2f36ff3: 14 de Consumo Masivo)', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const f = fakeDeps({
+      loadDispositions: async () => [live()],
+      loadSectorMismatchDiscards: noStored,
+      deliverySlots: async () => 5,
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'technology', industryName: TECH }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(f.admitted.length, 0);
+    assert.equal(s.dispositionsBanked, 1);
+    assert.equal(banked[0]?.macroIndustryKey, resolveMacroIndustryKey({ slug: null, displayName: SALUD }));
+    assert.notEqual(banked[0]?.macroIndustryKey, 'technology');
+  });
+
+  it('sin tope (Árbol, Competidores, Proveedores) sigue volviendo a revisión', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const f = fakeDeps({
+      loadDispositions: async () => [live()],
+      loadSectorMismatchDiscards: noStored,
+      deliverySlots: async () => null,
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'technology', industryName: TECH }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.reassigned, 1);
+    assert.equal(banked.length, 0);
+    assert.equal(f.admitted.length, 1);
   });
 });

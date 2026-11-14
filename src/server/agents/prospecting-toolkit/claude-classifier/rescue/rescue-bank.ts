@@ -38,7 +38,11 @@ const SOURCE_TO_BANK: Readonly<Record<string, CompanyBankSourceProvider>> = {
   external_import: 'free_source',
 };
 
-type AdmitDecision = Extract<RescueDecision, { kind: 'admit' }>;
+/**
+ * Lo que la IA confirmó: del sector pedido (`admit`) o de OTRA industria UBITS
+ * (`reassign`, dueña 14-11: con el tope de 10 también va al banco, con su industria).
+ */
+type BankableDecision = Extract<RescueDecision, { kind: 'admit' } | { kind: 'reassign' }>;
 
 /** El número fiscal que trae una fila del buscador gratuito (`tax:<número>`). */
 function taxIdentifierOf(row: Pick<RescuableDispositionRow, 'provider_identifier'>): string | null {
@@ -58,7 +62,7 @@ function lowerBound(result: CompanyClassificationResult): number | null {
 export function buildDispositionBankItem(input: {
   row: RescuableDispositionRow & { source_primary?: string | null };
   result: CompanyClassificationResult;
-  decision: AdmitDecision;
+  decision: BankableDecision;
   macroIndustryKey: string | null;
   industryName: string | null;
   decidedAt: string;
@@ -84,6 +88,7 @@ export function buildDispositionBankItem(input: {
   ).filter((claim) => claim.key.trim() !== '');
   if (claims.length === 0) return null;
 
+  const sectorConfirmed = decision.kind === 'reassign' || decision.sectorConfirmed;
   const employees = decision.sizeConfirmed ? lowerBound(result) : null;
   const candidate: ProspectingPipelineCandidate = {
     name: row.name,
@@ -123,7 +128,8 @@ export function buildDispositionBankItem(input: {
         origin_reason_code: row.reason_code,
         tax_identifier: taxIdentifier,
         claude_rescue_decided_at: input.decidedAt,
-        claude_sector_confirmed: decision.sectorConfirmed,
+        claude_sector_confirmed: sectorConfirmed,
+        ...(decision.kind === 'reassign' ? { claude_reassigned_from: row.industry ?? null } : {}),
         claude_size_confirmed: decision.sizeConfirmed,
       },
     },
@@ -139,7 +145,7 @@ export function buildDispositionBankItem(input: {
   const payload = { kind: PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND, candidate: projected, requestedSubindustries: [] };
   if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > COMPANY_BANK_MAX_PAYLOAD_BYTES) return null;
 
-  const ready = decision.sectorConfirmed && decision.sizeConfirmed;
+  const ready = sectorConfirmed && decision.sizeConfirmed;
   return {
     countryCode,
     macroIndustryKey: input.macroIndustryKey,
