@@ -38,7 +38,7 @@ const BATCH = '0ef658fd-8842-4df7-bf8b-f2b4a7dc9c48';
 describe('¿otra vuelta?', () => {
   it('los topes acordados con la dueña', () => {
     assert.equal(RESCUE_CHAIN_MAX_CONTINUATIONS, 4);
-    assert.equal(RESCUE_CHAIN_MAX_COST_USD, 3);
+    assert.equal(RESCUE_CHAIN_MAX_COST_USD, 5);
   });
 
   it('quedan pendientes o para reintentar, hubo avance y hay presupuesto ⇒ sí', () => {
@@ -74,8 +74,8 @@ describe('¿otra vuelta?', () => {
     });
   });
 
-  it('llegó a US$3 en el lote ⇒ fin', () => {
-    assert.deepEqual(decideRescueContinuation({ summary: summary(), continuationsDone: 1, spentUsd: 3 }), {
+  it('llegó a US$5 en el lote ⇒ fin', () => {
+    assert.deepEqual(decideRescueContinuation({ summary: summary(), continuationsDone: 1, spentUsd: 5 }), {
       continue: false,
       reason: 'cost_cap',
     });

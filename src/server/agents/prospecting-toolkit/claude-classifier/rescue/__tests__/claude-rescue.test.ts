@@ -1132,3 +1132,30 @@ describe('L. otro sector y viable ⇒ banco, no Descartadas', () => {
     assert.deepEqual(marked, ['c1']);
   });
 });
+
+// ─── M. Dueña 14-11 — el tamaño que dio el proveedor lo verifica la IA ────────
+
+describe('M. descartada por el tamaño del proveedor (Lusha subestima)', () => {
+  const small = () => disposition({ reason_code: 'known_employee_count_below_min' });
+
+  it('la IA mide ≥ mínimo: vuelve a revisión aunque el sector no quede citado', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [small()],
+      classify: async (company) => result({ candidateId: company.candidateId, sector: null }),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 1);
+  });
+
+  it('la IA no puede medir el tamaño: se queda en Descartadas', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [small()],
+      classify: async (company) => result({ candidateId: company.candidateId, sector: null, employeeRange: null }),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 0);
+    assert.equal(f.admitted.length, 0);
+  });
+});

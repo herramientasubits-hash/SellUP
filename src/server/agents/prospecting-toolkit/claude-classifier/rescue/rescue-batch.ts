@@ -87,6 +87,7 @@ import {
   needsDispositionRescue,
   OFFICIAL_SIZE_RULE_MARKER,
   type RescuableDispositionRow,
+  PROVIDER_SIZE_REASON_CODE,
 } from './rescue-dispositions';
 import { institutionWebMatchesName } from './institution-web-name-match';
 
@@ -107,10 +108,11 @@ export const RESCUE_RUN_DEADLINE_MS = 200_000;
  */
 export const RESCUE_COMPANY_GRACE_MS = 60_000;
 /**
- * AUDIT-A1-WS7 — tope de gasto del rescate de UN lote, acumulado entre corridas
- * (el mismo US$3 que decidió la dueña para la cadena, ahora sin reiniciarse).
+ * AUDIT-A1-WS7 — tope de gasto del rescate de UN lote, acumulado entre corridas.
+ * Dueña 14-11: US$3 → US$5, para que la IA alcance a revisar también el tamaño de las
+ * que el proveedor dejó fuera por pequeñas (Chile × Agroindustria: 75 de Lusha).
  */
-export const RESCUE_BATCH_MAX_COST_USD = 3;
+export const RESCUE_BATCH_MAX_COST_USD = 5;
 /**
  * 21-10 — búsquedas PAGADAS del sitio oficial (`company_domain_search`) por lote,
  * acumuladas entre corridas. Prod oct-2026: lotes con meta 5 pagaron decenas de
@@ -1095,9 +1097,14 @@ async function rescueDisposition(
   // (con el aviso de sector sin confirmar, si lo hay).
   const officialFreeLayerWebOnly =
     official.measured && !!found && row.reason_code === DOMAIN_SEARCH_REASON_CODE;
+  // Dueña 14-11 — descartada SÓLO por el tamaño que dio el proveedor (Lusha subestima,
+  // p. ej. agroindustria con temporeros): si la IA comprueba ≥ mínimo, vuelve aunque el
+  // sector no quede citado — ya pasó el filtro de sector del proveedor.
+  const sizeOnlyRescued =
+    row.reason_code === PROVIDER_SIZE_REASON_CODE && decision.kind === 'admit' && decision.sizeConfirmed;
   const goesBack =
     decision.kind === 'reassign' ||
-    (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly));
+    (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued));
   if (goesBack && options.overCap && decision.kind === 'admit') {
     return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
