@@ -340,7 +340,12 @@ async function rescueDispositionWithinCap(
   deps: RescueBatchDeps,
   admittedIds: string[],
 ): Promise<ItemOutcome> {
-  if (!(await reserveDeliverySlot(ctx.slots))) return { tag: 'capped', cost: 0 };
+  // Dueña 14-11 (Chile × Agroindustria f2f36ff3: 46 descartadas sin revisar porque la
+  // búsqueda ya tenía sus 10): Claude revisa SIEMPRE todo lo que puede rescatar. Sin
+  // lugar libre la fila igual se revisa y, si pasa, entra a revisión en el mismo lote
+  // (de quien hizo la búsqueda) aunque supere el tope de entrega. El tope sigue
+  // ordenando a las que caben primero y los topes de gasto del lote siguen igual.
+  if (!(await reserveDeliverySlot(ctx.slots))) return rescueDisposition(row, ctx, deps, admittedIds);
   let kept = false;
   try {
     const outcome = await rescueDisposition(row, ctx, deps, admittedIds);

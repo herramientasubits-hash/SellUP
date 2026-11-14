@@ -51,6 +51,8 @@ import {
 } from '@/components/shared/table-cells';
 import { PROSPECTOS_DISCARDED_TAB_ROUTE } from '@/config/navigation';
 import { describeDiscardReason } from '@/modules/prospect-discards/discard-reason-labels';
+import { RescueDiscardedButton } from '@/components/prospects/rescue-discarded-button';
+import { useNavAccess } from '@/components/layout/nav-access-context';
 import {
   COMPETITOR_SMALL_SEND_TO_REVIEW_BLOCKED,
   COMPETITOR_SMALL_STATUS_LABEL,
@@ -159,6 +161,7 @@ export function DiscardedProspectsDataTableClient({
   hasUrlFilters = false,
 }: DiscardedProspectsDataTableClientProps) {
   const router = useRouter();
+  const { isAdmin } = useNavAccess();
   const dataTableRef = React.useRef<DataTableHandle>(null);
   // AGENT1-DISCARDED-PROSPECTS-REVIEW-1 — `items` es la fuente de verdad del
   // servidor; `hiddenItemIds` es sólo una superposición optimista del mismo
@@ -696,6 +699,7 @@ export function DiscardedProspectsDataTableClient({
           actions={
             <>
               {rows.length > 0 && isWide && <QuickFilterChips {...quickFilterGroup} />}
+              {isAdmin && rows.length > 0 && <RescueDiscardedButton />}
               {scopeFilterOptions && !sourceId && (
                 <TeamFilterUrlButton
                   scopeFilterOptions={scopeFilterOptions}

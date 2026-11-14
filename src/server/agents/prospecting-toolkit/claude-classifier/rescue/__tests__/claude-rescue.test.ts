@@ -971,12 +971,12 @@ describe('F. SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño medido por la fuente
 });
 
 
-// ─── K. AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda ───────────────────
+// ─── K. Dueña 14-11 — Claude revisa todo lo rescatable, aunque el lote esté lleno ─
 
-describe('K. el rescate no pasa del tope de entrega', () => {
+describe('K. el tope de entrega no deja descartadas sin revisar', () => {
   const three = [disposition({ id: 'd1' }), disposition({ id: 'd2', domain: 'b.pe' }), disposition({ id: 'd3', domain: 'c.pe' })];
 
-  it('con el lote lleno no revisa descartadas: cero gasto, se quedan en Descartadas', async () => {
+  it('con el lote lleno igual las revisa y las que pasan entran a revisión (Chile × Agroindustria f2f36ff3)', async () => {
     const classified: Array<string | null | undefined> = [];
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
@@ -987,14 +987,13 @@ describe('K. el rescate no pasa del tope de entrega', () => {
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok, true);
     if (!s.ok) return;
-    assert.equal(classified.length, 0);
-    assert.equal(f.admitted.length, 0);
-    assert.equal(s.dispositionsCapped, 3);
-    assert.equal(s.remaining, 0, 'lo que no cabe no cuenta como pendiente: el rescate no se relanza por eso');
-    assert.equal(s.estimatedCostUsd, 0);
+    assert.equal(classified.length, 3);
+    assert.equal(f.admitted.length, 3);
+    assert.equal(s.dispositionsAdmitted, 3);
+    assert.equal(s.dispositionsCapped, 0);
   });
 
-  it('con un lugar libre admite una y deja las demás sin revisar', async () => {
+  it('con un lugar libre también revisa y admite las demás', async () => {
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
       loadDispositions: async () => three,
@@ -1003,27 +1002,22 @@ describe('K. el rescate no pasa del tope de entrega', () => {
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok, true);
     if (!s.ok) return;
-    assert.equal(f.admitted.length, 1);
-    assert.equal(s.dispositionsAdmitted, 1);
-    assert.equal(s.dispositionsCapped, 2);
+    assert.equal(s.dispositionsAdmitted, 3);
+    assert.equal(s.dispositionsCapped, 0);
   });
 
-  it('lugar apartado por una revisión que no entra: la siguiente espera y lo usa (Prod CR × Servicios bbc7a8ad)', async () => {
+  it('la que Claude no confirma se queda en Descartadas aunque haya lugar', async () => {
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
       loadDispositions: async () => three,
-      deliverySlots: async () => 1,
-      classify: async (company) => {
-        if (company.candidateId !== 'd1') return result({ candidateId: company.candidateId });
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        return result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null });
-      },
+      deliverySlots: async () => 0,
+      classify: async (company) =>
+        company.candidateId === 'd1'
+          ? result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null })
+          : result({ candidateId: company.candidateId }),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
-    assert.equal(s.ok, true);
-    if (!s.ok) return;
-    assert.equal(s.dispositionsAdmitted, 1, 'd1 no entra y su lugar pasa a otra');
-    assert.equal(s.dispositionsCapped, 1, 'el lote queda lleno: la tercera sí se queda sin revisar');
+    assert.equal(s.ok && s.dispositionsAdmitted, 2);
   });
 
   it('los candidatos ya en revisión se siguen completando aunque el lote esté lleno (no ocupan lugar nuevo)', async () => {
