@@ -472,6 +472,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       };
     },
     reopenDiscardedCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch, 'discarded'),
+    patchDiscardedCandidate: (candidateId, buildPatch) => patchCandidate(candidateId, buildPatch, 'discarded'),
     // AGENT1-IMPORT-SAME-PIPELINE-1 — también los lotes importados: sus filas no traen
     // `target_completeness` y las vueltas siguientes (función nueva) lo leen de aquí.
     loadBatchHasClaudeCompanySearch: async (batchId) => {

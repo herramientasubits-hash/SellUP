@@ -12,6 +12,7 @@
 //
 // No provider calls, no writes — this file only reads already-persisted data.
 
+import { isBankedByRescue } from './banked-by-rescue';
 import { createClient } from '@/lib/supabase/server';
 import { loadDirectoryNames } from '@/modules/access/user-directory.server';
 import { canActOnCandidate } from '@/modules/access/record-scope.server';
@@ -249,11 +250,15 @@ export async function getDiscardedProspectsList(
       limit,
       offset: 0,
     });
-    candidateItems = candidates.map((c) =>
-      candidateToItem(
-        c as unknown as Parameters<typeof candidateToItem>[0],
-      ),
-    );
+    candidateItems = candidates
+      // Dueña 14-11 — la que la IA sacó por ser de otra industria y guardó en el banco
+      // no es una descartada: espera en el banco para quien busque esa industria.
+      .filter((c) => !isBankedByRescue((c as { metadata?: unknown }).metadata))
+      .map((c) =>
+        candidateToItem(
+          c as unknown as Parameters<typeof candidateToItem>[0],
+        ),
+      );
   }
 
   // ── Source C: importados que quedaron `duplicate` (AGENT1-IMPORT-DUPLICATES-VISIBLE-1)

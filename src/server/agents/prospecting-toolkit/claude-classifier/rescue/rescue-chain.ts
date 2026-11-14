@@ -18,7 +18,8 @@ import type { RescueBatchSummary } from './rescue-batch';
 /** Vueltas extra después del rescate que corre al terminar la búsqueda. */
 export const RESCUE_CHAIN_MAX_CONTINUATIONS = 4;
 /** Tope de gasto en Claude del rescate de UN lote, sumando todas las vueltas. */
-export const RESCUE_CHAIN_MAX_COST_USD = 3;
+/** Dueña 14-11: igual que el tope por lote (US$5). */
+export const RESCUE_CHAIN_MAX_COST_USD = 5;
 
 export type RescueChainStep = {
   /** Resultado de la vuelta que acaba de terminar. */

@@ -50,7 +50,17 @@ export const RESCUABLE_DISPOSITION_REASON_CODES = [
   'sub_industry_branch_parent_only',
   'enrichment_budget_exhausted_final',
   'sector_subindustry_rejected_final',
+  // Dueña 14-11 — el proveedor la declaró de otra industria: la IA lo comprueba. Si es de
+  // la pedida, vuelve; si es de otra y es viable, va al banco con su industria.
+  'excluding_industry_declared',
+  'declared_industry_outside_macro',
+  // Dueña 14-11 — el proveedor la dejó fuera por pequeña con un tamaño que la IA puede
+  // verificar (Lusha subestima). Si la IA mide ≥ mínimo, vuelve (o va al banco con tope).
+  'known_employee_count_below_min',
 ] as const;
+
+/** Descarte por el tamaño que dio el proveedor (lo verifica la IA). */
+export const PROVIDER_SIZE_REASON_CODE = 'known_employee_count_below_min' as const;
 
 export type RescuableDispositionRow = {
   id: string;

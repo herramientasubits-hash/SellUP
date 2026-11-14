@@ -366,3 +366,32 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
     ...(sizeWarning ? { sizeBelowMinUnconfirmed: true } : {}),
   };
 }
+
+/**
+ * Dueña 14-11 — «lo que no es del sector pero es viable, al banco, no a Descartadas».
+ * Cuando la IA descarta por SECTOR (es de otra industria del catálogo) sin poder confirmar
+ * el tamaño UBITS, la empresa sigue siendo útil para quien busque ESA industria: se
+ * devuelve como «otra industria» para guardarla en el banco con su macro. No es viable
+ * (`null`): sin industria del catálogo, un medio, o un tamaño que la IA probó bajo el mínimo.
+ */
+export function viableInOtherIndustry(
+  result: CompanyClassificationResult,
+  decision: RescueDecision,
+  ctx: RescueContext,
+): Extract<RescueDecision, { kind: 'reassign' }> | null {
+  if (decision.kind !== 'discard' || decision.reason !== 'claude_sector_mismatch') return null;
+  const bySector = result.sector && result.sector.matchesCurrentIndustry === false ? result.sector : null;
+  if (!bySector?.industryId || !bySector.industryName) return null;
+  if (looksLikeMediaCompany([bySector.quote, result.requestedIndustryFit?.quote])) return null;
+  const size = sizeVerdict(result, ctx);
+  if (size === 'fail') return null;
+  return {
+    kind: 'reassign',
+    industryId: bySector.industryId,
+    industryName: bySector.industryName,
+    detail: `Según Rumbo es ${bySector.industryName}: «${bySector.quote.slice(0, 160)}»`,
+    sourceUrl: bySector.sourceUrl,
+    sizeConfirmed: size === 'pass',
+    linkedinConfirmed: !!result.linkedin,
+  };
+}
