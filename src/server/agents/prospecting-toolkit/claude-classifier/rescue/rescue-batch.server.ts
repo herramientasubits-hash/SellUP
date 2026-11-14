@@ -6,10 +6,13 @@
  *
  * Escrituras: sólo `prospect_candidates` (metadata, tamaño estimado y, si Claude
  * demuestra que no cumple, `status='discarded'`), `prospect_discarded_dispositions`
- * (evidencia o paso a revisión) y el reclamo de identidad. Nunca aprueba nada.
+ * (evidencia o paso a revisión), el reclamo de identidad y, con la búsqueda llena,
+ * el banco gratuito (dueña 14-11). Nunca aprueba nada.
  */
 
 import { withCorporateTreeGroupOpportunity } from '@/modules/prospect-batches/corporate-tree/corporate-tree-group-signal';
+import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
+import { resolveApolloCompanyBankPort } from '@/server/prospect-batches/company-bank/apollo-company-bank-port.server';
 import { isAgent1ClaudeDomainFinderEnabled } from '@/lib/feature-flags.server';
 import { buildLiveRescueOfficialIdentityResolver } from './rescue-official-identity.server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
@@ -420,7 +423,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadDispositions: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_discarded_dispositions')
-        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin, provider_identifier')
+        .select('id, batch_id, candidate_id, status, name, domain, country_code, industry, reason_code, evidence, round_origin, provider_identifier, source_primary')
         .eq('batch_id', batchId)
         .eq('status', 'discarded')
         .in('reason_code', reasonCodes);
@@ -523,6 +526,37 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       }
       console.error('[claude-rescue] admit failed:', outcome.outcome);
       return null;
+    },
+    // Dueña 14-11 — lo rescatado que no cabe en la búsqueda va al banco gratuito.
+    loadBatchBankTarget: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('industry, metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      const batch = data as { industry?: string | null; metadata?: Record<string, unknown> | null } | null;
+      const fromMeta = batch?.metadata?.macro_industry_key;
+      const industryName = typeof batch?.industry === 'string' && batch.industry ? batch.industry : null;
+      const macroIndustryKey =
+        typeof fromMeta === 'string' && fromMeta
+          ? fromMeta
+          : industryName
+            ? resolveMacroIndustryKey({ slug: null, displayName: industryName })
+            : null;
+      return { macroIndustryKey, industryName };
+    },
+    depositToBank: async (item) => {
+      const port = resolveApolloCompanyBankPort();
+      if (!port) return 'failed';
+      const result = await port.store.deposit([item]);
+      if (result.status !== 'ok') {
+        console.error('[claude-rescue] bank deposit unavailable:', result.reason);
+        return 'failed';
+      }
+      if (result.deposited > 0) return 'deposited';
+      if (result.skippedInBank > 0) return 'already_in_bank';
+      if (result.skippedClaimed > 0) return 'claimed';
+      return 'failed';
     },
     markDispositionSent: async (dispositionId, rescue) => {
       const admin = createSupabaseAdminClient();

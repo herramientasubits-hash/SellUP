@@ -11,7 +11,7 @@ export const RESCUE_DISCARDED_LABEL = 'Rescatar con IA';
 /**
  * Dueña 14-11 — un administrador lanza el rescate con IA sobre todas las
  * descartadas rescatables. Corre en segundo plano; lo que pasa vuelve a revisión
- * en su búsqueda (de quien la hizo).
+ * en su búsqueda (de quien la hizo) hasta 10 por búsqueda; el resto, al banco.
  */
 export function RescueDiscardedButton() {
   const [pending, setPending] = React.useState(false);
@@ -36,7 +36,7 @@ export function RescueDiscardedButton() {
         return;
       }
       toast.success(
-        `La IA está revisando ${result.companies} empresas de ${result.batches} ${result.batches === 1 ? 'búsqueda' : 'búsquedas'}. Las que pasen aparecerán en Por revisar de quien hizo cada búsqueda.`,
+        `La IA está revisando ${result.companies} empresas de ${result.batches} ${result.batches === 1 ? 'búsqueda' : 'búsquedas'}. Las que pasen van a Por revisar de quien hizo la búsqueda, hasta 10 por búsqueda; el resto queda en el banco para búsquedas futuras.`,
       );
     } catch (err) {
       console.error('[claude-rescue] action failed:', err);

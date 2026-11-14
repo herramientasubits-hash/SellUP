@@ -29,8 +29,16 @@ describe('rescatar descartadas con IA', () => {
     assert.match(table, /\{isAdmin && rows\.length > 0 && <RescueDiscardedButton \/>\}/);
   });
 
-  it('🔴 sin lugar libre en la búsqueda, la descartada igual se revisa', () => {
+  it('🔴 sin lugar libre en la búsqueda, la descartada igual se revisa y lo que pasa va al banco', () => {
     const core = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
-    assert.match(core, /if \(!\(await reserveDeliverySlot\(ctx\.slots\)\)\) return rescueDisposition\(row, ctx, deps, admittedIds\);/);
+    assert.match(core, /if \(!\(await reserveDeliverySlot\(ctx\.slots\)\)\) return rescueDisposition\(row, ctx, deps, admittedIds, \{ overCap: true \}\);/);
+    assert.match(core, /if \(goesBack && options\.overCap && decision\.kind === 'admit'\) \{\s*return bankOverCapDisposition\(/);
+    const server = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts');
+    assert.match(server, /depositToBank: async \(item\) => \{[\s\S]*?port\.store\.deposit\(\[item\]\)/);
+  });
+
+  it('la que se fue al banco no aparece en Descartadas', () => {
+    const queries = read('src/modules/prospect-discards/queries.ts');
+    assert.match(queries, /\.or\('evidence->claude_rescue->>banked\.is\.null,evidence->claude_rescue->>banked\.neq\.true'\)/);
   });
 });

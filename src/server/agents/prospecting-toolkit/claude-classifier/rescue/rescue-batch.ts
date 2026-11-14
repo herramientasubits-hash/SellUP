@@ -46,7 +46,9 @@ import {
   type ParentGroupWebsite,
   type PriorDomainSearchRow,
 } from './domain-search';
-import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard } from './rescue-decision';
+import { decideRescue, DEFAULT_ICP_MIN_EMPLOYEES, storedSmallSizeDiscard, type RescueDecision } from './rescue-decision';
+import { BANKED_MARKER, buildDispositionBankItem } from './rescue-bank';
+import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
 import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
 import {
   lookUpRescueOfficialIdentity,
@@ -173,6 +175,13 @@ export type RescueBatchDeps = {
    * (antes se quedaba «en proceso»). Ausente = no se marca. Nunca bloquea.
    */
   markDispositionSent?: (dispositionId: string, rescue: Record<string, unknown>) => Promise<void>;
+  /**
+   * Dueña 14-11 — destino de lo rescatado que ya no cabe en la búsqueda (tope de 10):
+   * la macro industria del lote y el depósito en el banco gratuito. Ausentes = esas
+   * filas se revisan pero se quedan en Descartadas.
+   */
+  loadBatchBankTarget?: (batchId: string) => Promise<{ macroIndustryKey: string | null; industryName: string | null }>;
+  depositToBank?: (item: CompanyBankDepositItem) => Promise<'deposited' | 'already_in_bank' | 'claimed' | 'failed'>;
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
   claimIdentities: (batchId: string, candidateIds: readonly string[]) => Promise<void>;
   /**
@@ -262,6 +271,8 @@ export type RescueBatchSummary =
        * estaba en el tope de entrega (sin gasto; se quedan en Descartadas).
        */
       dispositionsCapped?: number;
+      /** Dueña 14-11 — rescatadas sin lugar en la búsqueda: guardadas en el banco gratuito. */
+      dispositionsBanked?: number;
       /** AUDIT-A1-WS7 — el gasto acumulado del lote llegó al tope: no se empezaron más empresas. */
       batchBudgetReached?: boolean;
       /** 21-10 — descartadas sin web que no se buscaron: el lote llegó al tope de búsquedas. */
@@ -285,6 +296,8 @@ type ItemOutcome =
         | 'failed'
         | 'skipped'
         | 'capped'
+        /** Dueña 14-11 — rescatada sin lugar en la búsqueda: se fue al banco gratuito. */
+        | 'banked'
         /** 21-10 — sin web y el lote ya pagó RESCUE_BATCH_MAX_DOMAIN_SEARCHES búsquedas. */
         | 'search_capped';
       cost: number;
@@ -341,11 +354,11 @@ async function rescueDispositionWithinCap(
   admittedIds: string[],
 ): Promise<ItemOutcome> {
   // Dueña 14-11 (Chile × Agroindustria f2f36ff3: 46 descartadas sin revisar porque la
-  // búsqueda ya tenía sus 10): Claude revisa SIEMPRE todo lo que puede rescatar. Sin
-  // lugar libre la fila igual se revisa y, si pasa, entra a revisión en el mismo lote
-  // (de quien hizo la búsqueda) aunque supere el tope de entrega. El tope sigue
-  // ordenando a las que caben primero y los topes de gasto del lote siguen igual.
-  if (!(await reserveDeliverySlot(ctx.slots))) return rescueDisposition(row, ctx, deps, admittedIds);
+  // búsqueda ya tenía sus 10): Claude revisa SIEMPRE todo lo que puede rescatar. La
+  // búsqueda entrega como máximo 10; sin lugar libre la fila igual se revisa y, si es del
+  // sector pedido, va al banco gratuito para búsquedas futuras (no a revisión ni a
+  // Descartadas). Los topes de gasto del lote siguen igual.
+  if (!(await reserveDeliverySlot(ctx.slots))) return rescueDisposition(row, ctx, deps, admittedIds, { overCap: true });
   let kept = false;
   try {
     const outcome = await rescueDisposition(row, ctx, deps, admittedIds);
@@ -968,6 +981,8 @@ async function rescueDisposition(
   ctx: RescueRunContext,
   deps: RescueBatchDeps,
   admittedIds: string[],
+  /** Sin lugar libre en la búsqueda: lo que es del sector pedido va al banco. */
+  options: { overCap?: boolean } = {},
 ): Promise<ItemOutcome> {
   // Cuenta de Anthropic caída: ni se marca «en proceso» (quedaría colgada 15 min).
   if (ctx.halt.accountError) return { tag: 'skipped', cost: 0 };
@@ -1060,6 +1075,9 @@ async function rescueDisposition(
   const goesBack =
     decision.kind === 'reassign' ||
     (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly));
+  if (goesBack && options.overCap && decision.kind === 'admit') {
+    return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
+  }
   if (goesBack) {
     const baseOrigin =
       decision.kind === 'reassign'
@@ -1119,6 +1137,55 @@ async function rescueDisposition(
     return { ...stays, [CLAUDE_RESCUE_METADATA_KEY]: { ...(rescue ?? {}), [OFFICIAL_SIZE_RULE_MARKER]: true } };
   });
   return { tag: saved ? 'kept' : 'failed', cost };
+}
+
+/**
+ * Dueña 14-11 — rescatada sin lugar en la búsqueda: al banco gratuito. Si no se puede
+ * guardar (sin banco, sin macro, sin identidad o ya la tiene otro vendedor) se queda en
+ * Descartadas con el veredicto de Claude, como cualquier fila revisada.
+ */
+async function bankOverCapDisposition(
+  row: RescuableDispositionRow,
+  ctx: RescueRunContext,
+  deps: RescueBatchDeps,
+  verdict: {
+    result: CompanyClassificationResult;
+    decision: Extract<RescueDecision, { kind: 'admit' }>;
+    decidedAt: string;
+    cost: number;
+    withFound: (evidence: Record<string, unknown> | null) => Record<string, unknown> | null;
+  },
+): Promise<ItemOutcome> {
+  const { result, decision, decidedAt, cost, withFound } = verdict;
+  const target = deps.loadBatchBankTarget
+    ? await deps.loadBatchBankTarget(ctx.batchId).catch(() => null)
+    : null;
+  const item = target
+    ? buildDispositionBankItem({
+        row,
+        result,
+        decision,
+        macroIndustryKey: target.macroIndustryKey,
+        industryName: ctx.requestedIndustry?.name ?? target.industryName,
+        decidedAt,
+      })
+    : null;
+  const outcome = item && deps.depositToBank ? await deps.depositToBank(item).catch(() => 'failed' as const) : 'failed';
+  const banked = outcome === 'deposited' || outcome === 'already_in_bank';
+  const saved = await deps.patchDispositionEvidence(row.id, (evidence) => {
+    const stays = buildDispositionStaysEvidence(withFound(evidence), result, decision, decidedAt);
+    const rescue = stays[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
+    return {
+      ...stays,
+      [CLAUDE_RESCUE_METADATA_KEY]: {
+        ...(rescue ?? {}),
+        over_delivery_cap: true,
+        ...(banked ? { [BANKED_MARKER]: true, banked_at: decidedAt } : { bank_outcome: outcome }),
+      },
+    };
+  });
+  if (!saved) return { tag: 'failed', cost };
+  return { tag: banked ? 'banked' : 'kept', cost };
 }
 
 /** Marca final en la fila de Descartadas; un fallo sólo se registra (es informativo). */
@@ -1389,6 +1456,7 @@ export async function rescueBatchWithClaude(
     remaining: work.length - outcomes.filter((o) => o.tag !== 'skipped').length,
     estimatedCostUsd: Math.round(outcomes.reduce((acc, o) => acc + o.cost, 0) * 1_000_000) / 1_000_000,
     dispositionsCapped: count('capped'),
+    dispositionsBanked: count('banked'),
     ...(batchBudgetReached() ? { batchBudgetReached: true } : {}),
     ...(count('search_capped') > 0 ? { dispositionsSearchCapped: count('search_capped') } : {}),
   };

@@ -5,7 +5,8 @@
 // rescatables sin revisar (p. ej. Chile × Agroindustria f2f36ff3: 46 que quedaron
 // fuera porque la búsqueda ya tenía sus 10). Cada búsqueda corre en su propia función
 // (la ruta de continuación) con sus topes de gasto de siempre. Lo que pasa vuelve a
-// revisión en el MISMO lote: queda de quien hizo la búsqueda. Sólo administradores.
+// revisión en el MISMO lote (de quien hizo la búsqueda) hasta 10 por búsqueda; el resto
+// va al banco gratuito para búsquedas futuras. Sólo administradores.
 
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser, isCurrentUserAdmin } from '@/modules/access/actions';
