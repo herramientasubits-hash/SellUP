@@ -12,6 +12,7 @@
 //
 // No provider calls, no writes — this file only reads already-persisted data.
 
+import { isBankedByRescue } from './banked-by-rescue';
 import { createClient } from '@/lib/supabase/server';
 import { loadDirectoryNames } from '@/modules/access/user-directory.server';
 import { canActOnCandidate } from '@/modules/access/record-scope.server';
@@ -91,12 +92,6 @@ function dispositionToItem(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
-}
-
-/** ¿El rescate de la IA la guardó en el banco? (`claude_rescue.banked`) */
-export function isBankedByRescue(metadata: unknown): boolean {
-  const rescue = (metadata as { claude_rescue?: { banked?: unknown } } | null | undefined)?.claude_rescue;
-  return rescue?.banked === true;
 }
 
 /** A manually-discarded `prospect_candidates` row, normalized to the same shape. */
