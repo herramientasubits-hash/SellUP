@@ -218,9 +218,10 @@ export async function runCompetitorFreeSourcesLive(
       industryName: input.industryName,
     };
     // Banco sin su propia revisión de Claude: el clasificador revisa el lote al final.
-    const bank = resolveProductionBankFirstDrawer(input.industryName, { reviewInline: false });
+    // Dueña 14-11 — Competidores no tiene el tope de 10 por búsqueda.
+    const bank = resolveProductionBankFirstDrawer(input.industryName, { reviewInline: false, uncapped: true });
     // HUBSPOT-FREE-POOL-SOURCE-1 — las libres de HubSpot primero, filtradas por el mismo juez.
-    const hubspotFreePool = resolveProductionHubSpotFreePoolDrawer(input.industryName, { reviewInline: false });
+    const hubspotFreePool = resolveProductionHubSpotFreePoolDrawer(input.industryName, { reviewInline: false, uncapped: true });
     const outcome = await runPrePaidNoveltyDiscovery(client, {
       provider: 'apollo',
       countryCode: input.countryCode,
@@ -229,6 +230,7 @@ export async function runCompetitorFreeSourcesLive(
       requestedTarget: input.target,
       requestedByUserId: input.userId,
       partialGapSupported: true,
+      uncapped: true,
       resolveBatchId: async () => input.batchId,
       ...(activityCodes.length > 0 ? { activityCodes } : {}),
       selectFreeCompanies: (companies) =>

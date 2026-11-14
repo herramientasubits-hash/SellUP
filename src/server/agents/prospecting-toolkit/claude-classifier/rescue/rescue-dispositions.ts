@@ -67,6 +67,8 @@ export type RescuableDispositionRow = {
   round_origin?: string | null;
   /** `tax:<número fiscal>` cuando vino de un registro oficial (SOURCES-EC-CLOSE-2). */
   provider_identifier?: string | null;
+  /** Proveedor de origen (`lusha`, `apollo`, `public_source`…): el banco lo guarda. */
+  source_primary?: string | null;
 };
 
 type Evidence = Record<string, unknown>;

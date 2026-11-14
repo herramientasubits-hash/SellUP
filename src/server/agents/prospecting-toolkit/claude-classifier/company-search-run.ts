@@ -121,6 +121,8 @@ export type ClaudeCompanySearchDeps = {
      * sin esto un lote de «Proveedores» quedaba como «Agente 1 · Pipeline · …».
      */
     batchName?: string;
+    /** Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios»: Competidores y Proveedores entregan todo lo que encuentran (como el árbol). */
+    uncapped?: boolean;
   }) => Promise<WrittenCandidates>;
   logUsage: (input: LogProviderUsageInput) => Promise<boolean>;
   newRunId: () => string;
@@ -422,6 +424,7 @@ export async function runClaudeCompanySearch(
       ? await deps.writeCandidates({
           pipelineOutput: search.pipelineOutput,
           ...(intoBatchId ? { existingBatchId: intoBatchId } : {}),
+          ...(referenceCompanyName || source.competitorReference ? { uncapped: true } : {}),
           ...(referenceCompanyName
             ? {
                 depositSurplusToBank: false,

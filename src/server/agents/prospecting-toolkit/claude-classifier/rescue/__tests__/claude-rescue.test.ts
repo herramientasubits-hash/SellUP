@@ -971,59 +971,75 @@ describe('F. SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño medido por la fuente
 });
 
 
-// ─── K. AGENT1-DELIVERY-CAP-HARD-1 — máximo 10 por búsqueda ───────────────────
+// ─── K. Dueña 14-11 — máximo 10 por búsqueda; el resto rescatado va al banco ──
 
-describe('K. el rescate no pasa del tope de entrega', () => {
+describe('K. tope de entrega: la IA revisa todo, lo que no cabe va al banco', () => {
   const three = [disposition({ id: 'd1' }), disposition({ id: 'd2', domain: 'b.pe' }), disposition({ id: 'd3', domain: 'c.pe' })];
+  const bankDeps = (banked: unknown[]) => ({
+    loadBatchBankTarget: async () => ({ macroIndustryKey: 'salud_farmaceuticos', industryName: SALUD }),
+    depositToBank: async (item: unknown) => (banked.push(item), 'deposited' as const),
+  });
 
-  it('con el lote lleno no revisa descartadas: cero gasto, se quedan en Descartadas', async () => {
+  it('con la búsqueda llena las revisa todas y las que pasan van al banco, no a revisión (Chile × Agroindustria f2f36ff3)', async () => {
     const classified: Array<string | null | undefined> = [];
+    const banked: unknown[] = [];
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
       loadDispositions: async () => three,
       deliverySlots: async () => 0,
       classify: async (company) => (classified.push(company.candidateId), result({ candidateId: company.candidateId })),
+      ...bankDeps(banked),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok, true);
     if (!s.ok) return;
-    assert.equal(classified.length, 0);
-    assert.equal(f.admitted.length, 0);
-    assert.equal(s.dispositionsCapped, 3);
-    assert.equal(s.remaining, 0, 'lo que no cabe no cuenta como pendiente: el rescate no se relanza por eso');
-    assert.equal(s.estimatedCostUsd, 0);
+    assert.equal(classified.length, 3, 'la IA revisa todas');
+    assert.equal(f.admitted.length, 0, 'ninguna pasa del tope de 10');
+    assert.equal(s.dispositionsBanked, 3);
+    assert.equal(banked.length, 3);
+    const marks = f.evidenceWrites.map((w) => (w.evidence as Record<string, Record<string, unknown>>).claude_rescue);
+    assert.ok(marks.filter((m) => m?.banked === true).length === 3, 'quedan marcadas para salir de Descartadas');
   });
 
-  it('con un lugar libre admite una y deja las demás sin revisar', async () => {
+  it('con un lugar libre: una a revisión, las otras al banco', async () => {
+    const banked: unknown[] = [];
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
       loadDispositions: async () => three,
       deliverySlots: async () => 1,
+      ...bankDeps(banked),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok, true);
     if (!s.ok) return;
-    assert.equal(f.admitted.length, 1);
     assert.equal(s.dispositionsAdmitted, 1);
-    assert.equal(s.dispositionsCapped, 2);
+    assert.equal(s.dispositionsBanked, 2);
   });
 
-  it('lugar apartado por una revisión que no entra: la siguiente espera y lo usa (Prod CR × Servicios bbc7a8ad)', async () => {
+  it('lo que la IA no confirma se queda en Descartadas y no va al banco', async () => {
+    const banked: unknown[] = [];
     const f = fakeDeps({
       loadReviewCandidates: async () => [],
       loadDispositions: async () => three,
-      deliverySlots: async () => 1,
-      classify: async (company) => {
-        if (company.candidateId !== 'd1') return result({ candidateId: company.candidateId });
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        return result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null });
-      },
+      deliverySlots: async () => 0,
+      classify: async (company) =>
+        company.candidateId === 'd1'
+          ? result({ candidateId: company.candidateId, sector: { ...result().sector!, matchesCurrentIndustry: false }, employeeRange: null })
+          : result({ candidateId: company.candidateId }),
+      ...bankDeps(banked),
     });
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
-    assert.equal(s.ok, true);
-    if (!s.ok) return;
-    assert.equal(s.dispositionsAdmitted, 1, 'd1 no entra y su lugar pasa a otra');
-    assert.equal(s.dispositionsCapped, 1, 'el lote queda lleno: la tercera sí se queda sin revisar');
+    assert.equal(s.ok && s.dispositionsBanked, 2);
+    assert.equal(banked.length, 2);
+  });
+
+  it('sin banco disponible, la revisada se queda en Descartadas con su veredicto', async () => {
+    const f = fakeDeps({ loadReviewCandidates: async () => [], loadDispositions: async () => three, deliverySlots: async () => 0 });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsBanked, 0);
+    assert.equal(f.admitted.length, 0);
+    const marks = f.evidenceWrites.map((w) => (w.evidence as Record<string, Record<string, unknown>>).claude_rescue);
+    assert.ok(marks.some((m) => m?.over_delivery_cap === true && m?.bank_outcome === 'failed'));
   });
 
   it('los candidatos ya en revisión se siguen completando aunque el lote esté lleno (no ocupan lugar nuevo)', async () => {

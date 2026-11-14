@@ -533,6 +533,8 @@ export function resolveProductionBankFirstDrawer(
      * búsqueda y dejaría a Apollo sin margen (acuerdo con la sesión Tavily, 05-10).
      */
     reviewInline?: boolean;
+    /** Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios»: Competidores y Proveedores entregan todo lo que encuentran (como el árbol). */
+    uncapped?: boolean;
   } = {},
 ): BankFirstDrawer | null {
   const port = resolveApolloCompanyBankPort();
@@ -541,7 +543,7 @@ export function resolveProductionBankFirstDrawer(
     port,
     industryName,
     checkDuplicate: (dupInput) => checkCompanyDuplicate(dupInput),
-    resolveCap: () => resolveMaxDeliveredCandidates(),
+    resolveCap: () => (options.uncapped ? null : resolveMaxDeliveredCandidates()),
     newDrawId: () => randomUUID(),
     // El MISMO paso de número fiscal oficial que Tavily y Claude (SII, RES, …).
     refreshOfficialIdentity: (candidates, context) =>
@@ -580,7 +582,7 @@ export function resolveProductionBankFirstDrawer(
         dryRun: false,
         existingBatchId: writeInput.batchId,
         targetPersistibleCandidates: writeInput.requestedTarget,
-        maxDeliveredCandidates: resolveMaxDeliveredCandidates(),
+        maxDeliveredCandidates: options.uncapped ? null : resolveMaxDeliveredCandidates(),
         holdBatchStatus: true,
         candidateProvenance: writeInput.candidateProvenance,
         extraBatchMetadata: writeInput.metadata,

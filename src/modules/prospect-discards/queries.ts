@@ -189,7 +189,10 @@ export async function getDiscardedProspectsList(
     .select(
       `*, batch:prospect_batches!prospect_discarded_dispositions_batch_id_fkey(name)`,
     )
-    .eq('status', 'discarded');
+    .eq('status', 'discarded')
+    // Dueña 14-11 — la que la IA rescató y se fue al banco (la búsqueda ya tenía sus
+    // 10) no es una descartada: espera en el banco para búsquedas futuras.
+    .or('evidence->claude_rescue->>banked.is.null,evidence->claude_rescue->>banked.neq.true');
 
   if (filters.batchId) {
     if (allowedBatchIds !== null && !allowedBatchIds.includes(filters.batchId)) {
