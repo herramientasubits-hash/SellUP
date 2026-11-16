@@ -11,7 +11,7 @@
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { isAgent1ClaudeDomainFinderEnabled, isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import { RESCUABLE_DISPOSITION_REASON_CODES, needsDispositionRescue, type RescuableDispositionRow } from './rescue-dispositions';
-import { DOMAIN_SEARCH_REASON_CODE } from './domain-search';
+import { WEBSITE_SEARCH_REASON_CODES, asWebsiteSearchRow } from './domain-search';
 import { triggerRescueContinuation } from './rescue-chain.server';
 
 /** Tope de filas leídas por pasada. */
@@ -28,7 +28,7 @@ export async function schedulePendingDiscardRescues(options: {
   try {
     const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
     const reasonCodes = domainSearchEnabled
-      ? [...RESCUABLE_DISPOSITION_REASON_CODES, DOMAIN_SEARCH_REASON_CODE]
+      ? [...RESCUABLE_DISPOSITION_REASON_CODES, ...WEBSITE_SEARCH_REASON_CODES]
       : [...RESCUABLE_DISPOSITION_REASON_CODES];
     let query = createSupabaseAdminClient()
       .from('prospect_discarded_dispositions')
@@ -46,7 +46,8 @@ export async function schedulePendingDiscardRescues(options: {
     }
     const now = Date.now();
     const perBatch = new Map<string, number>();
-    for (const row of (data ?? []) as RescuableDispositionRow[]) {
+    for (const raw of (data ?? []) as RescuableDispositionRow[]) {
+      const row = asWebsiteSearchRow(raw);
       if (!needsDispositionRescue(row, now, domainSearchEnabled)) continue;
       perBatch.set(row.batch_id, (perBatch.get(row.batch_id) ?? 0) + 1);
     }

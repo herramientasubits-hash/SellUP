@@ -255,8 +255,27 @@ export function websiteNotFoundByAccountError(evidence: Evidence | null): boolea
   );
 }
 
+/**
+ * Dueña 16-11 — otras descartadas a las que la IA les busca la web oficial:
+ *  · `ownership_rejected_final`: la web que trajo el proveedor no es de la empresa; se
+ *    busca la correcta (la equivocada no se usa: ver `asWebsiteSearchRow`);
+ *  · `corporate_tree_possible_hubspot_duplicate`: el árbol no buscó su web por un
+ *    posible duplicado en HubSpot; con la web, la revisión de duplicados lo confirma.
+ */
+export const OWNERSHIP_REJECTED_REASON_CODE = 'ownership_rejected_final';
+export const WEBSITE_SEARCH_REASON_CODES = [
+  DOMAIN_SEARCH_REASON_CODE,
+  OWNERSHIP_REJECTED_REASON_CODE,
+  'corporate_tree_possible_hubspot_duplicate',
+] as const;
+
+/** La fila tal como la ve el buscador: la web rechazada por no ser de la empresa no cuenta. */
+export function asWebsiteSearchRow<T extends { domain: string | null; reason_code: string | null }>(row: T): T {
+  return row.reason_code === OWNERSHIP_REJECTED_REASON_CODE && row.domain ? { ...row, domain: null } : row;
+}
+
 export function isDomainSearchCandidate(row: Pick<DomainSearchRow, 'domain' | 'reason_code'>): boolean {
-  return !row.domain && row.reason_code === DOMAIN_SEARCH_REASON_CODE;
+  return !row.domain && (WEBSITE_SEARCH_REASON_CODES as readonly string[]).includes(row.reason_code ?? '');
 }
 
 /**

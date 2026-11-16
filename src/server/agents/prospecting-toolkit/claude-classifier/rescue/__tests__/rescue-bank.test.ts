@@ -82,3 +82,35 @@ describe('web = palabra distintiva del nombre', () => {
     assert.equal(domainIsDistinctiveNameWord('tottus.blogspot.com', ['HIPERMERCADOS TOTTUS SA']), false);
   });
 });
+
+// ─── Dueña 16-11 — web equivocada y posible duplicado del árbol: la IA busca la web ──
+import { asWebsiteSearchRow, isDomainSearchCandidate } from '../domain-search';
+import { needsDispositionRescue } from '../rescue-dispositions';
+
+describe('más descartadas a las que la IA les busca la web', () => {
+  const base = {
+    id: 'd1', batch_id: 'b1', candidate_id: null, status: 'discarded', name: 'Acme SpA',
+    country_code: 'CL', industry: 'Retail', evidence: {},
+  };
+
+  it('web que no es de la empresa: se ignora la equivocada y se busca la correcta', () => {
+    const row = asWebsiteSearchRow({ ...base, domain: 'otra-empresa.cl', reason_code: 'ownership_rejected_final' });
+    assert.equal(row.domain, null);
+    assert.equal(isDomainSearchCandidate(row), true);
+    assert.equal(needsDispositionRescue(row, Date.now(), true), true);
+    assert.equal(needsDispositionRescue(row, Date.now(), false), false, 'sin buscador de web, nada');
+  });
+
+  it('posible duplicado del árbol sin web: se busca y la revisión de duplicados decide', () => {
+    const row = { ...base, domain: null, reason_code: 'corporate_tree_possible_hubspot_duplicate' };
+    assert.equal(isDomainSearchCandidate(row), true);
+  });
+
+  it('los duplicados confirmados y el periodo de espera no se tocan', () => {
+    for (const reason_code of ['hubspot_duplicate_final', 'cooldown_final', null]) {
+      const row = asWebsiteSearchRow({ ...base, domain: 'x.cl', reason_code });
+      assert.equal(row.domain, 'x.cl');
+      assert.equal(needsDispositionRescue(row as never, Date.now(), true), false);
+    }
+  });
+});
