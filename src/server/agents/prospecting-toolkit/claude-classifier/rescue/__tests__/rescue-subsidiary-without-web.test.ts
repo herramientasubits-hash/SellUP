@@ -159,8 +159,8 @@ describe('C. el rescate', () => {
     assert.equal(s.ok && s.dispositionsAdmitted, 1);
     const origin = f.origins[0];
     const columns = origin.columns ?? {};
-    assert.equal(columns.domain, undefined, 'la web global nunca es la del candidato');
-    assert.equal(columns.website, undefined);
+    assert.equal(columns.domain ?? null, null, 'la web global nunca es la del candidato');
+    assert.equal(columns.website ?? null, null);
     assert.equal(columns.employee_count, undefined, 'los empleados de la matriz no son de la filial');
     assert.equal(columns.name, 'AMAZON SUPPORT SERVICES COSTA RICA S.R.L.');
     assert.deepEqual(
@@ -241,8 +241,8 @@ describe('D. Árbol de una empresa (Prod 15-10, Bimbo): la web del GRUPO no hace
     const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
     assert.equal(s.ok && s.dispositionsAdmitted, 1);
     const origin = f.origins[0];
-    assert.equal(origin.columns?.domain, undefined, 'la web del grupo nunca es la de la filial');
-    assert.equal(origin.columns?.website, undefined);
+    assert.equal(origin.columns?.domain ?? null, null, 'la web del grupo nunca es la de la filial');
+    assert.equal(origin.columns?.website ?? null, null);
     assert.equal((origin.metadata.parent_group_website as { domain: string }).domain, 'grupobimbo.com');
     assert.deepEqual(f.dupCalls, [{ domain: 'grupobimbo.com' }, { domain: null }], 'después se revisa por NOMBRE');
   });

@@ -69,6 +69,29 @@ describe('rescatar descartadas con IA', () => {
     assert.match(action, /if \(resolution === 'completed'\) await requestRescueAfterContinuation\(batchId, internalUserId\);/);
     assert.match(action, /triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy \}\)/);
     const cron = read('src/app/api/cron/apollo-round-continuation/route.ts');
-    assert.match(cron, /stats\.resolutions\[0\]\?\.resolution === 'completed'\) \{[\s\S]*?triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy: null \}\)/);
+    assert.match(cron, /if \(resolution === 'completed' \|\| resolution === 'exhausted'\) \{[\s\S]*?triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy: null \}\)/);
+    assert.match(action, /if \(resolution === 'exhausted'\) \{\s*\/\/[^\n]*\n\s*await requestRescueAfterContinuation\(batchId, internalUserId\);/);
+  });
+  it('🔴 revisión 16-11: la guardada en el banco no se puede mandar también a revisión', () => {
+    const core = read('src/modules/prospect-discards/send-to-review-core.ts');
+    assert.match(core, /if \(disp\.status === 'discarded' && isBankedByRescue\(disp\.evidence\)\) \{\s*return \{ outcome: 'reject', reason: 'status_conflict' \};/);
+  });
+
+  it('🔴 revisión 16-11: la filial sin web no pasa del tope y nunca hereda la web rechazada', () => {
+    const rb = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
+    assert.match(rb, /if \(options\.overCap \|\| \(await batchIsFullNow\(ctx, deps\)\)\) \{\s*return stays\(/);
+    assert.match(rb, /columns: \{ \.\.\.columns, name: displayName, domain: null, website: null \}/);
+  });
+
+  it('🔴 revisión 16-11: el barrido no lanza vueltas en paralelo ni sobre lotes sin presupuesto', () => {
+    const sweep = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-pending-sweep.server.ts');
+    assert.match(sweep, /for \(const batchId of busy\) perBatch\.delete\(batchId\);/);
+    assert.match(sweep, /spent >= RESCUE_BATCH_MAX_COST_USD\) perBatch\.delete\(batchId\)/);
+    assert.match(sweep, /\.order\('created_at', \{ ascending: false \}\)/);
+  });
+
+  it('🔴 revisión 16-11: sin poder contar la búsqueda con tope, no hay lugar', () => {
+    const server = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts');
+    assert.match(server, /if \(error \|\| count === null\) return 0;/);
   });
 });

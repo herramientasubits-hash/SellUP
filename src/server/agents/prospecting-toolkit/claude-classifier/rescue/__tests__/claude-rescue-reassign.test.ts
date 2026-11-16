@@ -519,3 +519,12 @@ describe('H. otra industria en una búsqueda con tope de 10', () => {
     assert.equal(f.admitted.length, 1);
   });
 });
+
+describe('I. Revisión 16-11 — en una búsqueda con tope no se reabren las guardadas de otra industria', () => {
+  it('con tope de entrega, las guardadas no vuelven a revisión', async () => {
+    const f = fakeDeps({ deliverySlots: async () => 5 });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.reassigned, 0);
+    assert.equal(f.reopened.length, 0);
+  });
+});

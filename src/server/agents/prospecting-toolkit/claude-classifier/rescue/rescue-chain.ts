@@ -49,7 +49,9 @@ export function decideRescueContinuation(step: RescueChainStep): RescueChainDeci
     summary.candidatesUnchanged +
     summary.dispositionsAdmitted +
     summary.dispositionsKept +
-    summary.reassigned;
+    summary.reassigned +
+    // Revisión 16-11 — guardar en el banco también es avanzar (antes cortaba con «no_progress»).
+    (summary.dispositionsBanked ?? 0);
   if (progress === 0) return { continue: false, reason: 'no_progress' };
   if (!(step.spentUsd < RESCUE_CHAIN_MAX_COST_USD)) return { continue: false, reason: 'cost_cap' };
   return { continue: true, nextContinuation: step.continuationsDone + 1 };

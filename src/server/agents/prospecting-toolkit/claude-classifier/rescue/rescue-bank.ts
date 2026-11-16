@@ -26,6 +26,7 @@ import {
 import type { CompanyClassificationResult } from '../types';
 import type { RescueDecision } from './rescue-decision';
 import type { RescuableDispositionRow } from './rescue-dispositions';
+import { dispositionDisplayName } from './domain-search';
 
 /** Marca en `claude_rescue` de una descartada que se fue al banco (sale de Descartadas). */
 export const BANKED_MARKER = 'banked' as const;
@@ -91,7 +92,8 @@ export function buildDispositionBankItem(input: {
   const sectorConfirmed = decision.kind === 'reassign' || decision.sectorConfirmed;
   const employees = decision.sizeConfirmed ? lowerBound(result) : null;
   const candidate: ProspectingPipelineCandidate = {
-    name: row.name,
+    // El nombre visible (no el normalizado para comparar: «america bbva en technology»).
+    name: dispositionDisplayName(row),
     originalName: null,
     website: `https://${domain}`,
     domain,

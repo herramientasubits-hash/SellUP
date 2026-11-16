@@ -110,6 +110,8 @@ export async function continueApolloRound(batchId: string): Promise<ContinueApol
     return { status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null };
   }
   if (resolution === 'exhausted') {
+    // Revisión 16-11 — lo que alcanzó a escribir también pasa por el rescate.
+    await requestRescueAfterContinuation(batchId, internalUserId);
     // AGENT1-STUCK-RUNS-CLOSE-1 — agotada la continuación, el lote no puede
     // quedarse «generando»: lo encontrado pasa a revisión.
     const client = stuckRunsClient();

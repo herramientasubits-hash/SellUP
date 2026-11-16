@@ -89,6 +89,7 @@ import {
   type RescuableDispositionRow,
   PROVIDER_SIZE_REASON_CODE,
   BANK_WITH_FOUND_WEB_FIX,
+  bankAttemptsOf,
 } from './rescue-dispositions';
 import { institutionWebMatchesName } from './institution-web-name-match';
 
@@ -928,6 +929,7 @@ async function rescueParentGroupDisposition(
   domainSearch: NonNullable<RescueBatchDeps['domainSearch']>,
   admittedIds: string[],
   step: Extract<WebsiteStep, { kind: 'parent' }>,
+  options: { overCap?: boolean } = {},
 ): Promise<ItemOutcome> {
   const { parent, outcome, searchedAt } = step;
   const displayName = dispositionDisplayName(row);
@@ -984,6 +986,11 @@ async function rescueParentGroupDisposition(
     return stays({ sector_confirmed: false, decision: decision.kind }, cost);
   }
 
+  // Revisión 16-11 — sin lugar en la búsqueda (o lleno ahora) no entra a revisión; sin web
+  // propia tampoco puede ir al banco: se queda con la web de la matriz anotada.
+  if (options.overCap || (await batchIsFullNow(ctx, deps))) {
+    return stays({ sector_confirmed: true, decision: 'admit_over_delivery_cap' }, cost);
+  }
   const decidedAt = deps.nowIso();
   const base = buildDispositionAdmissionOrigin(result, decision, official.minEmployees, decidedAt);
   // Lo que Claude leyó en la web de la MATRIZ (sitio, empleados) no es de la filial.
@@ -995,7 +1002,8 @@ async function rescueParentGroupDisposition(
       result.sector?.industryName ?? 'sector del lote'
     }. Completar la web local.`,
     metadata: { ...metadata, ...parentRef({ web_pending: true }) },
-    columns: { ...columns, name: displayName },
+    // La web del proveedor puede ser la rechazada (no es de la empresa): nunca se hereda.
+    columns: { ...columns, name: displayName, domain: null, website: null },
   });
   if (!candidateId) return { tag: 'failed', cost };
   admittedIds.push(candidateId);
@@ -1039,7 +1047,9 @@ async function rescueDisposition(
       return { tag: 'search_capped', cost: 0 };
     }
     if (step.kind === 'done') return step.outcome;
-    if (step.kind === 'parent') return rescueParentGroupDisposition(row, ctx, deps, deps.domainSearch, admittedIds, step);
+    if (step.kind === 'parent') {
+      return rescueParentGroupDisposition(row, ctx, deps, deps.domainSearch, admittedIds, step, options);
+    }
     found = step.found;
     searchCost = step.cost;
   }
@@ -1069,14 +1079,14 @@ async function rescueDisposition(
   const withFound = (evidence: Record<string, unknown> | null) =>
     found ? buildFoundEvidence(evidence, found, deps.nowIso()) : evidence;
   if (!result) {
-    if (found) {
-      await deps.patchDispositionEvidence(row.id, (evidence) =>
-        withRetryAttempt({
-          ...withFound(evidence),
-          [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
-        }),
-      );
-    }
+    // Revisión 16-11 — siempre reintentable CON contador (antes, sin web encontrada, la fila
+    // quedaba «en proceso» y se reintentaba sin límite cada vez que caducaba la marca).
+    await deps.patchDispositionEvidence(row.id, (evidence) =>
+      withRetryAttempt({
+        ...(withFound(evidence) ?? {}),
+        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
+      }),
+    );
     return { tag: 'failed', cost: searchCost };
   }
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
@@ -1105,11 +1115,17 @@ async function rescueDisposition(
   // Dueña 14-11 — descartada SÓLO por el tamaño que dio el proveedor (Lusha subestima,
   // p. ej. agroindustria con temporeros): si la IA comprueba ≥ mínimo, vuelve aunque el
   // sector no quede citado — ya pasó el filtro de sector del proveedor.
+  const providerSizeRow = row.reason_code === PROVIDER_SIZE_REASON_CODE;
   const sizeOnlyRescued =
-    row.reason_code === PROVIDER_SIZE_REASON_CODE && decision.kind === 'admit' && decision.sizeConfirmed;
+    providerSizeRow && decision.kind === 'admit' && decision.sizeConfirmed && !decision.sectorMismatchUnconfirmed;
+  // Revisión 16-11 — la descartada por el tamaño del proveedor SÓLO vuelve si la IA midió
+  // ≥ mínimo (antes bastaba con confirmar el sector y volvía sin tamaño medido).
+  const sizeProven =
+    !providerSizeRow || ((decision.kind === 'admit' || decision.kind === 'reassign') && decision.sizeConfirmed);
   const goesBack =
-    decision.kind === 'reassign' ||
-    (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued));
+    sizeProven &&
+    (decision.kind === 'reassign' ||
+      (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued)));
   if (goesBack && options.overCap && decision.kind === 'admit') {
     return bankOverCapDisposition(bankRow, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
@@ -1127,8 +1143,13 @@ async function rescueDisposition(
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
     ...(official.measured ? { sizeAlreadyConfirmed: true, officialSizeMeasured: true } : {}),
   });
-  if (elsewhere) {
+  if (elsewhere && (!providerSizeRow || elsewhere.sizeConfirmed)) {
     return bankOverCapDisposition(bankRow, ctx, deps, { result, decision: elsewhere, recorded: decision, decidedAt, cost, withFound });
+  }
+  // Revisión 16-11 — otro escritor (continuación de Apollo, otra vuelta) pudo llenar la
+  // búsqueda mientras la IA revisaba: se vuelve a contar en la base antes de admitir.
+  if (goesBack && decision.kind === 'admit' && (await batchIsFullNow(ctx, deps))) {
+    return bankOverCapDisposition(bankRow, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
   if (goesBack) {
     const baseOrigin =
@@ -1177,6 +1198,14 @@ async function rescueDisposition(
       await markSent(deps, row.id, origin.metadata);
       return { tag: decision.kind === 'reassign' ? 'reassigned' : 'admitted', cost };
     }
+    // Revisión 16-11 — no se pudo pasar a revisión: reintentable con contador y con la web
+    // ya pagada guardada (antes quedaba «en proceso» y se volvía a pagar la búsqueda).
+    await deps.patchDispositionEvidence(row.id, (evidence) =>
+      withRetryAttempt({
+        ...(withFound(evidence) ?? {}),
+        [CLAUDE_RESCUE_METADATA_KEY]: { ...buildRescueInProgress(deps.nowIso()), decision: 'retryable' },
+      }),
+    );
     return { tag: 'failed', cost };
   }
   // Se queda en Descartadas: si Claude completó algo pero no el sector, no es un «admit».
@@ -1214,20 +1243,22 @@ async function bankOverCapDisposition(
   const target = deps.loadBatchBankTarget
     ? await deps.loadBatchBankTarget(ctx.batchId).catch(() => null)
     : null;
-  // La de otra industria va al banco de SU industria (Consumo Masivo, no Agroindustria).
+  // La de otra industria va al banco de SU industria (Consumo Masivo, no Agroindustria);
+  // para ésa no hace falta leer el lote.
   const reassigned = decision.kind === 'reassign';
-  const item = target
-    ? buildDispositionBankItem({
-        row,
-        result,
-        decision,
-        macroIndustryKey: reassigned
-          ? resolveMacroIndustryKey({ slug: null, displayName: decision.industryName })
-          : target.macroIndustryKey,
-        industryName: reassigned ? decision.industryName : (ctx.requestedIndustry?.name ?? target.industryName),
-        decidedAt,
-      })
-    : null;
+  const item =
+    reassigned || target
+      ? buildDispositionBankItem({
+          row,
+          result,
+          decision,
+          macroIndustryKey: reassigned
+            ? resolveMacroIndustryKey({ slug: null, displayName: decision.industryName })
+            : (target?.macroIndustryKey ?? null),
+          industryName: reassigned ? decision.industryName : (ctx.requestedIndustry?.name ?? target?.industryName ?? null),
+          decidedAt,
+        })
+      : null;
   const outcome = item && deps.depositToBank ? await deps.depositToBank(item).catch(() => 'failed' as const) : 'failed';
   const banked = outcome === 'deposited' || outcome === 'already_in_bank';
   const saved = await deps.patchDispositionEvidence(row.id, (evidence) => {
@@ -1240,7 +1271,11 @@ async function bankOverCapDisposition(
         ...(reassigned ? { banked_industry_name: decision.industryName } : {}),
         [BANK_WITH_FOUND_WEB_FIX]: true,
         over_delivery_cap: verdict.recorded === undefined,
-        ...(banked ? { [BANKED_MARKER]: true, banked_at: decidedAt } : { bank_outcome: outcome }),
+        // Revisión 16-11 — un fallo del banco se reintenta (hasta BANK_MAX_ATTEMPTS): antes
+        // quedaba definitivo y la empresa se quedaba en Descartadas para siempre.
+        ...(banked
+          ? { [BANKED_MARKER]: true, banked_at: decidedAt }
+          : { bank_outcome: outcome, bank_attempts: bankAttemptsOf(evidence) + 1 }),
       },
     };
   });
@@ -1304,6 +1339,16 @@ async function bankDiscardedCandidate(
       },
     };
   });
+}
+
+/**
+ * Revisión 16-11 — ¿la búsqueda ya está en su tope AHORA? Se lee la base (otro escritor pudo
+ * llenarla durante la vuelta). Sin tope o sin lectura: no está llena (la reserva ya cuidó).
+ */
+async function batchIsFullNow(ctx: RescueRunContext, deps: RescueBatchDeps): Promise<boolean> {
+  if (!ctx.deliveryCapped || !deps.deliverySlots) return false;
+  const free = await deps.deliverySlots(ctx.batchId).catch(() => null);
+  return free !== null && free <= 0;
 }
 
 /** Marca final en la fila de Descartadas; un fallo sólo se registra (es informativo). */
@@ -1541,7 +1586,11 @@ export async function rescueBatchWithClaude(
   ctx.domainSearches = { before: searchesBefore ?? 0, thisRun: 0 };
   const storedReassigned = onlyFreeSource
     ? 0
-    : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
+    : ctx.deliveryCapped
+      ? // Revisión 16-11 — en una búsqueda con tope, la de otra industria no entra a revisión
+        // (antes las guardadas se reabrían sin mirar el tope de 10).
+        0
+      : await reassignStoredSectorMismatches(params.batchId, ctx.requestedIndustry?.name ?? null, deps, admittedIds);
 
   const outcomes = await mapUntil(
     thisRun,

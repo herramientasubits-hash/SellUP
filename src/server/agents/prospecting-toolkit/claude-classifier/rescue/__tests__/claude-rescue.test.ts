@@ -1159,3 +1159,65 @@ describe('M. descartada por el tamaño del proveedor (Lusha subestima)', () => {
     assert.equal(f.admitted.length, 0);
   });
 });
+
+// ─── N. Revisión 16-11 — fallas encontradas en la auditoría ────────────────────
+
+describe('N. revisión a fondo del rescate', () => {
+  it('tamaño del proveedor: sector confirmado pero SIN tamaño medido ⇒ se queda en Descartadas', async () => {
+    const banked: unknown[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition({ reason_code: 'known_employee_count_below_min' })],
+      classify: async (company) => result({ candidateId: company.candidateId, employeeRange: null }),
+      deliverySlots: async () => 0,
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'health', industryName: SALUD }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsAdmitted, 0);
+    assert.equal(banked.length, 0);
+  });
+
+  it('la IA no respondió: la fila queda reintentable CON contador (no «en proceso» sin fin)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition()],
+      classify: async () => {
+        throw new Error('timeout');
+      },
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    const last = f.evidenceWrites.at(-1)?.evidence as Record<string, Record<string, unknown>>;
+    assert.equal(last.claude_rescue.decision, 'retryable');
+    assert.ok(Number((last as Record<string, unknown>).claude_rescue_retry_attempts ?? last.claude_rescue_retry ?? 1) >= 1);
+  });
+
+  it('otro escritor llenó la búsqueda durante la vuelta ⇒ lo que pasa va al banco, no a revisión', async () => {
+    let reads = 0;
+    const banked: unknown[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition()],
+      deliverySlots: async () => (reads++ === 0 ? 1 : 0),
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'health', industryName: SALUD }),
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(f.admitted.length, 0);
+    assert.equal(s.ok && s.dispositionsBanked, 1);
+  });
+
+  it('un fallo del banco se reintenta (cuenta los intentos)', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [],
+      loadDispositions: async () => [disposition()],
+      deliverySlots: async () => 0,
+      loadBatchBankTarget: async () => ({ macroIndustryKey: 'health', industryName: SALUD }),
+      depositToBank: async () => 'failed',
+    });
+    await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    const rescue = (f.evidenceWrites.at(-1)?.evidence as Record<string, Record<string, unknown>>).claude_rescue;
+    assert.equal(rescue.bank_outcome, 'failed');
+    assert.equal(rescue.bank_attempts, 1);
+  });
+});

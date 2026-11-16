@@ -21,6 +21,7 @@ import { toCandidateSourcePrimary } from './mapping';
 import { fiscalIdentityFromDisposition } from './fiscal-identity-from-disposition';
 import { officialWorkforceFromDisposition } from './official-workforce-from-disposition';
 import { DISCARD_DISPOSITION_LABELS, type DiscardDispositionCode } from './types';
+import { isBankedByRescue } from './banked-by-rescue';
 import { isCompetitorSmallCompany } from '@/modules/prospect-batches/competitor-search/competitor-small-companies';
 
 export interface SendToReviewCoreDeps {
@@ -258,6 +259,11 @@ export async function sendDispositionToReviewCore(
     return { outcome: 'out_of_scope' };
   }
 
+  // Revisión 16-11 — la IA ya la guardó en el banco (no se ve en Descartadas): un enlace
+  // directo no puede mandarla también a revisión, o quedaría en los dos lados.
+  if (disp.status === 'discarded' && isBankedByRescue(disp.evidence)) {
+    return { outcome: 'reject', reason: 'status_conflict' };
+  }
   const decision = evaluateSendToReviewEligibility({ status: disp.status });
   if (decision.decision === 'idempotent') {
     const existingCandidateId = disp.resulting_candidate_id ?? disp.candidate_id;

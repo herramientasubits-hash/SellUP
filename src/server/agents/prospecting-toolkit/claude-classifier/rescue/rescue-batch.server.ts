@@ -421,7 +421,9 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .select('id', { count: 'exact', head: true })
         .eq('batch_id', batchId)
         .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES]);
-      if (error || count === null) return null;
+      // Revisión 16-11 — con tope y sin poder contar, NO hay lugar (al banco): antes `null`
+      // dejaba la búsqueda sin tope y un fallo puntual permitía pasar de 10.
+      if (error || count === null) return 0;
       return Math.max(0, cap - count);
     },
     loadDispositions: async (batchId) => {
