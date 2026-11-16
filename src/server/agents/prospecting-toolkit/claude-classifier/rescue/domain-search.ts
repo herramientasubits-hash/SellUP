@@ -18,6 +18,7 @@ import { evaluateExternalPlatformGate } from '../../external-platform-blocklist'
 import { normalizeCompanyName, normalizeDomain } from '../../normalization';
 import {
   domainCarriesName,
+  domainIsDistinctiveNameWord,
   type DomainFinderInput,
   type DomainFinderOutcome,
   type DomainVerification,
@@ -50,9 +51,12 @@ export const CLAUDE_DOMAIN_SEARCH_OPERATION_KEY = 'company_domain_search';
  * reintentan una vez. d8 (06-10): el dominio puede ser la SIGLA del nombre (meds.cl,
  * ucmchile.cl) si la página la confirma — ver `pageConfirmsAcronym`. d9 (06-10): la página
  * se lee hasta 400 KB (`CLAUDE_PAGE_MAX_HTML_BYTES`): en sitios WordPress los primeros
- * 50 KB eran sólo estilos y la comprobación nunca veía el texto.
+ * 50 KB eran sólo estilos y la comprobación nunca veía el texto. d10 (dueña 16-11): el
+ * dominio puede ser la PALABRA DISTINTIVA del nombre («tottus.cl» para «HIPERMERCADOS
+ * TOTTUS SA», que además bloquea a los robots) — ver `domainIsDistinctiveNameWord`; los
+ * «no encontrado» de d9 se reintentan una vez.
  */
-export const DOMAIN_SEARCH_VERSION = 'd9';
+export const DOMAIN_SEARCH_VERSION = 'd10';
 
 /**
  * PISTA (decisión de la dueña, 06-10-2026, «si pista»): la web que Claude propuso pero
@@ -443,7 +447,9 @@ export function unverifiedWebsiteHint(
   if (!domain) return null;
   if (!evaluateExternalPlatformGate(outcome.claimedUrl, dispositionDisplayName(row)).allowed) return null;
   const input = buildDomainFinderInput(row as DomainSearchRow, null);
-  if (!domainCarriesName(domain, [input.name, ...(input.alternateNames ?? [])])) return null;
+  const names = [input.name, ...(input.alternateNames ?? [])];
+  // Dueña 16-11 — también la palabra distintiva del nombre (Tottus, 403 a los robots).
+  if (!domainCarriesName(domain, names) && !domainIsDistinctiveNameWord(domain, names)) return null;
   return { website: `https://${domain}`, domain, verification: UNVERIFIED_HINT_VERIFICATION };
 }
 

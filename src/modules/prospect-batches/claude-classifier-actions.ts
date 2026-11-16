@@ -162,7 +162,7 @@ export async function searchCompaniesWithClaudeAction(batchId: string): Promise<
   // Lote creado pero sin empresas (todas cayeron en las compuertas): nada que completar.
   if (summary.ok && summary.batchId && summary.candidatesCreated > 0) {
     // Las de Claude llegan sin tamaño confirmado: el rescate lo completa (o descarta) con fuente.
-    scheduleClaudeRescueAfterWizardRun({ ok: true, batchId: summary.batchId }, async () => internalUserId, startedAtMs, {
+    void scheduleClaudeRescueAfterWizardRun({ ok: true, batchId: summary.batchId }, async () => internalUserId, startedAtMs, {
       includeUnassessed: true,
     });
     revalidatePath('/prospect-batches');

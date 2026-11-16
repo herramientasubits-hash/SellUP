@@ -61,3 +61,24 @@ describe('rescatada sin lugar → banco', () => {
     assert.equal(build({ macroIndustryKey: null }), null);
   });
 });
+
+// ─── Dueña 16-11 — la web es la palabra distintiva del nombre ─────────────────
+import { domainIsDistinctiveNameWord } from '../../domain-finder';
+
+describe('web = palabra distintiva del nombre', () => {
+  it('«tottus.cl» para «HIPERMERCADOS TOTTUS SA» (y con el país)', () => {
+    assert.equal(domainIsDistinctiveNameWord('tottus.cl', ['HIPERMERCADOS TOTTUS SA']), true);
+    assert.equal(domainIsDistinctiveNameWord('tottuschile.cl', ['HIPERMERCADOS TOTTUS SA']), true);
+  });
+
+  it('una palabra genérica o corta no basta', () => {
+    assert.equal(domainIsDistinctiveNameWord('hipermercados.cl', ['HIPERMERCADOS TOTTUS SA']), false);
+    assert.equal(domainIsDistinctiveNameWord('servicios.cl', ['SERVICIOS INTEGRALES SA']), false);
+    assert.equal(domainIsDistinctiveNameWord('abc.cl', ['ABC S.A.']), false);
+    assert.equal(domainIsDistinctiveNameWord('frusan.cl', ['FRUTERA SAN FERNANDO SOCIEDAD ANONIMA']), false);
+  });
+
+  it('nunca una plataforma o un dominio compartido', () => {
+    assert.equal(domainIsDistinctiveNameWord('tottus.blogspot.com', ['HIPERMERCADOS TOTTUS SA']), false);
+  });
+});

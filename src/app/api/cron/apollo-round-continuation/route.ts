@@ -87,10 +87,17 @@ async function handleCronRequest(request: NextRequest) {
           .catch(() => null)
       : null;
 
+    // Dueña 16-11 — red de seguridad del rescate con IA: las descartadas rescatables de
+    // los últimos 3 días que nadie revisó (una vuelta que no llegó a correr, una
+    // continuación de Apollo que escribió después). Con sus topes de gasto de siempre.
+    const rescueSweep = await import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-pending-sweep.server')
+      .then((m) => m.schedulePendingDiscardRescues({ triggeredBy: null, sinceHours: 72 }))
+      .catch(() => null);
+
     // AGENT1-AUDIT-WS1 — bandera fail-closed: abrir el proxy no enciende el gasto.
     // Apagada, se responde sin tocar la base.
     if (!isAgent1ApolloCronContinuationEnabled()) {
-      return NextResponse.json({ success: true, skipped: 'flag_off', ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}) });
+      return NextResponse.json({ success: true, skipped: 'flag_off', ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}), ...(rescueSweep ? { rescueSweep } : {}) });
     }
 
     const client = createSupabaseAdminClient();
@@ -119,7 +126,7 @@ async function handleCronRequest(request: NextRequest) {
         { status: 500 },
       );
     }
-    return NextResponse.json({ success: true, stats, stuck, ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}) });
+    return NextResponse.json({ success: true, stats, stuck, ...(competitorWatch ? { competitorWatch } : {}), ...(slackDigests ? { slackDigests } : {}), ...(rescueSweep ? { rescueSweep } : {}) });
   } catch (err) {
     console.error('[CronApolloContinuation] Exception during worker execution:', err);
     return NextResponse.json(

@@ -255,6 +255,40 @@ export function domainCarriesName(domain: string, names: readonly string[]): boo
   });
 }
 
+/**
+ * Palabras del nombre que NO identifican a una empresa: rubro, forma societaria o lugar.
+ * «hipermercados» no dice qué hipermercado es; «tottus» sí.
+ */
+const GENERIC_NAME_WORDS = new Set([
+  'hipermercados', 'hipermercado', 'supermercados', 'supermercado', 'comercial', 'comercializadora',
+  'servicios', 'servicio', 'empresas', 'empresa', 'grupo', 'industrias', 'industria', 'industrial',
+  'sociedad', 'anonima', 'limitada', 'compania', 'corporacion', 'inversiones', 'holding',
+  'distribuidora', 'distribucion', 'importadora', 'exportadora', 'constructora', 'inmobiliaria',
+  'transportes', 'alimentos', 'tiendas', 'tienda', 'clinica', 'hospital', 'centro', 'nacional',
+  'internacional', 'chilena', 'chileno', 'latina', 'america', 'andina', 'global', 'general',
+  'tecnologia', 'soluciones', 'productos', 'agricola', 'frutera', 'retail', 'store', 'stores',
+]);
+const DISTINCTIVE_WORD_MIN_LENGTH = 5;
+
+/**
+ * Dueña 16-11 — el dominio es la palabra DISTINTIVA del nombre, sola o con el país:
+ * «tottus.cl» para «HIPERMERCADOS TOTTUS SA» (Prod: quedó «sin web» con el 403 de la
+ * página). `domainCarriesName` exige el nombre completo y no la veía. Igual pasa después
+ * por la página (si abre), los duplicados y la clasificación.
+ */
+export function domainIsDistinctiveNameWord(domain: string, names: readonly string[]): boolean {
+  if (!isRegistrableDomain(domain)) return false;
+  const label = compact(ownDomainLabel(domain) ?? '');
+  if (label.length < DISTINCTIVE_WORD_MIN_LENGTH) return false;
+  return names.some((name) =>
+    stripAccents(name)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= DISTINCTIVE_WORD_MIN_LENGTH && !GENERIC_NAME_WORDS.has(w) && !LOCATION_WORDS.has(w))
+      .some((word) => label === word || (label.startsWith(word) && LOCATION_WORDS.has(label.slice(word.length)))),
+  );
+}
+
 /** Palabras que no dan letra a la sigla: conectores y formas societarias. */
 const ACRONYM_SKIP_WORDS = new Set([
   'de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en', 'para', 'por', 's', 'a', 'sa', 'spa', 'sas',
@@ -449,7 +483,9 @@ export async function verifyProposedWebsite(
   // tiene que pasar la comprobación del nombre en la página que bajamos.
   // d8: o el dominio es la sigla del nombre (la página igual tiene que confirmarlo).
   const nameInDomain =
-    domainCarriesName(finalDomain, inputNames(input)) || domainIsNameAcronym(finalDomain, inputNames(input));
+    domainCarriesName(finalDomain, inputNames(input)) ||
+    domainIsNameAcronym(finalDomain, inputNames(input)) ||
+    domainIsDistinctiveNameWord(finalDomain, inputNames(input));
   if (!finalInSearch && !input.allowNameMatchOutsideSearch && !nameInDomain) {
     return { found: false, reason: 'not_in_search_results' };
   }
