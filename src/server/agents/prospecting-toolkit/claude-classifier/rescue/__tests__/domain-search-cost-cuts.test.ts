@@ -404,3 +404,23 @@ describe('F. lecturas reales (sólo SELECT)', () => {
     assert.ok(calls.every(([m]) => ['from', 'select', 'eq', 'neq', 'not', 'order', 'limit'].includes(m)));
   });
 });
+
+describe('dueña 16-11 — web encontrada con la búsqueda llena: al banco CON esa web', () => {
+  it('«BO Chile Packaging»: la fila iba al banco sin dominio y el banco la rechazaba', async () => {
+    const banked: Array<{ claims: readonly { type: string; key: string }[] }> = [];
+    const f = fakeDeps(
+      [disposition('d1')],
+      {
+        deliverySlots: async () => 0,
+        loadBatchBankTarget: async () => ({ macroIndustryKey: 'technology', industryName: TEC }),
+        depositToBank: async (item) => (banked.push(item), 'deposited'),
+      },
+      { findPriorSearches: async () => [searched(FOUND_SEARCH)] },
+    );
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.dispositionsBanked, 1);
+    assert.equal(banked.length, 1);
+    const payload = (banked[0] as unknown as { payload: { candidate: { domain: string } } }).payload;
+    assert.equal(payload.candidate.domain, 'sii-group.com');
+  });
+});

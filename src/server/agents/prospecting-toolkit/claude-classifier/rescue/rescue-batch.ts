@@ -88,6 +88,7 @@ import {
   OFFICIAL_SIZE_RULE_MARKER,
   type RescuableDispositionRow,
   PROVIDER_SIZE_REASON_CODE,
+  BANK_WITH_FOUND_WEB_FIX,
 } from './rescue-dispositions';
 import { institutionWebMatchesName } from './institution-web-name-match';
 
@@ -1062,6 +1063,9 @@ async function rescueDisposition(
     ctx.companyDeadlineAtMs,
   );
   // Sitio ya pagado y comprobado: se guarda aunque la clasificación falle.
+  // Dueña 16-11 — al banco va con la web que la IA ACABA de encontrar (antes iba sin web y
+  // el banco la rechazaba: «BO Chile Packaging», bank_outcome failed).
+  const bankRow: RescuableDispositionRow = found ? { ...row, domain: found.domain } : row;
   const withFound = (evidence: Record<string, unknown> | null) =>
     found ? buildFoundEvidence(evidence, found, deps.nowIso()) : evidence;
   if (!result) {
@@ -1107,14 +1111,14 @@ async function rescueDisposition(
     decision.kind === 'reassign' ||
     (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued));
   if (goesBack && options.overCap && decision.kind === 'admit') {
-    return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
+    return bankOverCapDisposition(bankRow, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
   // Dueña 14-11 (f2f36ff3: 14 de Consumo Masivo llevaron la búsqueda a 23 en revisión) —
   // en una búsqueda CON tope, una de OTRA industria no entra a revisión (no es lo que se
   // pidió y no debe pasar de 10): va al banco con su industria corregida. Sin tope
   // (Árbol, Competidores, Proveedores) sigue volviendo a revisión como antes.
   if (decision.kind === 'reassign' && ctx.deliveryCapped) {
-    return bankOverCapDisposition(row, ctx, deps, { result, decision, decidedAt, cost, withFound });
+    return bankOverCapDisposition(bankRow, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
   // Dueña 14-11 — de otra industria sin tamaño confirmado: no entra a revisión, pero es
   // viable para quien busque esa industria ⇒ al banco con su industria (no a Descartadas).
@@ -1124,7 +1128,7 @@ async function rescueDisposition(
     ...(official.measured ? { sizeAlreadyConfirmed: true, officialSizeMeasured: true } : {}),
   });
   if (elsewhere) {
-    return bankOverCapDisposition(row, ctx, deps, { result, decision: elsewhere, recorded: decision, decidedAt, cost, withFound });
+    return bankOverCapDisposition(bankRow, ctx, deps, { result, decision: elsewhere, recorded: decision, decidedAt, cost, withFound });
   }
   if (goesBack) {
     const baseOrigin =
@@ -1234,6 +1238,7 @@ async function bankOverCapDisposition(
       [CLAUDE_RESCUE_METADATA_KEY]: {
         ...(rescue ?? {}),
         ...(reassigned ? { banked_industry_name: decision.industryName } : {}),
+        [BANK_WITH_FOUND_WEB_FIX]: true,
         over_delivery_cap: verdict.recorded === undefined,
         ...(banked ? { [BANKED_MARKER]: true, banked_at: decidedAt } : { bank_outcome: outcome }),
       },

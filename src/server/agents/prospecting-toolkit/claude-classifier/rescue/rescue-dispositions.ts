@@ -105,6 +105,17 @@ export function keptBeforeOfficialSizeRule(row: RescuableDispositionRow): boolea
   return readFoundWebsite(row.evidence ?? null) !== null;
 }
 
+/**
+ * Dueña 16-11 — marca del arreglo «al banco con la web encontrada». Las filas que el banco
+ * rechazó ANTES (iban sin la web: «BO Chile Packaging») se reintentan UNA vez.
+ */
+export const BANK_WITH_FOUND_WEB_FIX = 'bank_found_web_v1' as const;
+
+export function bankFailedBeforeFix(evidence: Record<string, unknown> | null): boolean {
+  const rescue = evidence?.[CLAUDE_RESCUE_METADATA_KEY] as Record<string, unknown> | undefined;
+  return rescue?.bank_outcome === 'failed' && rescue[BANK_WITH_FOUND_WEB_FIX] !== true;
+}
+
 export function needsDispositionRescue(
   row: RescuableDispositionRow,
   nowMs: number,
@@ -121,6 +132,7 @@ export function needsDispositionRescue(
   if (!row.domain && websiteNotFoundBeforeOfficialNames(row)) return true;
   if (!row.domain && websiteRejectedByOlderInstitutionRule(row)) return true;
   if (keptBeforeOfficialSizeRule(row)) return true;
+  if (bankFailedBeforeFix(row.evidence)) return true;
   return rescueStillPending(
     row.evidence?.[CLAUDE_RESCUE_METADATA_KEY],
     nowMs,

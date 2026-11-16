@@ -114,3 +114,14 @@ describe('más descartadas a las que la IA les busca la web', () => {
     }
   });
 });
+
+import { bankFailedBeforeFix } from '../rescue-dispositions';
+
+describe('las que el banco rechazó antes del arreglo se reintentan una vez', () => {
+  it('bank_outcome failed sin la marca ⇒ reintento; con la marca ⇒ no', () => {
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', bank_outcome: 'failed' } }), true);
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', bank_outcome: 'failed', bank_found_web_v1: true } }), false);
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', banked: true } }), false);
+    assert.equal(bankFailedBeforeFix(null), false);
+  });
+});

@@ -64,4 +64,11 @@ describe('rescatar descartadas con IA', () => {
     const queries = read('src/modules/prospect-discards/queries.ts');
     assert.match(queries, /\.or\('evidence->claude_rescue->>banked\.is\.null,evidence->claude_rescue->>banked\.neq\.true'\)/);
   });
+  it('🔴 dueña 16-11: al terminar una continuación de Apollo (búsqueda o ronda de la masiva) se pide el rescate', () => {
+    const action = read('src/modules/prospect-batches/apollo-continuation-actions.ts');
+    assert.match(action, /if \(resolution === 'completed'\) await requestRescueAfterContinuation\(batchId, internalUserId\);/);
+    assert.match(action, /triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy \}\)/);
+    const cron = read('src/app/api/cron/apollo-round-continuation/route.ts');
+    assert.match(cron, /stats\.resolutions\[0\]\?\.resolution === 'completed'\) \{[\s\S]*?triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy: null \}\)/);
+  });
 });
