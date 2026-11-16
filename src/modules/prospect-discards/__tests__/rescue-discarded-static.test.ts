@@ -94,4 +94,22 @@ describe('rescatar descartadas con IA', () => {
     const server = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts');
     assert.match(server, /if \(error \|\| count === null\) return 0;/);
   });
+  it('🔴 revisión 16-11: la migración 167 toma el candado con UNA sentencia atómica y sólo para el servicio', () => {
+    const sql = read('supabase/migrations/167_claude_rescue_batch_lease.sql');
+    assert.match(sql, /jsonb_set\(\s*COALESCE\(metadata, '\{\}'::jsonb\),\s*'\{claude_rescue_lease_until\}'/);
+    assert.match(sql, /metadata->>'claude_rescue_lease_until' IS NULL\s*OR \(metadata->>'claude_rescue_lease_until'\)::timestamptz < now\(\)/);
+    assert.match(sql, /SET metadata = metadata - 'claude_rescue_lease_until'/);
+    assert.match(sql, /REVOKE ALL ON FUNCTION public\.agent1_try_claude_rescue_lease\(uuid, integer\) FROM PUBLIC, anon, authenticated;/);
+    assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.agent1_try_claude_rescue_lease\(uuid, integer\) TO service_role;/);
+    assert.doesNotMatch(sql, /SET metadata = \$|SET metadata = '\{/, 'nunca reescribe toda la metadata');
+  });
+
+  it('🔴 revisión 16-11: la búsqueda de web reusada no se relanza por los nombres oficiales (EC/BO)', () => {
+    const ds = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/domain-search.ts');
+    assert.match(ds, /if \(typeof search\?\.skipped === 'string'\) return false;/);
+  });
+
+  it('revisión 16-11: hasta 5 redirecciones (cada salto con control anti-SSRF)', () => {
+    assert.match(read('src/server/agents/prospecting-toolkit/website-verifier.ts'), /const MAX_REDIRECTS = 5;/);
+  });
 });

@@ -1221,3 +1221,28 @@ describe('N. revisión a fondo del rescate', () => {
     assert.equal(rescue.bank_attempts, 1);
   });
 });
+
+describe('O. Revisión 16-11 — una sola vuelta por búsqueda (candado 167)', () => {
+  it('con el candado tomado por otra vuelta, ésta no hace nada', async () => {
+    let classified = 0;
+    const f = fakeDeps({
+      acquireBatchLease: async () => 'busy',
+      classify: async (company) => (classified++, result({ candidateId: company.candidateId })),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.deepEqual(s.ok ? null : s.error, 'in_progress');
+    assert.equal(classified, 0);
+  });
+
+  it('lo toma, trabaja y lo suelta; sin la migración (unavailable) sigue como antes', async () => {
+    const released: string[] = [];
+    const f = fakeDeps({ acquireBatchLease: async () => 'acquired', releaseBatchLease: async (id) => void released.push(id) });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    assert.deepEqual(released, ['b1']);
+    const g = fakeDeps({ acquireBatchLease: async () => 'unavailable', releaseBatchLease: async (id) => void released.push(id) });
+    const t = await rescueBatchWithClaude({ batchId: 'b2', triggeredBy: 'u1' }, g.deps);
+    assert.equal(t.ok, true);
+    assert.deepEqual(released, ['b1'], 'sin candado tomado no se suelta nada');
+  });
+});

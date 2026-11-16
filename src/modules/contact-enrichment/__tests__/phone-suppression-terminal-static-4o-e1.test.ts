@@ -375,7 +375,8 @@ describe('4O-E1 § 20 · no se crearon ni modificaron migraciones', () => {
       // Dueña 11-11 mueve el techo a la 165 (avisos de Slack por rol/persona, historial de boletines y enlace del aviso de pendientes; tablas nuevas, sin tocar datos). AUTORIZADA y NO APLICADA.
       // (la 165 fue el techo anterior)
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
-      '166_commercial_scope_rls.sql',
+      // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
+      '167_claude_rescue_batch_lease.sql',
       `la última migración es ${last}: nadie puede colar una por encima del último hito conocido`,
     );
     // Y ninguna migración es AUTORÍA de 4O-E1: el hito no escribió SQL.

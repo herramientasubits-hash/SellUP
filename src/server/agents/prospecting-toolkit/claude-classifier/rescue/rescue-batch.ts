@@ -195,6 +195,9 @@ export type RescueBatchDeps = {
    */
   loadBatchBankTarget?: (batchId: string) => Promise<{ macroIndustryKey: string | null; industryName: string | null }>;
   depositToBank?: (item: CompanyBankDepositItem) => Promise<'deposited' | 'already_in_bank' | 'claimed' | 'failed'>;
+  /** Revisión 16-11 — candado por búsqueda (migración 167). Ausente = sin candado. */
+  acquireBatchLease?: (batchId: string) => Promise<'acquired' | 'busy' | 'unavailable'>;
+  releaseBatchLease?: (batchId: string) => Promise<void>;
   /** Igual que `patchCandidate`, sobre una candidata ya `discarded` (marca de banco). */
   patchDiscardedCandidate?: RescueBatchDeps['patchCandidate'];
   /** «Una empresa, un vendedor»: reclama la identidad de los candidatos rescatados. */
@@ -293,7 +296,12 @@ export type RescueBatchSummary =
       /** 21-10 — descartadas sin web que no se buscaron: el lote llegó al tope de búsquedas. */
       dispositionsSearchCapped?: number;
     }
-  | { ok: false; error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed'; detail?: string };
+  | {
+      ok: false;
+      /** `in_progress`: otra vuelta del rescate ya corre sobre esta búsqueda (candado 167). */
+      error: 'model_not_configured' | 'quota_exhausted' | 'catalog_unavailable' | 'load_failed' | 'in_progress';
+      detail?: string;
+    };
 
 type WorkItem =
   | { kind: 'candidate'; row: ClassifiableCandidateRow }
@@ -1487,6 +1495,21 @@ export function isFreeSourceMissingDomainDisposition(
 }
 
 export async function rescueBatchWithClaude(
+  params: Parameters<typeof rescueBatchWithClaudeUnlocked>[0],
+  deps: RescueBatchDeps,
+): Promise<RescueBatchSummary> {
+  // Revisión 16-11 — una sola vuelta por búsqueda a la vez (migración 167). Sin la
+  // migración aplicada (`unavailable`) se sigue como antes.
+  const lease = deps.acquireBatchLease ? await deps.acquireBatchLease(params.batchId).catch(() => 'unavailable' as const) : 'unavailable';
+  if (lease === 'busy') return { ok: false, error: 'in_progress', detail: 'Ya hay una vuelta del rescate en esta búsqueda.' };
+  try {
+    return await rescueBatchWithClaudeUnlocked(params, deps);
+  } finally {
+    if (lease === 'acquired') await deps.releaseBatchLease?.(params.batchId).catch(() => undefined);
+  }
+}
+
+async function rescueBatchWithClaudeUnlocked(
   params: {
     batchId: string;
     triggeredBy: string | null;
