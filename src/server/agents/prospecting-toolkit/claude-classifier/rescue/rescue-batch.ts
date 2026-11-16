@@ -117,9 +117,11 @@ export const RESCUE_BATCH_MAX_COST_USD = 5;
  * 21-10 — búsquedas PAGADAS del sitio oficial (`company_domain_search`) por lote,
  * acumuladas entre corridas. Prod oct-2026: lotes con meta 5 pagaron decenas de
  * búsquedas (US$77 de US$178 del Agente 1). Las filas van por tamaño oficial (mayor
- * primero); las que pasan del tope se quedan en Descartadas sin gasto.
+ * primero); las que pasan del tope se quedan en Descartadas sin gasto. Dueña 16-11:
+ * 15 → 40, para rescatar lo más posible (Tottus y otras 16 quedaron sin buscar). Cada
+ * búsqueda cuesta ~US$0,03 y el tope de gasto del lote (US$5) sigue mandando.
  */
-export const RESCUE_BATCH_MAX_DOMAIN_SEARCHES = 15;
+export const RESCUE_BATCH_MAX_DOMAIN_SEARCHES = 40;
 
 export type RescueBatchDeps = {
   resolveActiveModel: () => Promise<ActiveAnthropicModel | { error: string }>;
