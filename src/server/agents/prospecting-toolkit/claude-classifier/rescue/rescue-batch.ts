@@ -387,18 +387,17 @@ export function keepsDeliverySlot(tag: ItemOutcome['tag']): boolean {
   return tag === 'admitted';
 }
 
-/** Un candidato en revisión que resulta de OTRA industria deja libre su lugar. */
+/**
+ * Dueña 16-11 — un candidato en revisión que resulta de OTRA industria SIGUE ocupando su
+ * lugar (sigue en revisión, con la industria corregida): el tope de 10 cuenta todo lo que
+ * está en revisión. Antes liberaba el lugar y la búsqueda pasaba de 10.
+ */
 async function rescueCandidateFreeingSlot(
   row: ClassifiableCandidateRow,
   ctx: RescueRunContext,
   deps: RescueBatchDeps,
 ): Promise<ItemOutcome> {
-  const outcome = await rescueCandidate(row, ctx, deps);
-  if (outcome.tag === 'reassigned') {
-    ctx.slots.remaining++;
-    releaseSlotWaiters(ctx.slots);
-  }
-  return outcome;
+  return rescueCandidate(row, ctx, deps);
 }
 
 function readIcpThreshold(metadata: Record<string, unknown> | null): number {

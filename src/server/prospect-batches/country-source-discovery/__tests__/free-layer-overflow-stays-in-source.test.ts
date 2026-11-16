@@ -141,18 +141,15 @@ describe('2. una empresa de otra industria no ocupa lugar de la búsqueda', () =
     }
   });
 
-  it('los lugares libres no cuentan las reasignadas (sin perder las que no tienen decisión)', () => {
+  it('dueña 16-11: los lugares libres cuentan TODO lo que está en revisión, también las reasignadas', () => {
     const server = source('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts');
-    assert.match(server, /deliverySlots: async \(batchId\) => \{[\s\S]*?\.or\(NOT_REASSIGNED_FILTER\)/);
-    assert.match(
-      server,
-      /NOT_REASSIGNED_FILTER =\s*'metadata->claude_rescue->>decision\.is\.null,metadata->claude_rescue->>decision\.neq\.reassign'/,
-    );
+    assert.match(server, /deliverySlots: async \(batchId\) => \{[\s\S]*?\.in\('status', \[\.\.\.BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES\]\);/);
+    assert.doesNotMatch(server, /NOT_REASSIGNED_FILTER/);
   });
 
-  it('un candidato que pasa a otra industria libera su lugar; reabrir descartes por sector no ocupa lugares', () => {
+  it('un candidato que pasa a otra industria ya no libera su lugar; reabrir descartes por sector no ocupa lugares', () => {
     const rescue = source('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
-    assert.match(rescue, /if \(outcome\.tag === 'reassigned'\) \{\s*ctx\.slots\.remaining\+\+;/);
+    assert.doesNotMatch(rescue, /if \(outcome\.tag === 'reassigned'\) \{\s*ctx\.slots\.remaining\+\+;/);
     assert.match(rescue, /rescueCandidateFreeingSlot\(item\.row, ctx, deps\)/);
     const stored = /async function reassignStoredSectorMismatches[\s\S]*?\n\}\n/.exec(rescue)?.[0] ?? '';
     assert.ok(stored.length > 0);
@@ -215,5 +212,24 @@ describe('3. la que vuelve de Descartadas conserva sus datos oficiales', () => {
   it('Ecuador muestra la industria de la tabla oficial en la columna Industria', () => {
     const adapter = source(`${DISCOVERY}/ec-scvs-directory-discovery-adapter.ts`);
     assert.match(adapter, /declaredIndustry: getMacroIndustryByKey\(macroIndustryKey\)\?\.displayName \?\? null/);
+  });
+});
+
+describe('dueña 16-11 — el tope de la capa gratuita descuenta lo que el lote ya tiene', () => {
+  it('10 de tope con 10 ya entregadas ⇒ 0 para la capa oficial', async () => {
+    const { withAlreadyDelivered } = await import('../run-prepaid-novelty-discovery.server');
+    const deps = withAlreadyDelivered({ alreadyDeliveredInBatch: 10, requestedTarget: 5 }, { maxDeliveredCandidates: 10 } as never);
+    assert.equal(deps.maxDeliveredCandidates, 0);
+    const partial = withAlreadyDelivered({ alreadyDeliveredInBatch: 3, requestedTarget: 5 }, { maxDeliveredCandidates: 10 } as never);
+    assert.equal(partial.maxDeliveredCandidates, 7);
+  });
+
+  it('sin filas previas, sin tope o sin cupo configurado, no cambia nada', async () => {
+    const { withAlreadyDelivered } = await import('../run-prepaid-novelty-discovery.server');
+    const deps = { maxDeliveredCandidates: 10 } as never;
+    assert.equal(withAlreadyDelivered({ requestedTarget: 5 }, deps), deps);
+    assert.equal(withAlreadyDelivered({ alreadyDeliveredInBatch: 4, uncapped: true, requestedTarget: 5 }, deps), deps);
+    const none = { maxDeliveredCandidates: null } as never;
+    assert.equal(withAlreadyDelivered({ alreadyDeliveredInBatch: 4, requestedTarget: 5 }, none), none);
   });
 });

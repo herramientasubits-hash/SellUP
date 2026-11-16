@@ -107,6 +107,12 @@ import type { CountrySourceCompany } from './country-source-types';
 import type { HubSpotFreePoolDrawer } from '@/server/prospect-batches/hubspot-free-pool/hubspot-free-pool-draw';
 
 export type PrePaidNoveltyDiscoveryInput = {
+  /**
+   * Dueña 16-11 — filas que el lote YA entregó antes de esta pasada (p. ej. la pierna de
+   * Lusha vuelve a correr la capa gratuita sobre un lote que ya tiene sus 10). El tope
+   * de entrega es por búsqueda: se descuentan. Sin valor = 0 (la primera pasada).
+   */
+  alreadyDeliveredInBatch?: number;
   /** Dueña 14-11 — el tope de 10 por búsqueda es de «Empresas por criterios»: Competidores y Proveedores entregan todo lo que encuentran (como el árbol). */
   uncapped?: boolean;
   /**
@@ -311,12 +317,31 @@ function noGateExclusionPlan(input: { provider: ProviderSeenProvider }): Provide
   return planProviderExclusions(input.provider, {});
 }
 
+/**
+ * Dueña 16-11 (Prod 91c04494: 20 en revisión) — el tope de entrega descuenta lo que el
+ * lote ya tiene. La capa oficial escribe con el escritor estructurado, que no mira el
+ * lote; el banco y HubSpot sí (escritor común), y con este tope no les sobra nada.
+ */
+export function withAlreadyDelivered(
+  input: Pick<PrePaidNoveltyDiscoveryInput, 'alreadyDeliveredInBatch' | 'uncapped' | 'requestedTarget'>,
+  deps: PrePaidNoveltyDiscoveryDeps,
+): PrePaidNoveltyDiscoveryDeps {
+  const already = Math.max(0, Math.trunc(input.alreadyDeliveredInBatch ?? 0));
+  if (already === 0 || input.uncapped) return deps;
+  const cap =
+    deps.maxDeliveredCandidates === undefined
+      ? resolveMaxDeliveredCandidates(undefined, input.requestedTarget)
+      : deps.maxDeliveredCandidates;
+  return cap === null ? deps : { ...deps, maxDeliveredCandidates: Math.max(0, cap - already) };
+}
+
 export async function runPrePaidNoveltyDiscovery(
   client: SupabaseClient,
   input: PrePaidNoveltyDiscoveryInput,
   /** Inyectable SÓLO para pruebas. Producción usa siempre las reales. */
-  deps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
+  baseDeps: PrePaidNoveltyDiscoveryDeps = PRODUCTION_DEPS,
 ): Promise<PrePaidNoveltyDiscoveryOutcome> {
+  const deps = withAlreadyDelivered(input, baseDeps);
   // ── HUBSPOT-FREE-POOL-SOURCE-1 — primero las empresas libres de HubSpot ──
   //
   // Decisión de la dueña (15-10): «primero en cada búsqueda». Lo que aporte baja el

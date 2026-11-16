@@ -643,7 +643,7 @@ describe('d4 — razones sociales de registros oficiales (1.ª corrida de Chile,
   });
 
   it('versión vigente: un «no encontrado» de una versión anterior se reintenta una vez', () => {
-    assert.equal(DOMAIN_SEARCH_VERSION, 'd9');
+    assert.equal(DOMAIN_SEARCH_VERSION, 'd10');
   });
 });
 

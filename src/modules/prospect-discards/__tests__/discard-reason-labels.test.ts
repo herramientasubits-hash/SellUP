@@ -27,7 +27,7 @@ describe('motivo de descarte en palabras (QA dueña 13-11)', () => {
   });
 
   it('código desconocido: el motivo general, sin el código', () => {
-    assert.equal(describeDiscardReason({ disposition: 'hubspot_duplicate', reasonCode: 'algo_nuevo', reasonDetail: 'algo_nuevo' }), 'Ya existente en HubSpot');
+    assert.equal(describeDiscardReason({ disposition: 'hubspot_duplicate', reasonCode: 'algo_nuevo', reasonDetail: 'algo_nuevo' }), 'Ya existe en HubSpot');
     assert.equal(describeDiscardReason({ disposition: 'other', reasonCode: null, reasonDetail: null }), 'Otro motivo');
     assert.equal(describeDiscardReason({ disposition: 'other', reasonCode: null, reasonDetail: 'No es cliente objetivo' }), 'No es cliente objetivo');
   });
@@ -39,5 +39,34 @@ describe('motivo de descarte en palabras (QA dueña 13-11)', () => {
     }
     const table = read('src/components/prospects/discarded-prospects-data-table-client.tsx');
     assert.ok(!table.includes("?? 'Otro motivo'"));
+  });
+});
+
+describe('dueña 16-11: lo último que hizo la IA manda sobre el motivo original', () => {
+  it('Sodimac: «Sin sitio web» → la IA encontró su web y ya está en HubSpot', () => {
+    const item = {
+      disposition: 'final_validation_rejected' as const,
+      reasonCode: 'missing_domain_final',
+      reasonDetail: null,
+      evidence: { claude_rescue: { decision: 'duplicate' }, claude_domain_search: { found: true, duplicate_status: 'existing_in_hubspot' } },
+    };
+    assert.equal(describeDiscardReason(item), 'La IA encontró su web: ya existe en HubSpot');
+  });
+
+  it('web no encontrada, descarte de la IA y sin cambios', () => {
+    const base = { disposition: 'final_validation_rejected' as const, reasonCode: 'missing_domain_final', reasonDetail: null };
+    assert.equal(describeDiscardReason({ ...base, evidence: { claude_rescue: { decision: 'website_not_found' } } }), 'La IA buscó su web y no la encontró');
+    assert.equal(
+      describeDiscardReason({ ...base, evidence: { claude_rescue: { decision: 'discard', discard_reason: 'claude_size_below_min' } } }),
+      'La IA comprobó que tiene menos empleados que el mínimo',
+    );
+    assert.equal(describeDiscardReason({ ...base, evidence: { claude_rescue: { decision: 'unchanged' } } }), 'La IA no pudo confirmar el sector ni el tamaño');
+  });
+
+  it('sin revisión de la IA, el motivo original', () => {
+    assert.equal(
+      describeDiscardReason({ disposition: 'final_validation_rejected', reasonCode: 'missing_domain_final', reasonDetail: null, evidence: {} }),
+      'Sin sitio web: no se pudo verificar la empresa',
+    );
   });
 });

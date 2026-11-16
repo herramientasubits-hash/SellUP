@@ -10,19 +10,34 @@ import { after } from 'next/server';
 import { isAgent1ClaudeRescueEnabled } from '@/lib/feature-flags.server';
 import { computeBackgroundRescueDeadlineMs } from './rescue-time-budget';
 import { resolveRescueTargetBatchId, type WizardRunResultLike } from './rescue-target-batch';
+import { triggerRescueContinuation } from './rescue-chain.server';
 
-export function scheduleClaudeRescueAfterWizardRun(
+export async function scheduleClaudeRescueAfterWizardRun(
   result: WizardRunResultLike,
   resolveTriggeredBy: () => Promise<string | null>,
   /** Cuándo empezó la acción del asistente: `after()` comparte sus 300 s de Vercel. */
   actionStartedAtMs: number,
   /** Lote del piloto «Claude busca empresas» (opcional; el asistente no lo pasa). */
   options: { includeUnassessed?: boolean } = {},
-): void {
+): Promise<void> {
   if (!isAgent1ClaudeRescueEnabled()) return;
   // AGENT1-CRITERIA-QUICK-WINS-1 § 3 — también tras un fallo con aporte gratuito.
   const batchId = resolveRescueTargetBatchId(result);
   if (batchId === null) return;
+  // Dueña 16-11 — con la búsqueda larga (Apollo + Lusha, > ~3 min) ya no queda tiempo:
+  // la vuelta se pide AHORA, antes de responder, como el botón «Rescatar con IA». Antes
+  // se pedía desde `after()` y en Prod no llegó a correr (d037c29a, 91c04494: 27
+  // descartadas sin revisar).
+  if (computeBackgroundRescueDeadlineMs(actionStartedAtMs, Date.now()) === null) {
+    try {
+      const triggeredBy = await resolveTriggeredBy().catch(() => null);
+      const accepted = await triggerRescueContinuation({ batchId, continuation: 1, spentUsd: 0, triggeredBy });
+      if (!accepted) console.error('[claude-rescue] batch', batchId, 'continuation not accepted');
+    } catch (err) {
+      console.error('[claude-rescue] could not request continuation:', err instanceof Error ? err.message : err);
+    }
+    return;
+  }
   try {
     after(async () => {
       const triggeredBy = await resolveTriggeredBy().catch(() => null);

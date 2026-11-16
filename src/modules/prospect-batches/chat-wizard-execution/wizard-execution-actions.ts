@@ -1446,7 +1446,7 @@ export async function executeProspectWizardGenerationAction(
     progress.finish(),
   );
   // AGENT1-CLAUDE-RESCUE-1 — en segundo plano, detrás de su propio flag (apagado).
-  scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId, actionStartedAtMs);
+  await scheduleClaudeRescueAfterWizardRun(result, deps.getActiveUserId, actionStartedAtMs);
   return result;
 }
 

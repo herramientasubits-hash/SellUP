@@ -767,7 +767,7 @@ export function buildLiveCorporateTreeDeps(params: {
     },
 
     scheduleRescue: (batchId) =>
-      scheduleClaudeRescueAfterWizardRun({ ok: true, batchId }, async () => params.internalUserId, params.actionStartedAtMs, {
+      void scheduleClaudeRescueAfterWizardRun({ ok: true, batchId }, async () => params.internalUserId, params.actionStartedAtMs, {
         includeUnassessed: true,
       }),
 

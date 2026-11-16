@@ -41,10 +41,40 @@ function looksLikeCode(text: string): boolean {
   return /^[a-z0-9_:.-]+$/.test(text.trim());
 }
 
-type ReasonSource = Pick<DiscardedProspectItem, 'disposition' | 'reasonCode' | 'reasonDetail'>;
+type ReasonSource = Pick<DiscardedProspectItem, 'disposition' | 'reasonCode' | 'reasonDetail'> &
+  Partial<Pick<DiscardedProspectItem, 'evidence'>>;
+
+type Obj = Record<string, unknown>;
+const asObj = (v: unknown): Obj | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Obj) : null);
+
+/**
+ * Dueña 16-11 — lo ÚLTIMO que hizo la IA manda sobre el motivo original: Sodimac y
+ * Finning decían «Sin sitio web» cuando la IA ya había encontrado su web y estaban en
+ * HubSpot. `null` = la IA no la revisó (o no cambió el motivo).
+ */
+export function describeRescueOutcome(evidence: unknown): string | null {
+  const rescue = asObj(asObj(evidence)?.claude_rescue);
+  const search = asObj(asObj(evidence)?.claude_domain_search);
+  const decision = typeof rescue?.decision === 'string' ? rescue.decision : null;
+  if (decision === 'duplicate') {
+    const where = search?.duplicate_status === 'existing_in_hubspot' ? 'HubSpot' : 'SellUp';
+    return `La IA encontró su web: ya existe en ${where}`;
+  }
+  if (decision === 'website_not_found') return 'La IA buscó su web y no la encontró';
+  if (decision === 'discard' && typeof rescue?.discard_reason === 'string') {
+    return DISCARD_REASON_CODE_LABELS[rescue.discard_reason] ?? null;
+  }
+  if (decision === 'unchanged') return 'La IA no pudo confirmar el sector ni el tamaño';
+  if ((decision === 'admit' || decision === 'data_completed') && rescue?.bank_outcome === 'claimed') {
+    return 'La IA la aprobó, pero ya la tiene otro vendedor';
+  }
+  return null;
+}
 
 /** El motivo en una frase corta: nunca un código, nunca «Otro motivo» si hay algo mejor. */
 export function describeDiscardReason(item: ReasonSource): string {
+  const byRescue = describeRescueOutcome(item.evidence);
+  if (byRescue) return byRescue;
   const byCode = item.reasonCode ? DISCARD_REASON_CODE_LABELS[item.reasonCode] : undefined;
   if (byCode) return byCode;
   const detail = item.reasonDetail?.trim();

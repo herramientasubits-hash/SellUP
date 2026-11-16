@@ -780,7 +780,11 @@ async function runLushaPendingReviewUnderOperation(ctx: {
     }
   }
 
+  // Dueña 16-11 — en la cascada, el lote ya trae lo que entregaron el banco, la capa
+  // gratuita y Apollo: el tope de 10 es por búsqueda, no por pasada.
+  const alreadyDeliveredInBatch = waterfall !== null ? await countDeliveredInBatch(canonicalBatch) : 0;
   const prePaid = await runPrePaidNoveltyDiscovery(await createClient(), {
+    alreadyDeliveredInBatch,
     countryCode: parsed.data.countryCode,
     countryName,
     macroIndustryKey: parsed.data.macroIndustryKey,
@@ -1935,5 +1939,19 @@ async function runLushaSearchWithReservation(args: {
       // de escribir, el aporte tendría que declararse SIN MEDIR, nunca cero medido.
       acceptedForTarget: resolveRunAcceptance(PAID_ROUTE_NOT_RUN_WRITER_TRUTH),
     };
+  }
+}
+
+/**
+ * Filas que ya ocupan el lote canónico, desde la MISMA autoridad que siembra el escritor
+ * (`loadBatchIdentityRegistry`, sin consulta ad-hoc). Lectura degradada o fallo = 0.
+ */
+async function countDeliveredInBatch(canonicalBatch: CanonicalLushaBatchResolver): Promise<number> {
+  try {
+    const { id } = await canonicalBatch.resolve();
+    const registry = await loadBatchIdentityRegistry(await createClient(), id);
+    return registry.degraded ? 0 : registry.seededCount;
+  } catch {
+    return 0;
   }
 }
