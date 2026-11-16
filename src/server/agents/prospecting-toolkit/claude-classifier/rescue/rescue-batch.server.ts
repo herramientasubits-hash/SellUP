@@ -40,6 +40,8 @@ import {
   CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY,
   CLAUDE_DOMAIN_SEARCH_OPERATION_KEY,
   DOMAIN_SEARCH_REASON_CODE,
+  WEBSITE_SEARCH_REASON_CODES,
+  asWebsiteSearchRow,
   pickRecentDomainSearch,
   RECENT_SEARCH_WINDOW_DAYS,
   type DomainDuplicateCheck,
@@ -378,7 +380,7 @@ export async function readBatchRescueSpentUsd(
 export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatchDeps {
   const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
   const reasonCodes = domainSearchEnabled
-    ? [...RESCUABLE_DISPOSITION_REASON_CODES, DOMAIN_SEARCH_REASON_CODE]
+    ? [...RESCUABLE_DISPOSITION_REASON_CODES, ...WEBSITE_SEARCH_REASON_CODES]
     : [...RESCUABLE_DISPOSITION_REASON_CODES];
   return {
     ...(domainSearchEnabled ? { domainSearch: liveDomainSearch } : {}),
@@ -430,7 +432,8 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .eq('status', 'discarded')
         .in('reason_code', reasonCodes);
       if (error) throw new Error(`dispositions_read_failed:${error.message}`);
-      return (data ?? []) as RescuableDispositionRow[];
+      // Dueña 16-11 — la web rechazada (no es de la empresa) no se usa: se busca la correcta.
+      return ((data ?? []) as RescuableDispositionRow[]).map(asWebsiteSearchRow);
     },
     loadBatchIndustryId: async (batchId) => {
       const { data } = await createSupabaseAdminClient()
