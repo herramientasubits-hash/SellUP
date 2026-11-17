@@ -28,6 +28,7 @@ export type ContactEnrichmentChatStep =
   | 'searching_contacts' // automatic Apollo→Lusha routing in flight (ROUTING-WIRE-1)
   | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A) — legacy manual path, no longer wired to the wizard CTA
   | 'searching_lusha' // querying Lusha for contacts (17B.4K) — legacy manual path, no longer wired to the wizard CTA
+  | 'offer_batch' // pegó varios HubSpot IDs: se ofrece «Buscarlas como lote» (composer open) — Bryan 17-11
   | 'error'; // controlled error
 
 // ── Automatic routing result (AGENT2-ROUTING-WIRE-1) ──────────────────────────
@@ -185,6 +186,8 @@ export interface ContactEnrichmentChatState {
   errorMessage: string | null;
   /** Lo que el formulario «nombre, país y dominio» trae ya escrito (feedback 29-10). */
   extraDataPrefill?: ExtraDataPrefill;
+  /** Bryan 17-11 — los HubSpot IDs pegados en «Por empresa» que se ofrecen buscar como lote. */
+  batchOffer?: { raw: string; ids: string[] } | null;
 }
 
 /** Lo que ya se sabe de la empresa al pedir nombre, país y dominio. */
@@ -207,6 +210,8 @@ export type ContactEnrichmentChatAction =
   | { type: 'SUBMIT_QUERY'; query: string }
   /** Otra empresa en la misma conversación (conserva los mensajes). */
   | { type: 'NEXT_COMPANY' }
+  | { type: 'OFFER_BATCH'; query: string; ids: string[] }
+  | { type: 'BATCH_TOO_MANY'; query: string; count: number }
   | { type: 'RESOLVED_NONE_NEEDS_DATA'; prefill: ExtraDataPrefill }
   | { type: 'RESOLVED_MANUAL'; candidate: CompanyCandidate; skippedHubSpot: boolean }
   | { type: 'RESOLVED_SINGLE'; candidate: CompanyCandidate; skippedHubSpot: boolean }
