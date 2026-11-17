@@ -18,6 +18,13 @@ import { isHubSpotFreePoolEnabled } from '@/lib/feature-flags.server';
 import { assessHubSpotCompanyAvailability } from '@/server/integrations/hubspot-free-company-pool.server';
 import { HUBSPOT_FREE_POLICY_PROPERTIES } from '@/server/integrations/hubspot-free-company-policy';
 import { isStrongHubSpotIdentityMatch, markFreeHubSpotMatchesPure } from './hubspot-free-match';
+import {
+  buildHubSpotSiblingBlockMatch,
+  findBlockingHubSpotSibling,
+  isSameCompanyHubSpotRecord,
+  type HubSpotSiblingBlock,
+  type HubSpotSiblingVerdict,
+} from './hubspot-free-sibling-guard';
 import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
@@ -185,6 +192,8 @@ const DESIRED_PROPERTIES = [
   // estado, negocios, última actividad y actividad agendada). Si falta una, la regla
   // no se evalúa y la coincidencia queda como duplicado.
   ...HUBSPOT_FREE_POLICY_PROPERTIES,
+  // FEEDBACK 17-11 — la empresa madre: si es cliente, la filial no se ofrece libre.
+  'hs_parent_company_id',
   'type',
   'macro_industria',
   'pais',
@@ -349,12 +358,13 @@ async function searchByDomain(
 
 async function searchByName(
   token: string,
-  name: string
+  name: string,
+  limit = 5,
 ): Promise<HubSpotSearchResult[]> {
   const body = {
     query: name.trim(),
     properties: HS_PROPERTIES,
-    limit: 5,
+    limit,
   };
 
   const res = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
@@ -745,7 +755,7 @@ export async function checkHubSpotDuplicates(
     // HUBSPOT-FREE-POOL-SOURCE-1 — las coincidencias con empresas LIBRES de HubSpot
     // dejan de ser «ya existe en HubSpot». Apagada la bandera, nada cambia.
     if (isHubSpotFreePoolEnabled()) {
-      return { connected: true, matches: await markFreeHubSpotMatches(token, matches) };
+      return { connected: true, matches: await markFreeHubSpotMatches(token, matches, input, domain) };
     }
     return { connected: true, matches };
   } catch (err: unknown) {
@@ -757,9 +767,19 @@ export async function checkHubSpotDuplicates(
 /**
  * Marca libres las coincidencias de fichas libres (sólo identidad fuerte decide).
  * Nunca lanza: sin veredicto, la coincidencia queda como estaba (duplicado).
+ *
+ * FEEDBACK 17-11 — antes de marcarla libre se miran sus fichas hermanas (la misma
+ * empresa en otra ficha y la empresa madre): si alguna es cliente o está tomada, la
+ * ficha NO se marca libre y se deja constancia con una coincidencia más.
  */
-async function markFreeHubSpotMatches(token: string, matches: DuplicateMatch[]): Promise<DuplicateMatch[]> {
+async function markFreeHubSpotMatches(
+  token: string,
+  matches: DuplicateMatch[],
+  input: DuplicateCheckInput,
+  searchedDomain: string | null,
+): Promise<DuplicateMatch[]> {
   const verdicts = new Map<DuplicateMatch, { availability: HubSpotAvailability | null; ownerId: string | null }>();
+  const blocks: DuplicateMatch[] = [];
   for (const match of matches) {
     if (!isStrongHubSpotIdentityMatch(match)) continue;
     const props = match.raw && typeof match.raw === 'object' ? (match.raw as Record<string, unknown>) : null;
@@ -769,10 +789,79 @@ async function markFreeHubSpotMatches(token: string, matches: DuplicateMatch[]):
       return null;
     });
     const ownerId = typeof props.hubspot_owner_id === 'string' && props.hubspot_owner_id ? props.hubspot_owner_id : null;
+    if (availability?.free) {
+      const block = await findHubSpotSiblingBlock(token, match, props, matches, input, searchedDomain);
+      if (block) {
+        blocks.push(buildHubSpotSiblingBlockMatch(block, match.matchedId as string));
+        continue; // sin veredicto ⇒ sigue siendo «ya existe en HubSpot»
+      }
+    }
     verdicts.set(match, { availability, ownerId });
   }
-  return markFreeHubSpotMatchesPure(matches, (match) => verdicts.get(match) ?? { availability: null, ownerId: null });
+  const marked = markFreeHubSpotMatchesPure(matches, (match) => verdicts.get(match) ?? { availability: null, ownerId: null });
+  return blocks.length > 0 ? [...marked, ...blocks] : marked;
 }
+
+/** Hermanas por nombre: se piden más que en la búsqueda normal para no perder la ficha cliente. */
+const SIBLING_NAME_SEARCH_LIMIT = 20;
+
+function textProp(value: unknown): string | null {
+  if (typeof value === 'number') return String(value);
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+/**
+ * Busca las fichas hermanas de una ficha libre y devuelve la que la bloquea, si hay.
+ * Si HubSpot falla al buscarlas, la ficha queda bloqueada como «no verificada».
+ */
+async function findHubSpotSiblingBlock(
+  token: string,
+  freeMatch: DuplicateMatch,
+  freeProps: Record<string, unknown>,
+  matches: readonly DuplicateMatch[],
+  input: DuplicateCheckInput,
+  searchedDomain: string | null,
+): Promise<HubSpotSiblingBlock | null> {
+  const freeId = freeMatch.matchedId as string;
+  const freeName = textProp(freeProps.name) ?? freeMatch.matchedName ?? null;
+  const target = {
+    names: [input.name, freeName],
+    domain: searchedDomain ?? textProp(freeProps.domain),
+  };
+  // Las fichas que la búsqueda principal ya trajo se juzgan aparte (`resolveHubSpotFreeToTake`).
+  const seen = new Set<string>([freeId, ...matches.map((m) => m.matchedId).filter((id): id is string => Boolean(id))]);
+  const pending: Array<{ id: string; name: string | null; relation: HubSpotSiblingVerdict['relation'] }> = [];
+
+  try {
+    const names = [...new Set([input.name, freeName].filter((n): n is string => typeof n === 'string' && n.trim().length >= 3).map((n) => n.trim()))];
+    for (const name of names) {
+      const results = await searchByName(token, name, SIBLING_NAME_SEARCH_LIMIT);
+      for (const r of results) {
+        if (seen.has(r.id)) continue;
+        const record = { name: r.properties.name ?? null, domain: r.properties.domain ?? null, website: r.properties.website ?? null };
+        if (!isSameCompanyHubSpotRecord(record, target)) continue;
+        seen.add(r.id);
+        pending.push({ id: r.id, name: record.name, relation: 'same_company' });
+      }
+    }
+    const parentId = textProp(freeProps.hs_parent_company_id);
+    if (parentId && parentId !== freeId) pending.push({ id: parentId, name: null, relation: 'parent' });
+  } catch (err) {
+    console.error('[hubspot-free-pool] fichas hermanas no verificadas:', err);
+    return { kind: 'unverified', id: null, name: null, relation: null };
+  }
+
+  const verdicts: HubSpotSiblingVerdict[] = [];
+  for (const sibling of pending) {
+    const props = await getHubSpotCompanyProperties(token, sibling.id);
+    const availability = props
+      ? await assessHubSpotCompanyAvailability(token, props).catch(() => null)
+      : null;
+    verdicts.push({ ...sibling, name: sibling.name ?? textProp(props?.name), availability });
+  }
+  return findBlockingHubSpotSibling(verdicts);
+}
+
 
 // ============================================================
 // resolveHubSpotStatus

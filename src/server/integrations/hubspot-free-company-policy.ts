@@ -49,9 +49,13 @@ export const HUBSPOT_FREE_POLICY_PROPERTIES = [
 ] as const;
 
 /** Valor interno de la etapa «Cliente» en el portal de UBITS (verificado 15-10). */
+export const HUBSPOT_CLIENT_LIFECYCLE_VALUE = '1443029400';
+/** `customer` es «Forecast» en este portal: negocio en pronóstico, nunca libre. */
+export const HUBSPOT_FORECAST_LIFECYCLE_VALUE = 'customer';
+
 export const HUBSPOT_CUSTOMER_LIFECYCLE_VALUES: ReadonlySet<string> = new Set([
-  '1443029400', // «Cliente»
-  'customer', // «Forecast» en este portal: negocio en pronóstico, nunca libre
+  HUBSPOT_CLIENT_LIFECYCLE_VALUE,
+  HUBSPOT_FORECAST_LIFECYCLE_VALUE,
 ]);
 
 export const HUBSPOT_RECYCLED_LEAD_STATUS = 'Recycled';
