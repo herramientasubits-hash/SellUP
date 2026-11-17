@@ -12,7 +12,11 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/feedback/spinner';
 import { ExternalLink, Sparkles } from '@/icons';
 import { verifyCandidateEmploymentWithAiAction } from '@/modules/contact-enrichment/current-employment-ai-actions';
-import { employmentAiResultMessage, type EmploymentAiMessageTone } from './candidate-employment-ai-copy';
+import {
+  EMPLOYMENT_AI_KEPT_PREVIOUS_MESSAGE,
+  employmentAiResultMessage,
+  type EmploymentAiMessageTone,
+} from './candidate-employment-ai-copy';
 
 const TONE_CLASS: Record<EmploymentAiMessageTone, string> = {
   success: 'text-success',
@@ -45,7 +49,7 @@ export function CandidateEmploymentAiVerifyButton({
     setMessage(null);
     try {
       const result = await verifyCandidateEmploymentWithAiAction({ candidateId });
-      const next = employmentAiResultMessage(result.status);
+      const next = result.keptPrevious ? EMPLOYMENT_AI_KEPT_PREVIOUS_MESSAGE : employmentAiResultMessage(result.status);
       setMessage(next);
       if (next.tone === 'success') toast.success(next.text);
       if (result.ok) await onVerified();

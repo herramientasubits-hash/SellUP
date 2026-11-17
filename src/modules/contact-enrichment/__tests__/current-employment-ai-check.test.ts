@@ -211,14 +211,31 @@ describe('assessEmploymentAiResponse', () => {
     assert.equal(outcome.check.current_title, 'HR Business Partner');
   });
 
-  it('Claude inventa la empresa (no está en los resultados) ⇒ sin verificar, con lo encontrado', () => {
+  it('Claude inventa la empresa (no está en los resultados) ⇒ sin verificar, sin mostrar sólo el nombre', () => {
     const outcome = assess([
       searchResult(LINKEDIN, 'Paola Contreras Montenegro - Analista | LinkedIn'),
       submission({ verdict: 'confirmed', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Analista - Cygnus' }),
     ]);
     assert.equal(outcome.check.status, 'unknown');
     assert.equal(outcome.rejection, 'company_not_in_results');
-    assert.equal(outcome.check.evidence_quote, 'Paola Contreras Montenegro - Analista | LinkedIn');
+    assert.equal(outcome.check.evidence_quote, null);
+    assert.equal(outcome.check.evidence_url, null);
+  });
+
+  it('dueña 17-11: «PAOLA CONTRERAS - Google Scholar» o «Doctora Marisel Figueroa» no se muestran como hallazgo', () => {
+    const scholar = assess(
+      [searchResult('https://scholar.google.com/citations?user=x', 'PAOLA CONTRERAS - Google Scholar'), submission({ verdict: 'not_found' })],
+      { ...TARGET, linkedinUrl: 'http://www.linkedin.com/in/paola-contreras-montenegro-07b31a40' },
+    );
+    assert.equal(scholar.check.evidence_quote, null);
+    const doctora = assess(
+      [searchResult('https://clinica.example/equipo', 'Doctora Marisel Figueroa'), submission({ verdict: 'not_found' })],
+      { ...TARGET, fullName: 'Marisel Figueroa Lòpez', title: 'Jefe Capacitación', companyName: 'Caja Los Andes', companyDomain: 'cajalosandes.cl' },
+    );
+    assert.equal(doctora.check.status, 'unknown');
+    assert.equal(doctora.check.evidence_url, null);
+    const p = resolveTitleProvenance({ source: 'hubspot', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: doctora.check } });
+    assert.match(p.caption, /la IA no encontró información pública confiable/);
   });
 
   it('homónimo (otra persona) ⇒ sin verificar', () => {
@@ -474,6 +491,17 @@ describe('employmentAiPatch', () => {
   it('un «sin verificar» de la IA no tapa una comprobación anterior de Apollo', () => {
     const apollo = { ...unknown, status: 'confirmed', source: 'apollo' };
     assert.equal(employmentAiPatch(candidate({ enrichmentMetadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: apollo } }), unknown), null);
+  });
+
+  it('caso Marisel: Apollo dijo «otra empresa» y la web no aporta nada ⇒ se mantiene Apollo y se avisa', async () => {
+    const apollo = { ...unknown, status: 'other_company', source: 'apollo', current_company: 'Chocolatería Ficticia' };
+    const { d, persisted } = deps({
+      loadCandidate: async () => candidate({ enrichmentMetadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: apollo } }),
+      responses: [[submission({ verdict: 'not_found' })]],
+    });
+    const result = await verifyCandidateEmploymentWithAi('cand-1', d);
+    assert.equal(result.keptPrevious, true);
+    assert.equal(persisted.length, 0);
   });
 
   it('sin comprobación anterior, el «sin verificar» sí se anota (para no repetir sin saber)', () => {
