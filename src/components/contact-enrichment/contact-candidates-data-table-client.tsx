@@ -12,6 +12,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import {
   DataTable,
   DataTableColumnHeader,
+  compareDateCells,
+  presenceFilter,
   type DataTableBulkAction,
   type DataTableHandle,
   type DataTableListRowState,
@@ -232,6 +234,29 @@ function RelevanceCell({ candidate }: { candidate: PendingContactCandidate }) {
   );
 }
 
+/** La calidad en por ciento (0–100); sin calcular, `null`. */
+function qualityPercent(score: unknown): number | null {
+  if (typeof score !== 'number' || Number.isNaN(score)) return null;
+  return score > 1 ? score : score * 100;
+}
+
+/** «Calidad» en tramos: alta (70 % o más), media (40–69 %), baja y sin calcular. */
+const QUALITY_FILTER = {
+  filterOptions: [
+    { value: 'high', label: 'Alta (70 % o más)' },
+    { value: 'medium', label: 'Media (40 % a 69 %)' },
+    { value: 'low', label: 'Baja (menos de 40 %)' },
+    { value: 'none', label: 'Sin calidad calculada' },
+  ],
+  filterKey: (value: unknown) => {
+    const percent = qualityPercent(value);
+    if (percent === null) return 'none';
+    if (percent >= 70) return 'high';
+    if (percent >= 40) return 'medium';
+    return 'low';
+  },
+};
+
 function QualityCell({ candidate }: { candidate: PendingContactCandidate }) {
   const qualityLabel = toPercent(candidate.enrichment_metadata?.relevance?.quality_score);
   if (!qualityLabel) {
@@ -352,6 +377,25 @@ const PHONE_REVEAL_STATUS_LABELS: Partial<Record<NonNullable<PendingContactCandi
   revealed: 'Revelado',
   no_phone_found: 'Sin teléfono',
 };
+
+/** «Revelar teléfono»: en qué va el teléfono de cada candidato. */
+const PHONE_REVEAL_FILTER = {
+  filterOptions: [
+    { value: 'none', label: 'Sin revelar' },
+    { value: 'in_progress', label: 'En proceso' },
+    { value: 'revealed', label: 'Revelado' },
+    { value: 'no_phone_found', label: 'Sin teléfono' },
+    { value: 'error', label: 'Falló' },
+  ],
+  filterKey: (value: unknown) => {
+    if (value === 'requested' || value === 'pending') return 'in_progress';
+    if (value === 'revealed' || value === 'no_phone_found' || value === 'error') return value;
+    return 'none';
+  },
+};
+
+const LINKEDIN_FILTER = presenceFilter('Con LinkedIn', 'Sin LinkedIn');
+const COMPANY_HUBSPOT_FILTER = presenceFilter('Está en HubSpot', 'No existe en HubSpot');
 
 /**
  * «Revelar teléfono» desde la tabla. Revelar gasta créditos y tiene su propio gobierno
@@ -710,8 +754,7 @@ export function ContactCandidatesDataTableClient({
         size: 220,
         minSize: 180,
         enableHiding: false,
-        // Texto libre: se ordena y se busca, no se filtra por valores.
-        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', filterVariant: 'text' },
       },
       {
         id: 'title',
@@ -720,7 +763,7 @@ export function ContactCandidatesDataTableClient({
         cell: ({ row }) => <TitleCell candidate={row.original} />,
         size: 170,
         minSize: 140,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', filterVariant: 'text' },
       },
       {
         id: 'company',
@@ -742,7 +785,7 @@ export function ContactCandidatesDataTableClient({
         size: 180,
         minSize: 150,
         // Enumerable: el embudo ofrece las empresas que aparecen en la cola.
-        meta: { label: 'Empresa', popoverTitle: 'Empresa' },
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', unboundedFacets: true },
       },
       {
         id: 'country',
@@ -765,7 +808,7 @@ export function ContactCandidatesDataTableClient({
         size: 120,
         minSize: 100,
         // Enumerable: el embudo ofrece los países que aparecen en la cola.
-        meta: { label: 'País', popoverTitle: 'País' },
+        meta: { label: 'País', popoverTitle: 'País', unboundedFacets: true },
       },
       {
         id: 'source',
@@ -796,7 +839,6 @@ export function ContactCandidatesDataTableClient({
         cell: ({ row }) => <RelevanceCell candidate={row.original} />,
         size: 130,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Relevancia',
           popoverTitle: 'Relevancia',
@@ -808,17 +850,17 @@ export function ContactCandidatesDataTableClient({
       },
       {
         id: 'quality',
-        accessorFn: (row) => row.enrichment_metadata?.relevance?.quality_score ?? 0,
+        accessorFn: (row) => row.enrichment_metadata?.relevance?.quality_score ?? null,
         header: ({ column }) => <DataTableColumnHeader column={column} title="Calidad" />,
         cell: ({ row }) => <QualityCell candidate={row.original} />,
         size: 90,
         minSize: 80,
-        enableColumnFilter: false,
-        meta: { label: 'Calidad', popoverTitle: 'Calidad', disableFilter: true },
+        sortingFn: (a, b, id) => (qualityPercent(a.getValue(id)) ?? -1) - (qualityPercent(b.getValue(id)) ?? -1),
+        meta: { label: 'Calidad', popoverTitle: 'Calidad', ...QUALITY_FILTER },
       },
       {
         id: 'status',
-        accessorKey: 'status',
+        accessorFn: (row) => workflowStatusLabel(row),
         header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
         cell: ({ row }) => (
           // Todas las filas de una cola comparten estado — texto plano, sin badge
@@ -826,8 +868,7 @@ export function ContactCandidatesDataTableClient({
         ),
         size: 110,
         minSize: 100,
-        enableColumnFilter: false,
-        meta: { label: 'Estado', popoverTitle: 'Estado', disableFilter: true },
+        meta: { label: 'Estado', popoverTitle: 'Estado' },
       },
       // Quién lo descartó (dueña 11-11): sólo en «Rechazados», para que el líder lo vea.
       ...(isRejectedQueue
@@ -853,7 +894,7 @@ export function ContactCandidatesDataTableClient({
                 ),
               size: 160,
               minSize: 130,
-              meta: { label: 'Descartó', popoverTitle: 'Quién lo descartó' },
+              meta: { label: 'Descartó', popoverTitle: 'Quién lo descartó', unboundedFacets: true },
             } satisfies ColumnDef<PendingContactCandidate>,
           ]
         : []),
@@ -871,8 +912,8 @@ export function ContactCandidatesDataTableClient({
           ),
         size: 120,
         minSize: 110,
-        // Fecha: solo se ordena.
-        meta: { label: 'Creado', popoverTitle: 'Fecha de creación', disableFilter: true },
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
+        meta: { label: 'Creado', popoverTitle: 'Fecha de creación', filterVariant: 'date' },
       },
       // ── Contacto ──
       {
@@ -884,7 +925,7 @@ export function ContactCandidatesDataTableClient({
         ),
         size: 200,
         minSize: 150,
-        meta: { label: 'Correo', popoverTitle: 'Correo', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+        meta: { label: 'Correo', popoverTitle: 'Correo', group: CONTACT_GROUP, hiddenByDefault: true, filterVariant: 'text' },
       },
       {
         id: 'contact_phone',
@@ -893,7 +934,7 @@ export function ContactCandidatesDataTableClient({
         cell: ({ row }) => <PhoneCell candidate={row.original} />,
         size: 150,
         minSize: 120,
-        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', group: CONTACT_GROUP, hiddenByDefault: true, filterVariant: 'text' },
       },
       {
         id: 'contact_phone_reveal',
@@ -909,7 +950,7 @@ export function ContactCandidatesDataTableClient({
           popoverTitle: 'Revelar teléfono',
           group: CONTACT_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          ...PHONE_REVEAL_FILTER,
         },
       },
       {
@@ -921,7 +962,7 @@ export function ContactCandidatesDataTableClient({
         ),
         size: 110,
         minSize: 100,
-        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, ...LINKEDIN_FILTER },
       },
       // ── Empresa ──
       {
@@ -936,7 +977,7 @@ export function ContactCandidatesDataTableClient({
           popoverTitle: 'Dominio de la empresa',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          filterVariant: 'text',
         },
       },
       {
@@ -951,7 +992,7 @@ export function ContactCandidatesDataTableClient({
           popoverTitle: 'Página web de la empresa',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          filterVariant: 'text',
         },
       },
       {
@@ -966,7 +1007,7 @@ export function ContactCandidatesDataTableClient({
           popoverTitle: 'Empresa en HubSpot',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          ...COMPANY_HUBSPOT_FILTER,
         },
       },
     ],

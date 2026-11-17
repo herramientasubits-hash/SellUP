@@ -88,3 +88,19 @@ export function ownerVsHubSpotCopy(notice: OwnerVsHubSpotNotice): { title: strin
     description: 'Ese dueño no tiene usuario activo en SellUp. Revisa quién debe llevarla.',
   };
 }
+
+/**
+ * Para la columna de la lista: ¿el responsable es el dueño en HubSpot? Con la misma
+ * lectura guardada que usa el aviso de la ficha (`metadata.hubspot_owner`). Sin
+ * lectura con correo: «Sin dato».
+ */
+export function describeAccountOwnerCheck(
+  ownerId: string | null,
+  hubspotOwner: unknown,
+): { check: 'match' | 'other_sellup_user' | 'not_in_sellup' | 'unknown'; email: string | null } {
+  const metadata = { hubspot_owner: hubspotOwner };
+  const snapshot = readHubSpotOwnerSnapshot(metadata);
+  if (!snapshot?.email) return { check: 'unknown', email: null };
+  const notice = describeOwnerVsHubSpot({ ownerId, metadata });
+  return { check: notice ? notice.kind : 'match', email: snapshot.email };
+}

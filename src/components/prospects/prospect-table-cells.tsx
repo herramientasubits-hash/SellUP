@@ -338,12 +338,17 @@ export function DuplicateCheckCell({ candidate }: { candidate: ProspectRow }) {
 
 // ── Calidad ────────────────────────────────────────────────────
 
-export function QualityCell({ candidate }: { candidate: ProspectRow }) {
-  const isChileOfficialCandidate =
-    candidate.source_primary === 'datos_gob_cl' ||
-    candidate.country_code === 'CL' ||
-    (candidate.source_primary as string) === 'cl_res';
+/** Lo completa que está la empresa candidata: lo que dice «Calidad» y por lo que se filtra. */
+export type ProspectCompleteness = 'complete' | 'pending' | 'no_evidence';
 
+export const PROSPECT_COMPLETENESS_LABELS: Readonly<Record<ProspectCompleteness, string>> = {
+  complete: 'Información completa',
+  pending: 'Con datos pendientes',
+  no_evidence: 'Sin evidencia',
+};
+
+/** Los datos que le faltan a la candidata y lo completa que está (puro). */
+export function prospectQuality(candidate: ProspectRow): { missingFields: string[]; completeness: ProspectCompleteness } {
   const missingFields: string[] = [];
   const validationMeta = (candidate.metadata as unknown as {
     validation?: {
@@ -368,17 +373,33 @@ export function QualityCell({ candidate }: { candidate: ProspectRow }) {
     if (!candidate.industry && !(candidate.metadata?.enrichment as Record<string, unknown> | undefined)?.sector_description) missingFields.push('industry');
   }
 
+  if (missingFields.length === 0) return { missingFields, completeness: 'complete' };
+  if (missingFields.length >= 3 && !candidate.website && !candidate.tax_identifier) {
+    return { missingFields, completeness: 'no_evidence' };
+  }
+  return { missingFields, completeness: 'pending' };
+}
+
+export function QualityCell({ candidate }: { candidate: ProspectRow }) {
+  const isChileOfficialCandidate =
+    candidate.source_primary === 'datos_gob_cl' ||
+    candidate.country_code === 'CL' ||
+    (candidate.source_primary as string) === 'cl_res';
+
+  const { missingFields, completeness } = prospectQuality(candidate);
+  const validationMeta = (candidate.metadata as unknown as {
+    validation?: { quality_check?: { import_confidence?: string } };
+  })?.validation;
+
   // Un punto de color + texto: máximo un chip de color por fila (el de Estado).
   let completenessText = 'Información completa';
   let completenessDot = 'bg-success';
-  if (missingFields.length > 0) {
-    if (missingFields.length >= 3 && !candidate.website && !candidate.tax_identifier) {
-      completenessText = 'Sin evidencia';
-      completenessDot = 'bg-border';
-    } else {
-      completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
-      completenessDot = 'bg-warning';
-    }
+  if (completeness === 'no_evidence') {
+    completenessText = 'Sin evidencia';
+    completenessDot = 'bg-border';
+  } else if (completeness === 'pending') {
+    completenessText = `${missingFields.length} ${missingFields.length === 1 ? 'dato pendiente' : 'datos pendientes'}`;
+    completenessDot = 'bg-warning';
   }
 
   let confidenceText = 'Confianza media';

@@ -1,4 +1,5 @@
 import type { AccountNextStepKey } from './next-step';
+import type { AccountListSignals, HubSpotOwnerCheck } from './list-signals';
 export type TaxIdentifierType =
   | 'NIT'
   | 'RFC'
@@ -108,6 +109,19 @@ export interface AccountListItem {
   owner_name: string | null;
   /** El siguiente paso (lo calcula la página de Empresas; ver `next-step.ts`). */
   next_step?: AccountNextStepKey;
+  // ── Columnas de «Lista de empresas» (dueño 17-11) ──
+  hubspot_company_id?: string | null;
+  city?: string | null;
+  company_size?: string | null;
+  linkedin_url?: string | null;
+  tax_identifier?: string | null;
+  tax_identifier_type?: TaxIdentifierType | null;
+  created_by_name?: string | null;
+  /** ¿El responsable es el dueño en HubSpot? (lectura guardada al enlazar la empresa). */
+  hubspot_owner_check?: HubSpotOwnerCheck;
+  hubspot_owner_email?: string | null;
+  /** Contactos, actividad, HubSpot… (lo calcula la página de Empresas; ver `list-signals.ts`). */
+  signals?: AccountListSignals;
 }
 
 export interface CreateAccountInput {

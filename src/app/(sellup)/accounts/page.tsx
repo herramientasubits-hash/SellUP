@@ -5,6 +5,8 @@ import { ListPageSkeleton } from '@/components/shared/list-page-skeleton';
 import { AccountsScreenActions } from '@/components/accounts/accounts-screen-actions';
 import { AccountsDataTableClient } from '@/components/accounts/accounts-data-table-client';
 import { loadAccountNextSteps } from '@/modules/accounts/next-step.server';
+import { loadAccountListSignals } from '@/modules/accounts/list-signals.server';
+import { getHubSpotPortalId } from '@/server/agents/prospecting-toolkit/hubspot-duplicate-checker';
 import { Breadcrumbs } from '@/components/navigation/breadcrumbs';
 import {
   ProspectsModulePanel,
@@ -65,7 +67,7 @@ export default async function AccountsPage({ searchParams }: PageProps) {
           description={EMPRESAS_TAB_DESCRIPTIONS[activeTab]}
           breadcrumbs={skeletonCrumbs ? <Breadcrumbs items={skeletonCrumbs} /> : undefined}
           noun={SKELETON_NOUN[activeTab]}
-          columns={activeTab === 'empresas' ? 7 : 6}
+          columns={activeTab === 'empresas' ? 10 : 6}
         />
       }
     >
@@ -83,18 +85,25 @@ export default async function AccountsPage({ searchParams }: PageProps) {
 async function AccountsPanel() {
   // El agente «Generar con IA» es el mismo asistente de «Por revisar», resuelto
   // por la misma carga de servidor y en paralelo con los datos de la pestaña.
-  const [accounts, users, scopeFilterOptions, generateAgent, currentUser, enrichBulkCheck] = await Promise.all([
+  const [accounts, users, scopeFilterOptions, generateAgent, currentUser, enrichBulkCheck, hubspotPortalId] = await Promise.all([
     getAccountsList(),
     getActiveUsers(),
     getCommercialScopeFilterOptions(),
     loadGenerateProspectsAgent(),
     getCurrentUser(),
     checkCapability('enriquecerMasivo'),
+    // Para abrir la empresa en HubSpot desde la tabla (como en Contactos).
+    getHubSpotPortalId(),
   ]);
   const canEnrichBulk = enrichBulkCheck.ok;
   // El siguiente paso de cada empresa (contactos, Agente 2 y Agente 3), en lotes.
-  const nextSteps = await loadAccountNextSteps(accounts);
-  const accountsWithSteps = accounts.map((account) => ({ ...account, next_step: nextSteps[account.id] }));
+  // Y sus cifras de la lista (contactos, actividad en SellUp y HubSpot), en paralelo.
+  const [nextSteps, signals] = await Promise.all([loadAccountNextSteps(accounts), loadAccountListSignals(accounts)]);
+  const accountsWithSteps = accounts.map((account) => ({
+    ...account,
+    next_step: nextSteps[account.id],
+    signals: signals[account.id],
+  }));
   // ALWAYS-OWNER-ON-CREATE-1 — al crear una empresa, el responsable por defecto es quien la crea.
   const currentUserId = currentUser?.id ?? null;
 
@@ -114,6 +123,7 @@ async function AccountsPanel() {
           scopeFilterOptions={scopeFilterOptions}
           firstCallEnabled={isAgent3FirstCallEnabled()}
           canEnrichBulk={canEnrichBulk}
+          hubspotPortalId={hubspotPortalId}
         />
       </DataTablePage>
     </ListActionRailProvider>

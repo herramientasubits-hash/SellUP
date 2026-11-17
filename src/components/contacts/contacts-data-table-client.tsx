@@ -20,6 +20,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import {
   DataTable,
   DataTableColumnHeader,
+  compareDateCells,
+  presenceFilter,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
   type DataTableHandle,
@@ -125,6 +127,10 @@ const SOURCE_FILTER_OPTIONS = Object.entries(CONTACT_SOURCE_LABELS).map(([value,
   value,
   label,
 }));
+
+const CONTACT_HUBSPOT_FILTER = presenceFilter('Está en HubSpot', 'No está en HubSpot');
+const COMPANY_HUBSPOT_FILTER = presenceFilter('Está en HubSpot', 'No existe en HubSpot');
+const LINKEDIN_FILTER = presenceFilter('Con LinkedIn', 'Sin LinkedIn');
 
 const SENIORITY_FILTER_OPTIONS = Object.entries(SENIORITY_LABELS).map(([value, label]) => ({
   value,
@@ -318,7 +324,7 @@ export function ContactsDataTableClient({
         minSize: 160,
         enableHiding: false,
         // Texto libre: se ordena y se busca, no se filtra por valores.
-        meta: { label: 'Nombre', popoverTitle: 'Nombre', disableFilter: true },
+        meta: { label: 'Nombre', popoverTitle: 'Nombre', filterVariant: 'text' },
       },
       {
         id: 'account_name',
@@ -343,11 +349,12 @@ export function ContactsDataTableClient({
         },
         size: 180,
         minSize: 140,
-        filterFn: 'arrIncludesSome',
         meta: {
           // Enumerable: el embudo ofrece las empresas que aparecen en la lista.
           label: 'Empresa',
           popoverTitle: 'Empresa',
+          // Sin tope de 50: el embudo trae buscador.
+          unboundedFacets: true,
         },
       },
       {
@@ -366,7 +373,7 @@ export function ContactsDataTableClient({
           ),
         size: 160,
         minSize: 120,
-        meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
+        meta: { label: 'Cargo', popoverTitle: 'Cargo', filterVariant: 'text' },
       },
       {
         id: 'email',
@@ -392,7 +399,7 @@ export function ContactsDataTableClient({
         },
         size: 180,
         minSize: 140,
-        meta: { label: 'Email', popoverTitle: 'Email', disableFilter: true },
+        meta: { label: 'Email', popoverTitle: 'Email', filterVariant: 'text' },
       },
       {
         id: 'phone_display',
@@ -418,7 +425,7 @@ export function ContactsDataTableClient({
         },
         size: 140,
         minSize: 110,
-        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', disableFilter: true },
+        meta: { label: 'Teléfono', popoverTitle: 'Teléfono', filterVariant: 'text' },
       },
       {
         id: 'contact_status',
@@ -462,7 +469,6 @@ export function ContactsDataTableClient({
         },
         size: 140,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Rol',
           popoverTitle: 'Rol',
@@ -497,7 +503,7 @@ export function ContactsDataTableClient({
           label: 'Contacto en HubSpot',
           popoverTitle: 'Contacto en HubSpot',
           group: CONTACT_GROUP,
-          disableFilter: true,
+          ...CONTACT_HUBSPOT_FILTER,
         },
       },
       {
@@ -522,7 +528,7 @@ export function ContactsDataTableClient({
         },
         size: 110,
         minSize: 100,
-        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, disableFilter: true },
+        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn', group: CONTACT_GROUP, hiddenByDefault: true, ...LINKEDIN_FILTER },
       },
       {
         id: 'department',
@@ -540,9 +546,8 @@ export function ContactsDataTableClient({
           ),
         size: 160,
         minSize: 120,
-        filterFn: 'arrIncludesSome',
         // Enumerable: el embudo ofrece los departamentos que aparecen en la lista.
-        meta: { label: 'Departamento', popoverTitle: 'Departamento', group: CONTACT_GROUP, hiddenByDefault: true },
+        meta: { label: 'Departamento', popoverTitle: 'Departamento', group: CONTACT_GROUP, hiddenByDefault: true, unboundedFacets: true },
       },
       {
         id: 'seniority',
@@ -562,7 +567,6 @@ export function ContactsDataTableClient({
         },
         size: 150,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Seniority',
           popoverTitle: 'Seniority',
@@ -612,13 +616,13 @@ export function ContactsDataTableClient({
           ),
         size: 120,
         minSize: 110,
-        // Fecha: solo se ordena.
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
         meta: {
           label: 'Creado',
           popoverTitle: 'Fecha de creación',
           group: CONTACT_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          filterVariant: 'date',
         },
       },
       // ── Empresa ──
@@ -640,9 +644,8 @@ export function ContactsDataTableClient({
         },
         size: 120,
         minSize: 100,
-        filterFn: 'arrIncludesSome',
         // Enumerable: el embudo ofrece los países que aparecen en la lista.
-        meta: { label: 'País', popoverTitle: 'País', group: COMPANY_GROUP, hiddenByDefault: true },
+        meta: { label: 'País', popoverTitle: 'País', group: COMPANY_GROUP, hiddenByDefault: true, unboundedFacets: true },
       },
       {
         id: 'company_domain',
@@ -667,7 +670,7 @@ export function ContactsDataTableClient({
           popoverTitle: 'Dominio de la empresa',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          filterVariant: 'text',
         },
       },
       {
@@ -697,7 +700,7 @@ export function ContactsDataTableClient({
           popoverTitle: 'Página web de la empresa',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          filterVariant: 'text',
         },
       },
       {
@@ -727,7 +730,7 @@ export function ContactsDataTableClient({
           popoverTitle: 'Empresa en HubSpot',
           group: COMPANY_GROUP,
           hiddenByDefault: true,
-          disableFilter: true,
+          ...COMPANY_HUBSPOT_FILTER,
         },
       },
     ],
