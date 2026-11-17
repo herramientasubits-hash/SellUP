@@ -16,7 +16,7 @@ export const EMPRESAS_MODULE_TITLE = 'Empresas';
  * que el menú lateral.
  */
 export const EMPRESAS_VIEW_TITLES: Record<ModuleTabId, string> = {
-  empresas: 'Empresas',
+  empresas: 'Lista de empresas',
   busquedas: 'Búsquedas',
   prospectos: 'Por revisar',
   descartadas: 'Descartadas',
