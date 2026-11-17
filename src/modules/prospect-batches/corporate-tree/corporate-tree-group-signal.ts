@@ -12,6 +12,7 @@ export type CorporateTreeGroupMemberStatus =
   | 'customer'
   | 'open_deal'
   | 'recent_sales_activity'
+  | 'scheduled_activity'
   | 'active_owner'
   | 'free'
   | 'unknown';
@@ -23,14 +24,19 @@ export type CorporateTreeGroupSignal = {
   /** Fichas de HubSpot del grupo que se leyeron (con tope). */
   checked: number;
   customers: { name: string; countryCode: string | null }[];
-  /** Negocio abierto, actividad de venta reciente o dueño activo: alguien de UBITS ya lo trabaja. */
+  /** Negocio abierto, actividad de venta reciente o agendada, o dueño activo: alguien de UBITS ya lo trabaja. */
   worked: { name: string; countryCode: string | null }[];
 };
 
 /** Como mucho, fichas del grupo que se leen en HubSpot por corrida. */
 export const CORPORATE_TREE_GROUP_HUBSPOT_MAX_READS = 12;
 
-const WORKED: ReadonlySet<CorporateTreeGroupMemberStatus> = new Set(['open_deal', 'recent_sales_activity', 'active_owner']);
+const WORKED: ReadonlySet<CorporateTreeGroupMemberStatus> = new Set([
+  'open_deal',
+  'recent_sales_activity',
+  'scheduled_activity',
+  'active_owner',
+]);
 const MAX_LISTED = 8;
 
 export function summarizeCorporateTreeGroup(members: readonly CorporateTreeGroupMember[]): CorporateTreeGroupSignal {
