@@ -90,6 +90,10 @@ function makeSearchDeps(overrides: Partial<LinkedinSearchDeps> = {}) {
       calls.push(`hubspot-email:${email}`);
       return null;
     },
+    findPendingCandidateByEmail: async (email) => {
+      calls.push(`pending-email:${email}`);
+      return null;
+    },
     logUsage: async (entry) => {
       logged.push(entry);
     },
@@ -250,6 +254,44 @@ describe('searchContactByLinkedin — el email encontrado contra SellUp y HubSpo
     assert.deepEqual(signed, []);
   });
 
+  it('el email ya es contacto de SellUp: lleva su id y el LinkedIn buscado para guardárselo', async () => {
+    const { deps } = makeSearchDeps({
+      findSellUpContactByEmail: async () => ({ fullName: 'Ana Ficticia', companyName: 'Otra SAS', contactId: 'ct-1' }),
+    });
+    const result = await searchContactByLinkedin(URL_OK, deps);
+    assert.equal(result.status, 'already_known');
+    if (result.status !== 'already_known') return;
+    assert.equal(result.where, 'sellup_contact');
+    assert.equal(result.match.contactId, 'ct-1');
+    assert.equal(result.searchedLinkedinUrl, CANONICAL);
+  });
+
+  it('el email ya es de un candidato «Por revisar» (p. ej. traído de HubSpot): gana a HubSpot y lleva el LinkedIn', async () => {
+    const { deps, calls, signed } = makeSearchDeps({
+      findPendingCandidateByEmail: async () => ({ fullName: 'Ana Ficticia', companyName: 'Empresa', candidateId: 'cand-9' }),
+      findHubSpotContactByEmail: async () => ({ fullName: 'Ana Ficticia', companyName: null }),
+    });
+    const result = await searchContactByLinkedin(URL_OK, deps);
+    assert.equal(result.status, 'already_known');
+    if (result.status !== 'already_known') return;
+    assert.equal(result.where, 'sellup_pending_candidate');
+    assert.equal(result.matchedBy, 'email');
+    assert.equal(result.match.candidateId, 'cand-9');
+    assert.equal(result.creditsSpent, true);
+    assert.equal(result.message, LINKEDIN_SEARCH_COPY.knownPendingCandidateByEmail);
+    assert.equal(result.searchedLinkedinUrl, CANONICAL);
+    assert.ok(!calls.some((c) => c.startsWith('hubspot-email')));
+    assert.deepEqual(signed, []);
+  });
+
+  it('coincidencia por LinkedIn: no lleva LinkedIn que guardar (ya es el mismo)', async () => {
+    const { deps } = makeSearchDeps({
+      findPendingCandidateByLinkedin: async () => ({ fullName: 'Ana', companyName: null, candidateId: 'cand-9' }),
+    });
+    const result = await searchContactByLinkedin(URL_OK, deps);
+    assert.equal(result.status === 'already_known' && result.searchedLinkedinUrl, undefined);
+  });
+
   it('el email ya existe en HubSpot: no se crea candidato y se avisa del gasto', async () => {
     const { deps, signed } = makeSearchDeps({
       findHubSpotContactByEmail: async () => ({ fullName: 'Ana Ficticia', companyName: null }),
@@ -257,6 +299,7 @@ describe('searchContactByLinkedin — el email encontrado contra SellUp y HubSpo
     const result = await searchContactByLinkedin(URL_OK, deps);
     assert.equal(result.status === 'already_known' && result.where, 'hubspot_contact');
     assert.equal(result.status === 'already_known' && result.message, LINKEDIN_SEARCH_COPY.knownHubSpotByEmail);
+    assert.equal(result.status === 'already_known' && result.searchedLinkedinUrl, undefined);
     assert.deepEqual(signed, []);
   });
 

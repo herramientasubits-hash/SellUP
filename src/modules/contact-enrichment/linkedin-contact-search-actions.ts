@@ -12,8 +12,14 @@
 // («Revisar ahora») o después en «Por revisar».
 //
 // Todo detrás de CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED: apagada, responde «no activada»
-// antes de leer nada o llamar a un proveedor. No escribe en HubSpot (sólo lee). No crea
-// contactos finales: la aprobación sigue el camino de siempre.
+// antes de leer nada o llamar a un proveedor. No crea contactos finales: la aprobación sigue el
+// camino de siempre.
+//
+// AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING (Bryan 17-11): si la búsqueda por LinkedIn descubre por
+// el correo que la persona ya es un candidato «Por revisar» o un contacto de SellUp que el
+// usuario puede tocar, le guarda el LinkedIn buscado y lo envía a HubSpot (sólo si allá está
+// vacío) en `quick-search-linkedin-attach.server.ts`. Es la única escritura a HubSpot de esta
+// acción, y va por ese módulo.
 
 import { createClient as createServiceRoleClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
@@ -36,6 +42,7 @@ import {
 import { isOfferableHubSpotContact } from '@/server/agents/contact-enrichment-toolkit/hubspot-first-core';
 import { resolveHubSpotFirstOwnership } from '@/server/agents/contact-enrichment-toolkit/hubspot-first-stage.server';
 import { createContactEnrichmentRequestAction, requireActiveUserForEnrichment } from './actions';
+import { canActOnContact } from '@/modules/access/record-scope.server';
 import { canSeeContactCandidate } from './candidate-scope.server';
 import { createQuickSearchCandidate } from './contact-quick-search-candidate-core';
 import { resolveQuickSearchCompany } from './contact-quick-search-company-core';
@@ -66,6 +73,10 @@ import {
   lookupLushaByLinkedin,
 } from './linkedin-contact-search-providers.server';
 import { linkedinProfileKey, linkedinSlugIlikePatterns } from './linkedin-profile-url';
+import {
+  attachSearchedLinkedinToPendingCandidate,
+  attachSearchedLinkedinToSellUpContact,
+} from './quick-search-linkedin-attach.server';
 
 function getServiceRoleClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -85,14 +96,14 @@ function one<T>(value: Embedded<T>): T | null {
 
 // ── Lecturas en SellUp (globales: deduplicar no depende del dueño) ────────────
 //
-// Sólo devuelven nombre y empresa: lo justo para decir «ya existe», sin abrir la ficha de un
-// contacto de otro vendedor.
+// Devuelven nombre y empresa: lo justo para decir «ya existe». El id del contacto viaja al
+// navegador («Abrir contacto») sólo si el usuario puede tocarlo (`visibleContactId`).
 
 async function findSellUpContactByLinkedin(admin: SupabaseClient, slug: string): Promise<KnownContactMatch | null> {
   for (const pattern of linkedinSlugIlikePatterns(slug)) {
     const { data, error } = await admin
       .from('contacts')
-      .select('full_name, linkedin_url, account:account_id ( name )')
+      .select('id, full_name, linkedin_url, account:account_id ( name )')
       .is('archived_at', null)
       .ilike('linkedin_url', pattern)
       .limit(20);
@@ -100,7 +111,11 @@ async function findSellUpContactByLinkedin(admin: SupabaseClient, slug: string):
     const row = (data ?? []).find((r) => linkedinProfileKey(r.linkedin_url as string | null) === slug);
     if (row) {
       const account = one(row.account as Embedded<{ name: string | null }>);
-      return { fullName: (row.full_name as string | null) ?? null, companyName: account?.name ?? null };
+      return {
+        fullName: (row.full_name as string | null) ?? null,
+        companyName: account?.name ?? null,
+        contactId: (row.id as string | null) ?? null,
+      };
     }
   }
   return null;
@@ -149,7 +164,7 @@ async function findPendingCandidateByEmail(admin: SupabaseClient, email: string)
 async function findSellUpContactByEmail(admin: SupabaseClient, email: string): Promise<KnownContactMatch | null> {
   const { data, error } = await admin
     .from('contacts')
-    .select('full_name, email, account:account_id ( name )')
+    .select('id, full_name, email, account:account_id ( name )')
     .is('archived_at', null)
     .ilike('email', escapeLikeValue(email))
     .limit(5);
@@ -157,14 +172,18 @@ async function findSellUpContactByEmail(admin: SupabaseClient, email: string): P
   const row = (data ?? []).find((r) => (r.email as string | null)?.trim().toLowerCase() === email);
   if (!row) return null;
   const account = one(row.account as Embedded<{ name: string | null }>);
-  return { fullName: (row.full_name as string | null) ?? null, companyName: account?.name ?? null };
+  return {
+    fullName: (row.full_name as string | null) ?? null,
+    companyName: account?.name ?? null,
+    contactId: (row.id as string | null) ?? null,
+  };
 }
 
 /** Contacto de SellUp vinculado a ese contacto de HubSpot (Bryan 17-11). */
 async function findSellUpContactByHubSpotId(admin: SupabaseClient, hubspotContactId: string): Promise<KnownContactMatch | null> {
   const { data, error } = await admin
     .from('contacts')
-    .select('full_name, account:account_id ( name )')
+    .select('id, full_name, account:account_id ( name )')
     .is('archived_at', null)
     .eq('hubspot_contact_id', hubspotContactId)
     .limit(1);
@@ -172,7 +191,11 @@ async function findSellUpContactByHubSpotId(admin: SupabaseClient, hubspotContac
   const row = data?.[0];
   if (!row) return null;
   const account = one(row.account as Embedded<{ name: string | null }>);
-  return { fullName: (row.full_name as string | null) ?? null, companyName: account?.name ?? null };
+  return {
+    fullName: (row.full_name as string | null) ?? null,
+    companyName: account?.name ?? null,
+    contactId: (row.id as string | null) ?? null,
+  };
 }
 
 const KNOWN_CANDIDATE_STATUSES: readonly KnownCandidateStatus[] = ['pending_review', 'approved', 'discarded'];
@@ -227,6 +250,8 @@ export type ContactQuickSearchResult =
       message: string;
       /** Sólo si está en «Por revisar» y el usuario lo puede ver: para «Abrir candidato». */
       candidateId: string | null;
+      /** Sólo si es un contacto de SellUp que el usuario puede tocar: para «Abrir contacto». */
+      contactId?: string | null;
     }
   | { status: 'not_found'; message: string; creditsSpent: boolean }
   | { status: 'provider_error'; message: string }
@@ -294,6 +319,16 @@ async function visibleCandidateId(candidateId: string | null | undefined): Promi
   }
 }
 
+/** ¿El contacto de SellUp lo puede tocar este usuario? Si no, sin id (ni «Abrir», ni guardado). */
+async function visibleContactId(contactId: string | null | undefined): Promise<string | null> {
+  if (!contactId) return null;
+  try {
+    return (await canActOnContact(contactId)) ? contactId : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Busca a la persona por su LinkedIn o su correo y, si la encuentra, crea el candidato en
  * «Por revisar» con la empresa resuelta (o sin empresa) en el mismo momento.
@@ -322,6 +357,8 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
         lookupApollo: (url) => lookupApolloByLinkedin(url),
         lookupLusha: (url) => lookupLushaByLinkedin(url),
         findSellUpContactByEmail: (email) => findSellUpContactByEmail(admin, email),
+        // AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING: «Por revisar» por correo, antes que HubSpot.
+        findPendingCandidateByEmail: (email) => findPendingCandidateByEmail(admin, email),
         // Decisión de Bryan (29-10): el duplicado por correo contra HubSpot sigue como estaba.
         findHubSpotContactByEmail: findHubSpotContactMatchByEmail,
         logUsage: usageLogger(internalUserId, 'linkedin_single'),
@@ -363,6 +400,16 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
 
   if (found.status === 'invalid_url') return { status: 'invalid_input', message: found.message };
   if (found.status === 'already_known') {
+    const candidateId =
+      found.where === 'sellup_pending_candidate' ? await visibleCandidateId(found.match.candidateId) : null;
+    const contactId = found.where === 'sellup_contact' ? await visibleContactId(found.match.contactId) : null;
+    // AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING — el LinkedIn buscado se guarda en quien ya existía
+    // (sin avisarlo en el chat). Sólo si el usuario puede ver/tocar ese registro.
+    const searchedLinkedinUrl = 'searchedLinkedinUrl' in found ? found.searchedLinkedinUrl : undefined;
+    if (searchedLinkedinUrl) {
+      if (candidateId) await attachSearchedLinkedinToPendingCandidate(candidateId, searchedLinkedinUrl);
+      else if (contactId) await attachSearchedLinkedinToSellUpContact(contactId, searchedLinkedinUrl);
+    }
     return {
       status: 'already_known',
       where: found.where,
@@ -370,8 +417,8 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
       match: { fullName: found.match.fullName, companyName: found.match.companyName },
       creditsSpent: found.creditsSpent,
       message: found.message,
-      candidateId:
-        found.where === 'sellup_pending_candidate' ? await visibleCandidateId(found.match.candidateId) : null,
+      candidateId,
+      contactId,
     };
   }
   if (found.status !== 'found') return found;
@@ -479,6 +526,14 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
 
     if (!created.ok) {
       if (created.error === 'already_pending') {
+        // Entró a «Por revisar» por otro camino mientras se buscaba: también se le guarda el
+        // LinkedIn buscado (AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING).
+        const attachOnRace = async (visibleId: string | null): Promise<string | null> => {
+          if (visibleId && data.entryMode === 'linkedin_single' && data.linkedinUrl) {
+            await attachSearchedLinkedinToPendingCandidate(visibleId, data.linkedinUrl);
+          }
+          return visibleId;
+        };
         const pending =
           (data.linkedinSlug ? await findPendingCandidateByLinkedin(admin, data.linkedinSlug) : null) ??
           (data.profile.email ? await findPendingCandidateByEmail(admin, data.profile.email) : null);
@@ -490,7 +545,7 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
           match: { fullName: pending?.fullName ?? preview.fullName, companyName: pending?.companyName ?? null },
           creditsSpent: data.providersCalled.length > 0,
           message: created.message,
-          candidateId: await visibleCandidateId(pending?.candidateId),
+          candidateId: await attachOnRace(await visibleCandidateId(pending?.candidateId)),
         };
       }
       return { status: 'create_failed', entryMode: data.entryMode, preview, message: created.message };

@@ -52,7 +52,9 @@ export type CandidateRevealPushTrigger =
   | 'reveal_phone_apollo_webhook'
   | 'reveal_phone_lusha_waterfall'
   | 'reveal_phone_recovery'
-  | 'reveal_phone_cache_hit';
+  | 'reveal_phone_cache_hit'
+  /** AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING: el LinkedIn buscado se guardó en un candidato que ya existía. */
+  | 'quick_search_linkedin';
 
 export type CandidateRevealPushOutcome =
   /** El candidato no se pudo leer. */
