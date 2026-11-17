@@ -174,6 +174,7 @@ const TAKEN_REASON_LABEL: Readonly<Record<HubSpotTakenReason, string>> = {
   customer: 'es cliente',
   open_deal: 'tiene un negocio abierto',
   recent_sales_activity: 'tuvo actividad de ventas en los últimos 30 días',
+  scheduled_activity: 'tiene una actividad de ventas agendada',
   active_owner: 'está a nombre de un vendedor activo',
   unknown_owner: 'tiene un dueño que no se pudo identificar',
 };

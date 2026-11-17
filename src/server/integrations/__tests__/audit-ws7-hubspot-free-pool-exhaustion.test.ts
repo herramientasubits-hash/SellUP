@@ -50,7 +50,7 @@ describe('buildFreePoolFilterGroups', () => {
       assert.equal(lifecycle?.operator, 'NOT_IN');
       assert.ok(lifecycle?.values?.includes('1443029400'));
     }
-    const activity = groups.map((g) => g.filters.find((f) => f.propertyName === 'hs_last_sales_activity_timestamp'));
+    const activity = groups.map((g) => g.filters.find((f) => f.propertyName === 'notes_last_updated'));
     assert.deepEqual(activity.map((f) => f?.operator).sort(), ['LT', 'NOT_HAS_PROPERTY']);
     const cutoff = Number(activity.find((f) => f?.operator === 'LT')?.value);
     assert.equal(cutoff, NOW.getTime() - 30 * 24 * 60 * 60 * 1000);

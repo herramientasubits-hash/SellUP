@@ -14,11 +14,15 @@ import {
   classifyHubSpotCompanyAvailability,
   hubSpotMacroIndustryValue,
   hubSpotPaisForCountryCode,
+  HUBSPOT_FREE_POLICY_PROPERTIES,
   isHubSpotPoolOwnerName,
+  latestHubSpotActivity,
   parseHubSpotTimestamp,
   RECENT_SALES_ACTIVITY_DAYS,
 } from '../hubspot-free-company-policy';
 import {
+  assessHubSpotCompanyAvailability,
+  buildFreePoolFilterGroups,
   buildFreePoolSearchSegments,
   lastHubSpotOwnerDirectoryFailure,
   loadHubSpotOwnerDirectory,
@@ -66,6 +70,9 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   lifecyclestage: 'lead',
   hs_num_open_deals: '0',
   hs_last_sales_activity_timestamp: null,
+  notes_last_updated: null,
+  notes_last_contacted: null,
+  notes_next_activity_date: null,
   ...overrides,
 });
 
@@ -555,5 +562,72 @@ describe('aprobación de una empresa libre', () => {
       write: true,
       hubspotOwnerId: '7',
     });
+  });
+});
+
+describe('FEEDBACK 17-11 — la actividad del vendedor y la agendada cuentan (caso Grupo Refax)', () => {
+  const recycled = { hs_lead_status: 'Recycled' };
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY).toISOString();
+  const daysAhead = (n: number) => new Date(NOW.getTime() + n * DAY).toISOString();
+
+  it('Refax: reciclada, llamadas de hace más de 30 días y una reunión agendada ⇒ NO libre', () => {
+    const refax = props({
+      ...recycled,
+      notes_last_updated: daysAgo(69),
+      notes_last_contacted: daysAgo(69),
+      notes_next_activity_date: daysAhead(1),
+    });
+    assert.deepEqual(classifyHubSpotCompanyAvailability(refax, owners, NOW), { free: false, reason: 'scheduled_activity' });
+  });
+
+  it('una llamada o nota del vendedor en los últimos 30 días bloquea aunque el contacto nunca interactuó', () => {
+    assert.equal(
+      classifyHubSpotCompanyAvailability(props({ ...recycled, notes_last_updated: daysAgo(5) }), owners, NOW).reason,
+      'recent_sales_activity',
+    );
+    assert.equal(
+      classifyHubSpotCompanyAvailability(props({ ...recycled, notes_last_contacted: daysAgo(RECENT_SALES_ACTIVITY_DAYS - 1) }), owners, NOW)
+        .reason,
+      'recent_sales_activity',
+    );
+  });
+
+  it('cuenta la fecha MÁS reciente de las tres', () => {
+    const at = latestHubSpotActivity({
+      hs_last_sales_activity_timestamp: String(NOW.getTime() - 90 * DAY),
+      notes_last_updated: daysAgo(3),
+      notes_last_contacted: daysAgo(40),
+    });
+    assert.equal(at, NOW.getTime() - 3 * DAY);
+    assert.equal(latestHubSpotActivity({}), null);
+  });
+
+  it('sin actividad en 30 días y nada agendado (o agendado ya vencido) sigue libre', () => {
+    const quiet = props({
+      ...recycled,
+      notes_last_updated: daysAgo(RECENT_SALES_ACTIVITY_DAYS + 1),
+      notes_next_activity_date: daysAgo(2),
+    });
+    assert.deepEqual(classifyHubSpotCompanyAvailability(quiet, owners, NOW), { free: true, reason: 'recycled' });
+  });
+
+  it('la regla pide las fechas del vendedor y la agendada', () => {
+    for (const name of ['notes_last_updated', 'notes_last_contacted', 'notes_next_activity_date', 'hs_last_sales_activity_timestamp']) {
+      assert.ok((HUBSPOT_FREE_POLICY_PROPERTIES as readonly string[]).includes(name), name);
+    }
+  });
+
+  it('una ficha leída sin las fechas nuevas no se presume libre', async () => {
+    const legacy: Record<string, unknown> = { ...props(recycled) };
+    delete legacy.notes_next_activity_date;
+    const fetchFn = (async () => new Response(JSON.stringify({ results: [] }))) as typeof fetch;
+    assert.equal(await assessHubSpotCompanyAvailability('token', legacy, { fetchFn, now: NOW }), null);
+  });
+
+  it('la búsqueda en HubSpot filtra por la «Fecha de última actividad» del vendedor', () => {
+    const groups = buildFreePoolFilterGroups([], [{ propertyName: 'hs_lead_status', operator: 'EQ', value: 'Recycled' }], NOW);
+    const activity = groups.map((g) => g.filters.find((f) => f.propertyName === 'notes_last_updated'));
+    assert.deepEqual(activity.map((f) => f?.operator).sort(), ['LT', 'NOT_HAS_PROPERTY']);
+    assert.equal(Number(activity.find((f) => f?.operator === 'LT')?.value), NOW.getTime() - RECENT_SALES_ACTIVITY_DAYS * DAY);
   });
 });
