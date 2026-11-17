@@ -22,6 +22,7 @@ import {
   textMentionsCompany,
   textMentionsPerson,
   titleRoughlyInText,
+  titlesEquivalent,
   type EmploymentAiTarget,
 } from '../current-employment-ai-check';
 import {
@@ -280,6 +281,53 @@ describe('fuentes viejas', () => {
     assert.equal(isStaleEvidence('2924 days ago', NOW), true);
     assert.equal(isStaleEvidence('700 days ago', NOW), false);
     assert.equal(isStaleEvidence(null, NOW), false);
+  });
+});
+
+describe('pruebas de la dueña 17-11 (tarde)', () => {
+  it('Alejandra: «General Manager» y «Gerente General» son el mismo cargo ⇒ confirmado, no cambiado', () => {
+    const url = 'https://cl.linkedin.com/company/eglo-ficticia';
+    const outcome = assess(
+      [
+        searchResult(url, 'Eglo Chile | LinkedIn', null),
+        submission({ verdict: 'title_changed', current_title: 'Gerente General', current_company: 'EGLO ILUMINACION CHILE', evidence_url: url }),
+        { type: 'text', text: 'nuestra Gerente General, Alejandra Sepúlveda, en Eglo Chile', citations: [{ type: 'web_search_result_location', url, title: 'Eglo Chile', cited_text: 'representantes de Eglo Chile, nuestra Gerente General, Alejandra Sepúlveda, y Carlos', encrypted_index: 'x' }] } as unknown as AnthropicContentBlock,
+      ],
+      { ...TARGET, fullName: 'Alejandra Sepúlveda', title: 'General Manager', companyName: 'EGLO ILUMINACION CHILE', companyDomain: 'eglo.cl', linkedinUrl: 'https://www.linkedin.com/in/alejandra-ficticia-4383b278' },
+    );
+    assert.equal(outcome.check.status, 'confirmed');
+    assert.equal(outcome.check.title_confirmed, true);
+    assert.equal(outcome.check.current_title, 'General Manager');
+  });
+
+  it('Paola: con su LinkedIn guardado, otro perfil «Paola Contreras» es un homónimo y no cuenta', () => {
+    const other = 'https://www.linkedin.com/in/paola-contreras-113408a3/';
+    const outcome = assess(
+      [searchResult(other, 'Paola Contreras - Trans American Power Products'), submission({ verdict: 'not_found' })],
+      { ...TARGET, linkedinUrl: 'http://www.linkedin.com/in/paola-contreras-montenegro-07b31a40' },
+    );
+    assert.equal(outcome.check.status, 'unknown');
+    assert.equal(outcome.check.evidence_url, null);
+    assert.equal(outcome.rejection, 'not_found');
+  });
+
+  it('Pamela: su perfil aparece pero sin empresa ⇒ la ficha dice que encontró su perfil', () => {
+    const own = 'https://cl.linkedin.com/in/pamela-ficticia-2aa09b58';
+    const outcome = assess(
+      [searchResult(own, 'Pamela Silva Andrades'), submission({ verdict: 'not_found' })],
+      { ...TARGET, fullName: 'Pamela Silva Andrades', title: 'Gerente Recursos Humanos', companyName: 'Caja Los Andes', companyDomain: 'cajalosandes.cl', linkedinUrl: 'https://linkedin.com/in/pamela-ficticia-2aa09b58' },
+    );
+    assert.equal(outcome.check.status, 'unknown');
+    assert.equal(outcome.check.evidence_own_profile, true);
+    const p = resolveTitleProvenance({ source: 'hubspot', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: outcome.check } });
+    assert.match(p.caption, /encontró su perfil de LinkedIn, pero el resultado no muestra en qué empresa trabaja hoy/);
+  });
+
+  it('cargos equivalentes en inglés y español', () => {
+    assert.equal(titlesEquivalent('General Manager', 'Gerente General'), true);
+    assert.equal(titlesEquivalent('Human Resources Manager', 'Gerente de Recursos Humanos'), true);
+    assert.equal(titlesEquivalent('Head of Training and Development', 'Jefe de Formación y Aprendizaje'), false);
+    assert.equal(titlesEquivalent('Human Resources Manager', 'Analista de Recursos Humanos'), false);
   });
 });
 

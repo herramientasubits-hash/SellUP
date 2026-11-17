@@ -115,12 +115,63 @@ export function textMentionsCompany(text: string, companyName: string | null, co
  * un tercio de las palabras distintas («Head of Training & Development» ≈ «Head Training and
  * Development»).
  */
+/**
+ * El mismo cargo en inglés y en español (dueña 17-11: «General Manager» = «Gerente General»). Cada
+ * palabra se lleva a su forma en español; el orden no importa.
+ */
+const TITLE_WORD_TO_SPANISH: Record<string, string> = {
+  manager: 'gerente',
+  head: 'jefe',
+  chief: 'jefe',
+  director: 'director',
+  directora: 'director',
+  jefa: 'jefe',
+  gerenta: 'gerente',
+  human: 'humanos',
+  resources: 'recursos',
+  training: 'capacitacion',
+  development: 'desarrollo',
+  learning: 'aprendizaje',
+  sales: 'ventas',
+  people: 'personas',
+  talent: 'talento',
+  leader: 'lider',
+  lead: 'lider',
+  coordinator: 'coordinador',
+  coordinadora: 'coordinador',
+  analyst: 'analista',
+  specialist: 'especialista',
+  assistant: 'asistente',
+  marketing: 'marketing',
+  operations: 'operaciones',
+  finance: 'finanzas',
+  commercial: 'comercial',
+};
+
+/** Palabras que dicen el nivel del cargo (ya en español). */
+const ROLE_WORDS = new Set([
+  'gerente', 'subgerente', 'jefe', 'director', 'subdirector', 'analista', 'coordinador', 'lider', 'asistente',
+  'especialista', 'presidente', 'vicepresidente', 'ceo', 'cfo', 'coo', 'cto', 'chro', 'supervisor', 'ejecutivo',
+  'consultor', 'practicante', 'intern',
+]);
+
+function titleTokens(text: string): string[] {
+  return significantTokens(text).map((t) => TITLE_WORD_TO_SPANISH[t] ?? t);
+}
+
 export function titleRoughlyInText(title: string | null, text: string): boolean {
-  const tokens = significantTokens(title ?? '');
+  const tokens = titleTokens(title ?? '');
   if (tokens.length === 0) return false;
-  const haystack = ` ${plain(text.replace(/&/g, ' and ')).split(' ').join(' ')} `;
+  const haystack = ` ${titleTokens(text).join(' ')} `;
   const present = tokens.filter((t) => haystack.includes(` ${t} `)).length;
-  return present >= Math.max(1, Math.ceil((tokens.length * 2) / 3));
+  // El nivel no se negocia: «Gerente de Recursos Humanos» no es «Analista de Recursos Humanos».
+  const rolesPresent = tokens.filter((t) => ROLE_WORDS.has(t)).every((t) => haystack.includes(` ${t} `));
+  return rolesPresent && present >= Math.max(1, Math.ceil((tokens.length * 2) / 3));
+}
+
+/** Dos cargos dicen lo mismo, aunque uno esté en inglés y el otro en español. */
+export function titlesEquivalent(a: string | null, b: string | null): boolean {
+  return !!a && !!b && (titlesMatch(a, b) || (titleRoughlyInText(a, b) && titleRoughlyInText(b, a)));
 }
 
 /** `linkedin.com/in/<slug>` sin variantes (http/https, subdominio de país, barra final). */
@@ -330,20 +381,24 @@ export function assessEmploymentAiResponse(params: {
   const claimedCompany = clean(raw?.current_company);
 
   const segments = rankSegments(evidenceSegments(params.content, target.linkedinUrl), claimedKey);
-  const allAboutPerson = segments.filter((s) => s.ownProfile || textMentionsPerson(s.text, target.fullName));
+  // Con su LinkedIn guardado, otro perfil de LinkedIn con nombre parecido es otra persona (homónimo).
+  const savedProfile = linkedinProfileSlug(target.linkedinUrl);
+  const otherProfile = (s: EvidenceSegment) => !!savedProfile && !s.ownProfile && linkedinProfileSlug(s.url) !== null;
+  const allAboutPerson = segments.filter((s) => s.ownProfile || (!otherProfile(s) && textMentionsPerson(s.text, target.fullName)));
   // Una copia vieja de un perfil (el buscador guarda algunas por años) no dice dónde trabaja hoy.
   const aboutPerson = allAboutPerson.filter((s) => !isStaleEvidence(s.pageAge, params.checkedAt));
   const evidence = (s: EvidenceSegment) => ({
     evidence_url: s.url,
     evidence_quote: s.text.slice(0, 160),
     evidence_date: parseEvidenceDate(s.pageAge, params.checkedAt)?.toISOString().slice(0, 10) ?? s.pageAge,
+    ...(s.ownProfile ? { evidence_own_profile: true } : {}),
   });
   const mentionsOurCompany = (s: EvidenceSegment) => textMentionsCompany(s.text, target.companyName, target.companyDomain);
 
   // 1) Sigue en la empresa: un trozo reciente sobre la persona que nombra a la empresa.
   const atCompany = aboutPerson.find(mentionsOurCompany);
   if (atCompany && verdict !== 'other_company') {
-    const newTitle = claimedTitle && !titlesMatch(claimedTitle, previousTitle) && titleRoughlyInText(claimedTitle, atCompany.text);
+    const newTitle = claimedTitle && !titlesEquivalent(claimedTitle, previousTitle) && titleRoughlyInText(claimedTitle, atCompany.text);
     const sameTitle = !!previousTitle && titleRoughlyInText(previousTitle, atCompany.text);
     if (newTitle && !sameTitle) {
       return {
