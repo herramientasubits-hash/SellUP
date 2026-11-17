@@ -15,6 +15,7 @@ import {
   HUBSPOT_LOOKUP_CONTACT_PROPERTIES,
   associationIds,
   buildLookupSearchBody,
+  createdActivityItem,
   isHubSpotObjectId,
   mapHubSpotActivity,
   mapHubSpotCompany,
@@ -26,6 +27,16 @@ import {
   type HubSpotCompanyView,
   type HubSpotContactView,
 } from './hubspot-lookup-core';
+import {
+  buildPropertySections,
+  ownerIdsInValues,
+  parsePropertyDefinitions,
+  parsePropertyGroups,
+  readablePropertyNames,
+  type HubSpotPropertyDefinition,
+  type HubSpotPropertyGroupDefinition,
+  type HubSpotPropertySection,
+} from './hubspot-properties-core';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -165,7 +176,7 @@ export async function readHubSpotCompanyContacts(companyId: string): Promise<Hub
 
 // ── Dueños y etapas (con caché en memoria del servidor) ─────────────────────
 
-type OwnerRecord = { id?: string; firstName?: string | null; lastName?: string | null; email?: string | null };
+type OwnerRecord = { id?: string; userId?: number | string | null; firstName?: string | null; lastName?: string | null; email?: string | null };
 
 /** Directorio de dueños (activos y archivados) → nombre. Una lectura por instancia cada 30 min. */
 let ownerDirectory: { names: Map<string, string>; at: number } | null = null;
@@ -183,6 +194,8 @@ async function readOwnerPages(token: string, archived: boolean, into: Map<string
     for (const owner of body.results ?? []) {
       const name = ownerDisplayName(owner);
       if (owner.id && name && !into.has(String(owner.id))) into.set(String(owner.id), name);
+      // Quién creó un registro viene como usuario de HubSpot (no como dueño).
+      if (owner.userId != null && name && !into.has(`user:${owner.userId}`)) into.set(`user:${owner.userId}`, name);
     }
     after = body.paging?.next?.after;
     if (!after) return;
@@ -226,6 +239,13 @@ export async function resolveHubSpotOwnerNames(ownerIds: ReadonlyArray<string | 
     if (name) names.set(id, name);
   }
   return names;
+}
+
+/** Nombre de un usuario de HubSpot (p. ej. quién creó el registro). */
+export async function resolveHubSpotUserName(userId: string | null | undefined): Promise<string | null> {
+  if (!userId || !isHubSpotObjectId(userId)) return null;
+  const directory = await loadOwnerDirectory();
+  return directory?.get(`user:${userId}`) ?? null;
 }
 
 let stageCache: { labels: Map<string, string>; at: number } | null = null;
@@ -294,9 +314,94 @@ async function readHubSpotActivityUncached(fromType: 'companies' | 'contacts', f
   const items = sortAndTrimActivity(
     perKind.flatMap(({ object, value }) => value.map((r) => mapHubSpotActivity(object.kind, r.id, r.properties, stages))),
   );
-  const owners = await resolveHubSpotOwnerNames(items.map((i) => i.ownerId));
+  const [owners, created] = await Promise.all([
+    resolveHubSpotOwnerNames(items.map((i) => i.ownerId)),
+    readCreatedItem(token, fromType, fromId),
+  ]);
+  const withOwners = items.map((item) => ({ ...item, ownerName: item.ownerId ? owners.get(item.ownerId) ?? null : null }));
   return {
-    items: items.map((item) => ({ ...item, ownerName: item.ownerId ? owners.get(item.ownerId) ?? null : null })),
+    // «Creado en HubSpot» va en su fecha (un registro importado puede tener actividad anterior).
+    items: created ? [...withOwners, created].sort((a, b) => isoTime(b.occurredAt) - isoTime(a.occurredAt)) : withOwners,
     missingKinds: perKind.filter((k) => k.failed).map((k) => k.object.kind),
   };
+}
+
+function isoTime(iso: string | null): number {
+  const t = iso ? Date.parse(iso) : Number.NaN;
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** «Creado en HubSpot» (fecha y quién), como el «Created» de la ficha de HubSpot. */
+async function readCreatedItem(token: string, fromType: 'companies' | 'contacts', fromId: string) {
+  const record = await optional(
+    async () =>
+      readJson<RawObject>(
+        await hubspotGet(token, `/crm/v3/objects/${fromType}/${encodeURIComponent(fromId)}?properties=createdate,hs_created_by_user_id`),
+        'fecha de creación',
+      ),
+    null,
+    `creación de ${fromType}/${fromId}`,
+  );
+  if (!record.value) return null;
+  const props = record.value.properties ?? {};
+  const createdBy = await resolveHubSpotUserName(props.hs_created_by_user_id ?? null);
+  return createdActivityItem(fromId, props.createdate, createdBy);
+}
+
+// ── Todos los datos del registro ────────────────────────────────────────────
+
+const PROPERTY_SCHEMA_TTL_MS = 30 * 60 * 1000;
+const PROPERTY_VALUES_TTL_MS = 60 * 1000;
+const PROPERTY_VALUES_CACHE_MAX = 200;
+
+type PropertySchema = { definitions: HubSpotPropertyDefinition[]; groups: HubSpotPropertyGroupDefinition[] };
+const schemaCache = new Map<string, { schema: PropertySchema; at: number }>();
+const propertyValuesCache = new Map<string, { sections: HubSpotPropertySection[]; at: number }>();
+
+/** Las propiedades del portal (nombre, etiqueta, grupo, opciones). Una lectura cada 30 min. */
+async function readPropertySchema(token: string, objectType: 'companies' | 'contacts'): Promise<PropertySchema> {
+  const hit = schemaCache.get(objectType);
+  if (hit && Date.now() - hit.at < PROPERTY_SCHEMA_TTL_MS) return hit.schema;
+  const [definitions, groups] = await Promise.all([
+    hubspotGet(token, `/crm/v3/properties/${objectType}`).then((res) => readJson(res, `propiedades de ${objectType}`)),
+    optional(
+      async () => readJson(await hubspotGet(token, `/crm/v3/properties/${objectType}/groups`), `grupos de ${objectType}`),
+      null,
+      `grupos de ${objectType}`,
+    ),
+  ]);
+  const schema = { definitions: parsePropertyDefinitions(definitions), groups: parsePropertyGroups(groups.value) };
+  schemaCache.set(objectType, { schema, at: Date.now() });
+  return schema;
+}
+
+/**
+ * Todos los datos de una empresa o un contacto de HubSpot, agrupados como en su ficha.
+ * `null` si el registro no existe.
+ */
+export async function readHubSpotRecordProperties(
+  objectType: 'companies' | 'contacts',
+  objectId: string,
+): Promise<HubSpotPropertySection[] | null> {
+  const cacheKey = `${objectType}:${objectId}`;
+  const hit = propertyValuesCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < PROPERTY_VALUES_TTL_MS) return hit.sections;
+
+  const token = await requireToken();
+  const schema = await readPropertySchema(token, objectType);
+  const names = readablePropertyNames(schema.definitions);
+  if (names.length === 0) return [];
+  // Por lotes (POST batch/read): cientos de nombres no caben en la dirección de un GET.
+  const rows = await batchRead(token, objectType, [objectId], names);
+  const row = rows.find((r) => r.id === objectId) ?? rows[0];
+  if (!row) return null;
+  const values = row.properties ?? {};
+  const owners = await resolveHubSpotOwnerNames(ownerIdsInValues(schema.definitions, values));
+  const sections = buildPropertySections(schema.definitions, schema.groups, values, owners);
+
+  if (propertyValuesCache.size >= PROPERTY_VALUES_CACHE_MAX) {
+    propertyValuesCache.delete(propertyValuesCache.keys().next().value as string);
+  }
+  propertyValuesCache.set(cacheKey, { sections, at: Date.now() });
+  return sections;
 }

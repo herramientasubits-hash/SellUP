@@ -26,6 +26,7 @@ import {
   readHubSpotCompany,
   readHubSpotCompanyContacts,
   readHubSpotContact,
+  readHubSpotRecordProperties,
   resolveHubSpotOwnerNames,
   searchHubSpotCompaniesAndContacts,
 } from '@/server/integrations/hubspot-lookup/hubspot-lookup.server';
@@ -38,6 +39,7 @@ import type {
   HubSpotContactHit,
   HubSpotContactLookupResult,
   HubSpotLookupUnavailable,
+  HubSpotPropertiesLookupResult,
   HubSpotSearchResult,
 } from './types';
 
@@ -168,5 +170,16 @@ export async function lookupHubSpotActivity(kind: unknown, hubspotId: unknown): 
     return { status: 'ok', items: result.items, missingKinds: result.missingKinds };
   } catch (error) {
     return lookupUnavailable(error, 'actividad');
+  }
+}
+
+/** Todos los datos de HubSpot de una empresa o de un contacto, agrupados como en su ficha. */
+export async function lookupHubSpotProperties(kind: unknown, hubspotId: unknown): Promise<HubSpotPropertiesLookupResult> {
+  if ((kind !== 'company' && kind !== 'contact') || !isHubSpotObjectId(hubspotId)) return { status: 'not_found' };
+  try {
+    const sections = await readHubSpotRecordProperties(kind === 'company' ? 'companies' : 'contacts', hubspotId);
+    return sections ? { status: 'ok', sections } : { status: 'not_found' };
+  } catch (error) {
+    return lookupUnavailable(error, 'datos del registro');
   }
 }

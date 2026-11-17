@@ -10,7 +10,11 @@ import {
   GlobalSearch,
   type SearchNavigateItem,
   type SearchObjectItem,
+  type SearchRemoteResult,
 } from "@/components/search";
+import { fetchSellUpRecords } from "@/modules/global-search/client";
+import { isSameListView, sellUpSearchItems, type OpenSellUpRecord } from "@/components/search/sellup-search-items";
+import { stripCandidateReviewParam } from "@/modules/contact-enrichment/candidate-review-link";
 import { getAccountsList } from "@/modules/accounts/actions";
 import { getAllContacts } from "@/modules/contacts/actions";
 import { fetchHubSpotSearch } from "@/modules/hubspot-lookup/client";
@@ -69,7 +73,49 @@ const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   [ROI_CALCULATOR_ROUTE]: ["roi", "proyección", "valor", "cotización", "propuesta"],
 };
 
-const SEARCH_OBJECTS_HINT = "Registros: tus empresas y contactos, y también los de HubSpot.";
+const SEARCH_OBJECTS_HINT =
+  "Registros: empresas y contactos, por revisar, descartados y búsquedas de SellUp, y también HubSpot.";
+
+/** Nombres de las listas de SellUp, para avisar cuál no respondió. */
+const SELLUP_KIND_LABEL: Record<string, string> = {
+  prospect: "empresas por revisar",
+  discarded_company: "empresas descartadas",
+  search: "búsquedas",
+  contact_candidate: "contactos por revisar",
+};
+
+/**
+ * La búsqueda por lo escrito en todo SellUp (por revisar, descartadas, búsquedas,
+ * candidatos de contacto) y en HubSpot, a la vez. Si una parte no responde, lo demás
+ * se muestra y se avisa cuál faltó; sólo si fallan las dos, el buscador lo dice.
+ */
+async function searchEverywhere(
+  query: string,
+  signal: AbortSignal,
+  openHubSpot: OpenHubSpotRecord,
+  openSellUp: OpenSellUpRecord,
+): Promise<SearchRemoteResult> {
+  const [sellup, hubspot] = await Promise.allSettled([
+    fetchSellUpRecords(query, signal),
+    searchHubSpot(query, signal, openHubSpot),
+  ]);
+  if (sellup.status === "rejected" && hubspot.status === "rejected") throw new Error("Búsqueda no disponible");
+  const notices: string[] = [];
+  if (sellup.status === "rejected") {
+    notices.push("Una parte de SellUp no respondió: se muestra lo demás.");
+  } else if (sellup.value.failed.length > 0) {
+    const missing = sellup.value.failed.map((kind) => SELLUP_KIND_LABEL[kind] ?? kind).join(", ");
+    notices.push(`No pudimos buscar en ${missing}: se muestra lo demás.`);
+  }
+  if (hubspot.status === "rejected") notices.push("HubSpot no respondió: se muestra lo de SellUp.");
+  return {
+    items: [
+      ...(sellup.status === "fulfilled" ? sellUpSearchItems(sellup.value.hits, openSellUp) : []),
+      ...(hubspot.status === "fulfilled" ? hubspot.value : []),
+    ],
+    notice: notices.length > 0 ? notices.join(" ") : null,
+  };
+}
 
 /**
  * Empresas y contactos de HubSpot con lo escrito (dueña 17-11: «que todos puedan
@@ -205,9 +251,25 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
     },
     [pathname, router],
   );
+  // Lo de SellUp que se abre en una pantalla ya montada (Por revisar, candidatos): se
+  // avisa con su evento además de navegar.
+  const openSellUpRecord = React.useCallback<OpenSellUpRecord>(
+    (href, event) => {
+      // Sólo si ya se está en ESA lista (misma ruta y misma pestaña) se le avisa, y la
+      // dirección va sin `candidate` (si no, recargar volvería a abrir la ficha). Si es otra
+      // lista, la nueva la abre al montarse desde la dirección: así otra cola no la abre.
+      if (event && isSameListView(window.location.href, href)) {
+        window.dispatchEvent(new CustomEvent(event.type, { detail: { candidateId: event.candidateId, queue: event.queue } }));
+        router.push(stripCandidateReviewParam(href));
+        return;
+      }
+      router.push(href);
+    },
+    [router],
+  );
   const searchRemote = React.useCallback(
-    (query: string, signal: AbortSignal) => searchHubSpot(query, signal, openHubSpotRecord),
-    [openHubSpotRecord],
+    (query: string, signal: AbortSignal) => searchEverywhere(query, signal, openHubSpotRecord, openSellUpRecord),
+    [openHubSpotRecord, openSellUpRecord],
   );
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const { collapsed, toggle } = useSidebar();
@@ -304,7 +366,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         loadObjects={loadSearchObjects}
         objectsHint={SEARCH_OBJECTS_HINT}
         searchRemote={searchRemote}
-        remoteLabel="HubSpot"
+        remoteLabel="todo SellUp y HubSpot"
         placeholder="Buscar en todo…"
         // Cede ancho antes que las acciones: con el panel del Agente IA abierto en
         // una ventana estrecha, un ancho fijo las empujaba debajo del panel.

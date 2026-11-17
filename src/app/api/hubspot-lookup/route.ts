@@ -5,6 +5,7 @@ import {
   lookupHubSpotCompany,
   lookupHubSpotContact,
   lookupHubSpotContactsForAccount,
+  lookupHubSpotProperties,
   lookupHubSpotSearch,
 } from '@/modules/hubspot-lookup/lookup.server';
 
@@ -18,6 +19,7 @@ import {
  * GET ?op=company&id=<companyId>  → ficha de consulta de la empresa y sus contactos.
  * GET ?op=contact&id=<contactId>  → ficha de consulta del contacto y su empresa.
  * GET ?op=activity&kind=company|contact&id=… → su actividad en HubSpot.
+ * GET ?op=properties&kind=company|contact&id=… → todos sus datos en HubSpot, por grupos.
  * GET ?op=account-contacts&accountId=<uuid> → contactos de HubSpot de una empresa de SellUp.
  *
  * Cualquier persona activa puede consultar (decisión de la dueña 17-11).
@@ -41,6 +43,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await lookupHubSpotContact(params.get('id')), { headers: NO_STORE });
     case 'activity':
       return NextResponse.json(await lookupHubSpotActivity(params.get('kind'), params.get('id')), { headers: NO_STORE });
+    case 'properties':
+      return NextResponse.json(await lookupHubSpotProperties(params.get('kind'), params.get('id')), { headers: NO_STORE });
     case 'account-contacts':
       return NextResponse.json(await lookupHubSpotContactsForAccount(params.get('accountId')), { headers: NO_STORE });
     default:

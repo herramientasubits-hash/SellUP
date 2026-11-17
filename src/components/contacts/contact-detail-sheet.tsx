@@ -55,6 +55,13 @@ import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 import { getFirstCallEnabled } from '@/modules/speech/actions';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
+import { HubSpotActivitySection, useHubSpotActivity } from '@/components/hubspot/hubspot-activity';
+import {
+  HUBSPOT_DATA_TAB,
+  HubSpotPropertiesSection,
+  useHubSpotProperties,
+} from '@/components/hubspot/hubspot-properties-section';
+import { hubspotContactUrl } from '@/components/contact-enrichment/hubspot-company-url';
 // Comentarios y alertas (168): una pestaña con el hilo y una marca junto a cada dato.
 import { useRecordComments } from '@/components/record-comments/use-record-comments';
 import {
@@ -279,6 +286,11 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
     }
   }, [open, contactId, loadData]);
 
+  // HubSpot (dueña 17-11): su actividad (pestaña Actividad) y todos sus datos (pestaña HubSpot).
+  const hubspotContactId = open && contact?.id === contactId ? contact?.hubspot_contact_id ?? null : null;
+  const hubspotActivity = useHubSpotActivity('contact', tab === 'actividad' ? hubspotContactId : null);
+  const hubspotProperties = useHubSpotProperties('contact', hubspotContactId, tab === HUBSPOT_DATA_TAB);
+
   return (
     <>
     <DrawerShell
@@ -423,7 +435,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                   <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
                   <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                   <TabsTrigger value="enriquecimiento"><Sparkles className="h-4 w-4" /> Origen y calidad</TabsTrigger>
-                  <TabsTrigger value="hubspot"><Globe className="h-4 w-4" /> HubSpot</TabsTrigger>
+                  <TabsTrigger value={HUBSPOT_DATA_TAB}><Globe className="h-4 w-4" /> HubSpot</TabsTrigger>
                   {comments.available && (
                     <TabsTrigger value="comentarios">
                       <MessageSquare className="h-4 w-4" /> Comentarios
@@ -592,6 +604,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       </Timeline>
                     )}
                   </DrawerSection>
+                  {hubspotContactId && (
+                    <div className="mt-4">
+                      <HubSpotActivitySection
+                        state={hubspotActivity.state}
+                        onRetry={hubspotActivity.retry}
+                        hubspotUrl={hubspotContactUrl(hubspotContactId, null)}
+                      />
+                    </div>
+                  )}
                 </TabsContent>
 
                 {/* Comentarios y alertas (168) */}
@@ -607,7 +628,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 </TabsContent>
 
                 {/* HubSpot */}
-                <TabsContent value="hubspot">
+                <TabsContent value={HUBSPOT_DATA_TAB}>
                   {/* AGENT2-FINAL-LOCAL-CLOSURE-MICROFIX: cero deducción aquí. El botón
                       consulta `resolveHubSpotSyncAction`, la misma autoridad que el badge de
                       abajo usa para el copy, así que la tarjeta ya no puede mostrar un
@@ -765,6 +786,16 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       esta versión.
                     </p>
                   </DrawerSection>
+                  {hubspotContactId && (
+                    <div className="mt-4">
+                      <HubSpotPropertiesSection
+                        kind="contact"
+                        state={hubspotProperties.state}
+                        onRetry={hubspotProperties.retry}
+                        hubspotUrl={hubspotContactUrl(hubspotContactId, null)}
+                      />
+                    </div>
+                  )}
                 </TabsContent>
               </Tabs>
         </div>
