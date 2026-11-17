@@ -18,6 +18,7 @@ import {
   type ApolloEnrichResult,
 } from '@/server/integrations/apollo-client';
 import { normalizeApolloPerson, type NormalizedApolloContact } from './contact-normalizer';
+import { CURRENT_EMPLOYMENT_SNAPSHOT_KEY } from '@/modules/contact-enrichment/current-employment-check';
 import type {
   ContactRelevanceResult,
   ContactRelevanceStatus,
@@ -294,8 +295,14 @@ export function mergeCompletedContactData(
     source: 'apollo',
     sourceContactId: base.sourceContactId ?? completed.sourceContactId,
     confidence: Math.max(base.confidence, completed.confidence),
-    // Conserva la metadata del search base (incl. headline / organization).
-    enrichmentMetadata: { ...base.enrichmentMetadata },
+    // Conserva la metadata del search base (incl. headline / organization). El trabajo actual
+    // sólo lo trae people/match: se lleva para comprobar empresa y cargo (CONTACT-CURRENT-EMPLOYMENT-1).
+    enrichmentMetadata: {
+      ...base.enrichmentMetadata,
+      ...(completed.enrichmentMetadata?.[CURRENT_EMPLOYMENT_SNAPSHOT_KEY]
+        ? { [CURRENT_EMPLOYMENT_SNAPSHOT_KEY]: completed.enrichmentMetadata[CURRENT_EMPLOYMENT_SNAPSHOT_KEY] }
+        : {}),
+    },
   };
 }
 

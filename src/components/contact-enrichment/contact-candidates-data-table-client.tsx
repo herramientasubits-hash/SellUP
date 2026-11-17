@@ -40,6 +40,7 @@ import type {
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import type { ContactCandidatesQueue } from './contact-candidates-panel-queue';
 import { CONTACT_CANDIDATES_QUEUE_COPY } from './contact-candidates-queue-copy';
+import { resolveTitleProvenance } from './contact-candidate-title-provenance';
 import { hubspotCompanyUrl } from './hubspot-company-url';
 import { SEND_TO_REVIEW_LABEL, useSendRejectedToReview } from './contact-candidate-rejected-actions';
 import { BAR_REJECTION_REASONS, useRejectCandidates } from './use-reject-candidates';
@@ -144,6 +145,27 @@ function toPercent(score: number | undefined): string | null {
 }
 
 // ── Cells ───────────────────────────────────────────────────────
+
+/**
+ * CONTACT-CURRENT-EMPLOYMENT-1 — el cargo con un aviso cuando Apollo dice que la persona
+ * hoy trabaja en otra empresa (o en ninguna). El detalle va en la ficha.
+ */
+function TitleCell({ candidate }: { candidate: PendingContactCandidate }) {
+  if (!candidate.title) return <EmptyCell label="Sin cargo" />;
+  const provenance = resolveTitleProvenance(candidate);
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="block truncate text-xs text-muted-foreground" title={`${candidate.title} · ${provenance.caption}`}>
+        {candidate.title}
+      </span>
+      {provenance.leftNotice && (
+        <Badge variant="warning" title={provenance.leftNotice.description} className="max-w-full truncate">
+          Posiblemente ya no está
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 function NameCell({
   candidate,
@@ -668,14 +690,7 @@ export function ContactCandidatesDataTableClient({
         id: 'title',
         accessorKey: 'title',
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cargo" />,
-        cell: ({ row }) =>
-          row.original.title ? (
-            <span className="block truncate text-xs text-muted-foreground" title={row.original.title}>
-              {row.original.title}
-            </span>
-          ) : (
-            <EmptyCell label="Sin cargo" />
-          ),
+        cell: ({ row }) => <TitleCell candidate={row.original} />,
         size: 170,
         minSize: 140,
         meta: { label: 'Cargo', popoverTitle: 'Cargo', disableFilter: true },
