@@ -436,6 +436,11 @@ export async function controlBulkSearch(
   return { ok: false, code: existing ? 'INVALID_TRANSITION' : 'NOT_FOUND' };
 }
 
+/** Una masiva de quien mira, con sus lotes en orden de ronda (`null` si no es suya). */
+export async function getBulkSearch(deps: BulkSearchEngineDeps, bulkSearchId: string, userId: string): Promise<BulkSearchView | null> {
+  return snapshot(deps, bulkSearchId, userId);
+}
+
 export async function listBulkSearches(deps: BulkSearchEngineDeps, userId: string): Promise<BulkSearchView[]> {
   const rows = await deps.listSearches(userId);
   return Promise.all(

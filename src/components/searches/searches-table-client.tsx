@@ -21,11 +21,15 @@ import {
 } from "@/modules/prospect-batches/bulk-search/bulk-search-client";
 import { getSearchPendingCandidatesAction } from "@/modules/prospect-batches/searches/search-assign-actions";
 import {
-  markBulkRounds,
+  bulkSearchHref,
+  groupBulkRounds,
   searchReviewHref,
   summarizeSearches,
   type SearchRow,
 } from "@/modules/prospect-batches/searches/search-rows";
+
+/** «Por revisar» de una búsqueda; la de una masiva es su página, con todas las rondas. */
+const reviewHrefFor = (row: SearchRow) => (row.bulkGroup ? bulkSearchHref(row.id) : searchReviewHref(row.id));
 
 export interface SearchesTableClientProps {
   searches: SearchRow[];
@@ -45,9 +49,8 @@ export interface SearchesTableClientProps {
  * Empresas › Búsquedas (dueña 28-10): todas las búsquedas de quien mira, venga de
  * Rumbo (las cinco formas), de un archivo o de una fuente oficial. Cada uno ve lo que
  * buscó o le asignaron (el líder, su equipo); de una búsqueda ajena con empresas
- * asignadas, sólo esa parte. Cada lote es su propia fila —también las rondas de una
- * búsqueda masiva, que dicen de qué masiva salieron—: se revisan aparte y no se
- * mezclan. No hay una sección aparte para las masivas.
+ * asignadas, sólo esa parte. Una búsqueda masiva es UNA fila con todas sus rondas
+ * (dueña 17-11) y lleva a su página, donde se revisan juntas.
  */
 export function SearchesTableClient({
   searches,
@@ -66,15 +69,20 @@ export function SearchesTableClient({
   const enrichment = useBatchBulkEnrichment();
   const { start: startEnrichment, loading: enriching } = enrichment;
 
-  // Cada lote es su fila; las rondas de una masiva dicen de cuál salieron.
+  // Cada búsqueda es su fila; las rondas de una masiva se juntan en la de la masiva.
   const rows = React.useMemo(() => {
-    const all = markBulkRounds(searches, bulkSearches);
+    const all = groupBulkRounds(searches, bulkSearches);
     // La búsqueda pedida desde «Ver búsqueda» va primero.
     if (!focusSearchId) return all;
     const focused = all.find((row) => row.id === focusSearchId);
     return focused ? [focused, ...all.filter((row) => row.id !== focusSearchId)] : all;
   }, [searches, bulkSearches, focusSearchId]);
   const summary = React.useMemo(() => summarizeSearches(rows), [rows]);
+  // La masiva se ve y se revisa en su propia página, con todas sus rondas.
+  const hrefFor = React.useCallback(
+    (row: SearchRow) => (row.bulkGroup ? bulkSearchHref(row.id) : searchHref(row.id)),
+    [searchHref],
+  );
 
   const controlBulk = React.useCallback(
     async (id: string, action: "pause" | "resume" | "cancel") => {
@@ -101,7 +109,7 @@ export function SearchesTableClient({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <Link
-                href={searchHref(row.original.id)}
+                href={hrefFor(row.original)}
                 className="truncate font-medium text-primary underline-offset-4 hover:underline"
               >
                 {row.original.name}
@@ -110,7 +118,9 @@ export function SearchesTableClient({
             </div>
             {(row.original.visibility === "assigned" || row.original.bulkSearch) && (
               <p className="truncate text-xs text-muted-foreground">
-                {row.original.bulkSearch
+                {row.original.bulkGroup && row.original.bulkSearch
+                  ? `${row.original.bulkSearch.round} ${row.original.bulkSearch.round === 1 ? "ronda" : "rondas"} · hasta ${row.original.bulkSearch.targetCount} empresas`
+                  : row.original.bulkSearch
                   ? `De una búsqueda masiva de hasta ${row.original.bulkSearch.targetCount} empresas`
                   : "Sólo las que te asignaron"}
                 {row.original.bulkSearch && row.original.visibility === "assigned" ? " · Sólo las que te asignaron" : ""}
@@ -153,7 +163,7 @@ export function SearchesTableClient({
         header: "Por revisar",
         cell: ({ row }) =>
           row.original.needsReview > 0 ? (
-            <Link href={searchReviewHref(row.original.id)} aria-label={`Ver las ${row.original.needsReview} por revisar`}>
+            <Link href={reviewHrefFor(row.original)} aria-label={`Ver las ${row.original.needsReview} por revisar`}>
               <Badge variant="warning" className="tabular-nums">
                 {row.original.needsReview}
               </Badge>
@@ -183,19 +193,19 @@ export function SearchesTableClient({
         meta: { label: "Fecha", disableFilter: true },
       },
     ],
-    [rows, searchHref, focusSearchId],
+    [rows, hrefFor, focusSearchId],
   );
 
   const contextMenu = React.useMemo(
     () => ({
       items: (row: SearchRow): DataTableContextMenuItem[] => [
-        { id: "view", label: "Ver detalle", icon: Eye, onClick: () => router.push(searchHref(row.id)) },
+        { id: "view", label: "Ver detalle", icon: Eye, onClick: () => router.push(hrefFor(row)) },
         {
           id: "review",
           label: "Ver por revisar",
           icon: ClipboardCheck,
           disabled: row.needsReview === 0,
-          onClick: () => router.push(searchReviewHref(row.id)),
+          onClick: () => router.push(reviewHrefFor(row)),
         },
         ...(canAssign && row.visibility === "full"
           ? [
@@ -208,7 +218,7 @@ export function SearchesTableClient({
               },
             ]
           : []),
-        ...(canEnrichBulk && row.converted > 0
+        ...(canEnrichBulk && row.converted > 0 && !row.bulkGroup
           ? [
               {
                 id: "contacts",
@@ -231,7 +241,7 @@ export function SearchesTableClient({
           : []),
       ],
     }),
-    [router, searchHref, canAssign, controlBulk, canEnrichBulk, startEnrichment, enriching],
+    [router, hrefFor, canAssign, controlBulk, canEnrichBulk, startEnrichment, enriching],
   );
 
   if (searches.length === 0 && bulkSearches.length === 0) {
@@ -281,7 +291,7 @@ export function SearchesTableClient({
         <BulkSearchAssignDrawer
           open
           onOpenChange={(open) => !open && setAssignRow(null)}
-          loadCandidates={() => getSearchPendingCandidatesAction([assignRow.id])}
+          loadCandidates={() => getSearchPendingCandidatesAction(assignRow.bulkGroup?.batchIds ?? [assignRow.id])}
           label={assignRow.name}
           users={assignableUsers}
           onAssigned={() => {
