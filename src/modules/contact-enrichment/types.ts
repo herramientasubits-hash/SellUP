@@ -7,6 +7,7 @@
 import type { LushaPersonIdentityEvidenceV1 } from '@/server/agents/contact-enrichment-toolkit/lusha-person-identity-evidence';
 import type { ApolloPersonIdentityObservationV1 } from '@/server/agents/contact-enrichment-toolkit/apollo-person-identity-observation';
 import type { PhoneType, PhoneSource } from '@/server/agents/contact-enrichment-toolkit/phone-classification';
+import type { CurrentEmploymentCheck } from './current-employment-check';
 
 export type { LushaPersonIdentityEvidenceV1, ApolloPersonIdentityObservationV1 };
 export type { PhoneType, PhoneSource };
@@ -278,6 +279,11 @@ export interface ContactCandidateEnrichmentMetadata {
   relevance?: ContactCandidateRelevanceMetadata;
   apollo_search_attempt?: string | null;
   company_consistency?: ContactCandidateCompanyConsistency | null;
+  /**
+   * CONTACT-CURRENT-EMPLOYMENT-1: empresa y cargo ACTUALES según el historial laboral de Apollo
+   * (people/match). Ausente cuando no se pidió la ficha completa.
+   */
+  current_employment?: CurrentEmploymentCheck | null;
   /**
    * Tipo/fuente de teléfono conservado desde el payload del proveedor
    * (PHONE-3A). Ausente cuando no hay teléfono utilizable. No obligatorio.

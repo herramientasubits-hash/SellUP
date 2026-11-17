@@ -20,6 +20,7 @@ import { searchLushaContactsV3 } from '@/server/integrations/lusha-client';
 import { getApolloApiKey } from '@/server/services/apollo-connection';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
 import { normalizeApolloPerson } from '@/server/agents/contact-enrichment-toolkit/contact-normalizer';
+import { extractCurrentEmployment } from './current-employment-check';
 import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
 import { lookupLushaByLinkedin } from './linkedin-contact-search-providers.server';
 import type {
@@ -86,6 +87,8 @@ export async function lookupApolloIdentity(
       lastName: clean(person.last_name),
       linkedinUrl: clean(person.linkedin_url),
       email: normalized?.email ?? null,
+      // CONTACT-CURRENT-EMPLOYMENT-1 — la misma respuesta trae el trabajo actual.
+      currentEmployment: extractCurrentEmployment(person.employment_history, person.organization),
     },
     usage,
   };
