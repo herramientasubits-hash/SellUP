@@ -92,6 +92,12 @@ export interface BulkSearchEngineDeps {
   /** Créditos pagos (Apollo + Lusha) que registraron esos lotes. */
   sumPaidCredits: (batchIds: string[]) => Promise<number>;
   hasPendingContinuation: (batchId: string) => Promise<boolean>;
+  /**
+   * Prod 17-11 (masiva MX, 49/50): la ronda esperaba la continuación de Apollo, pero
+   * desde el navegador nadie la conducía (sólo el conductor del servidor, con su
+   * bandera). Ahora el mismo paso que espera la conduce. Nunca lanza.
+   */
+  driveContinuation?: (batchId: string) => Promise<void>;
   /** La corrida NORMAL del asistente, tal cual (`executeProspectWizardGenerationAction`). */
   runWizard: (request: Record<string, unknown>) => Promise<WizardExecutionActionResult>;
   /** Escribe con el token del lease; el cambio de estado sólo si sigue `running`. */
@@ -321,6 +327,11 @@ export async function runBulkSearchRound(
       return { ok: true, next: 'done', retryAfterMs: 0, search: (await snapshot(deps, bulkSearchId, userId))! };
     }
     if (step.kind === 'wait') {
+      if (step.reason === 'continuation_pending' && lastBatchId && deps.driveContinuation) {
+        await deps.driveContinuation(lastBatchId).catch(() => undefined);
+        await deps.writeProgress(bulkSearchId, leaseToken, await recount(deps, rounds));
+        return { ok: true, next: 'wait', retryAfterMs: step.retryAfterMs, search: (await snapshot(deps, bulkSearchId, userId))! };
+      }
       await deps.writeProgress(bulkSearchId, leaseToken, before);
       return { ok: true, next: 'wait', retryAfterMs: step.retryAfterMs, search: (await snapshot(deps, bulkSearchId, userId))! };
     }
