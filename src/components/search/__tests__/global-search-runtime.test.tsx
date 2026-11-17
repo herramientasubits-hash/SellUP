@@ -216,3 +216,47 @@ describe('GlobalSearch — teclado', () => {
     assert.deepEqual(asked, ['cuántas empresas hay']);
   });
 });
+
+describe('GlobalSearch — búsqueda fuera (HubSpot)', () => {
+  const HUBSPOT: SearchObjectItem[] = [
+    // Ya en la lista de SellUp (mismo id): no se repite.
+    { id: 'a1', title: 'Acme Logística', group: 'Empresas', href: '/accounts/a1' },
+    { id: 'hubspot-company-9', title: 'Acme Perú', meta: ['Empresa', 'acme.pe'], group: 'En HubSpot', href: '/accounts?hubspot=9', actionLabel: 'Consultar' },
+  ];
+
+  it('busca en HubSpot desde 3 letras, tras la pausa, sin repetir lo de SellUp', async () => {
+    const queries: string[] = [];
+    open({
+      loadObjects,
+      searchRemote: async (q: string) => {
+        queries.push(q);
+        return HUBSPOT;
+      },
+      remoteLabel: 'HubSpot',
+    });
+    type('ac');
+    await waitFor(() => assert.equal(loadCalls, 1));
+    await new Promise((r) => setTimeout(r, 450));
+    assert.deepEqual(queries, [], 'con 2 letras no se consulta HubSpot');
+
+    type('acm');
+    type('acme');
+    await waitFor(() => assert.deepEqual(queries, ['acme']), { timeout: 2000 });
+    await waitFor(() => assert.deepEqual(headings(), ['Empresas', 'Contactos', 'En HubSpot']));
+    assert.equal(screen.getAllByRole('option', { name: /^Acme Logística/ }).length, 1);
+    assert.ok(screen.getByRole('option', { name: /Acme Perú/ }));
+  });
+
+  it('si HubSpot no responde, se avisa y lo de SellUp sigue', async () => {
+    open({
+      loadObjects,
+      searchRemote: async () => {
+        throw new Error('caído');
+      },
+      remoteLabel: 'HubSpot',
+    });
+    type('acme');
+    await waitFor(() => assert.ok(document.querySelector('[data-slot="search-remote-error"]')), { timeout: 2000 });
+    assert.ok(screen.getByRole('option', { name: /^Acme Logística/ }));
+  });
+});

@@ -64,6 +64,16 @@ import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/per
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
+import { toast } from 'sonner';
+import { hubspotCompanyUrl } from '@/components/contact-enrichment/hubspot-company-url';
+import {
+  HubSpotActivitySection,
+  HubSpotActivityTimelineItem,
+  useHubSpotActivity,
+} from '@/components/hubspot/hubspot-activity';
+import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
+import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import type { HubSpotActivityEntry, HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 // Comentarios y alertas (168): los de la empresa y los de sus contactos, en un solo hilo.
 import { useRecordComments } from '@/components/record-comments/use-record-comments';
 import {
@@ -261,6 +271,35 @@ export function AccountDetailSheet({
     window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
     return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
   }, [open, accountId, loadData]);
+
+  // HubSpot (dueña 17-11): la actividad de la empresa en HubSpot (Resumen y Actividad) y
+  // sus contactos de HubSpot que aún no están en SellUp (pestaña Contactos, al abrirla).
+  const hubspotCompanyId = open && data?.account.id === accountId ? data?.account.hubspot_company_id ?? null : null;
+  const hubspotActivity = useHubSpotActivity('company', hubspotCompanyId);
+  const hubspotContacts = useHubSpotAccountContacts(
+    hubspotCompanyId && accountId ? accountId : null,
+    tab === 'contactos',
+  );
+  const [importingContactId, setImportingContactId] = React.useState<string | null>(null);
+
+  async function handleImportHubSpotContact(contact: HubSpotContactHit) {
+    if (!accountId) return;
+    setImportingContactId(contact.id);
+    try {
+      const res = await importHubSpotContact(contact.id, hubspotCompanyId, accountId);
+      if (!res.success) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${contact.fullName} quedó en SellUp`);
+      await loadData(accountId);
+      hubspotContacts.reload();
+    } catch {
+      toast.error('No pudimos traer el contacto. Vuelve a intentarlo.');
+    } finally {
+      setImportingContactId(null);
+    }
+  }
 
   // Con el Agente 3 disponible, preparar el contacto es la acción principal del pie.
   const firstCallOffered = !!data && data.firstCall.enabled && data.account.pipeline_status !== 'archived';
@@ -473,47 +512,61 @@ export function AccountDetailSheet({
 
                     {/* Actividad reciente — llena el Resumen y da contexto sin
                         cambiar de tab. Usa el mismo auditLog del tab Actividad. */}
-                    <DrawerSection
-                      title="Actividad reciente"
-                      icon={Activity}
-                      action={
-                        data.auditLog.length > 3 ? (
-                          <span className="text-xs tabular-nums text-muted-foreground">
-                            {data.auditLog.length} eventos
-                          </span>
-                        ) : undefined
-                      }
-                    >
-                      {data.auditLog.length === 0 ? (
-                        <EmptyState
-                          variant="plain"
+                    {(() => {
+                      // Lo de SellUp y lo de HubSpot juntos, lo más reciente primero.
+                      const hubspotItems = hubspotActivity.state.status === 'ok' ? hubspotActivity.state.items : [];
+                      const recent = mergeRecentActivity(data.auditLog, hubspotItems, 4);
+                      const total = data.auditLog.length + hubspotItems.length;
+                      return (
+                        <DrawerSection
+                          title="Actividad reciente"
                           icon={Activity}
-                          title="Sin actividad todavía"
-                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
-                        />
-                      ) : (
-                        <Timeline>
-                          {data.auditLog.slice(0, 4).map((entry) => {
-                            const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
-                            return (
-                              <TimelineItem
-                                key={entry.id}
-                                icon={<Icon />}
-                                title={AUDIT_ACTION_LABELS[entry.action_type]}
-                                description={
-                                  <>
-                                    {entry.actor
-                                      ? `${entry.actor.full_name ?? entry.actor.email} · `
-                                      : ''}
-                                    {formatDate(entry.created_at)}
-                                  </>
+                          action={
+                            total > 3 ? (
+                              <span className="text-xs tabular-nums text-muted-foreground">{total} eventos</span>
+                            ) : undefined
+                          }
+                        >
+                          {recent.length === 0 ? (
+                            <EmptyState
+                              variant="plain"
+                              icon={Activity}
+                              title="Sin actividad todavía"
+                              description={
+                                hubspotActivity.state.status === 'loading'
+                                  ? 'Leyendo la actividad en HubSpot…'
+                                  : 'Los cambios de esta empresa y lo que se registre en HubSpot (notas, llamadas, reuniones, tareas y negocios) aparecerán aquí.'
+                              }
+                            />
+                          ) : (
+                            <Timeline>
+                              {recent.map((row) => {
+                                if (row.type === 'hubspot') {
+                                  return <HubSpotActivityTimelineItem key={`hs-${row.item.kind}-${row.item.id}`} item={row.item} showBody={false} />;
                                 }
-                              />
-                            );
-                          })}
-                        </Timeline>
-                      )}
-                    </DrawerSection>
+                                const entry = row.entry;
+                                const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
+                                return (
+                                  <TimelineItem
+                                    key={entry.id}
+                                    icon={<Icon />}
+                                    title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                    description={
+                                      <>
+                                        {entry.actor
+                                          ? `${entry.actor.full_name ?? entry.actor.email} · `
+                                          : ''}
+                                        {formatDate(entry.created_at)}
+                                      </>
+                                    }
+                                  />
+                                );
+                              })}
+                            </Timeline>
+                          )}
+                        </DrawerSection>
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* Contactos */}
@@ -525,6 +578,17 @@ export function AccountDetailSheet({
                       onViewContact={openContactDetail}
                       onContactsChanged={() => loadData(data.account.id)}
                     />
+                    {data.account.hubspot_company_id && hubspotContacts.state && (
+                      <div className="mt-4">
+                        <HubSpotContactsSection
+                          state={hubspotContacts.state}
+                          onRetry={hubspotContacts.reload}
+                          onlyMissing
+                          onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
+                          importingId={importingContactId}
+                        />
+                      </div>
+                    )}
                   </TabsContent>
 
                   {/* Primer contacto (Agente 3): la investigación y las preparaciones juntas */}
@@ -574,6 +638,14 @@ export function AccountDetailSheet({
                         </Timeline>
                       )}
                     </DrawerSection>
+                    <div className="mt-4">
+                      <HubSpotActivitySection
+                        state={hubspotActivity.state}
+                        onRetry={hubspotActivity.retry}
+                        hubspotUrl={data.account.hubspot_company_id ? hubspotCompanyUrl(data.account.hubspot_company_id, null) : null}
+                        notLinkedHint="Esta empresa todavía no está vinculada a HubSpot: cuando lo esté, su actividad aparecerá aquí."
+                      />
+                    </div>
                     <div className="mt-4">
                       <FirstCallActivity state={data.firstCall} kind="events" />
                     </div>
@@ -640,6 +712,23 @@ function DetailRow({
       <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>
   );
+}
+
+type RecentActivityRow =
+  | { type: 'audit'; at: number; entry: AccountAuditEntry }
+  | { type: 'hubspot'; at: number; item: HubSpotActivityEntry };
+
+/** Lo de SellUp y lo de HubSpot en una sola lista, lo más reciente primero. */
+function mergeRecentActivity(
+  audit: readonly AccountAuditEntry[],
+  hubspot: readonly HubSpotActivityEntry[],
+  max: number,
+): RecentActivityRow[] {
+  const rows: RecentActivityRow[] = [
+    ...audit.map((entry) => ({ type: 'audit' as const, at: Date.parse(entry.created_at) || 0, entry })),
+    ...hubspot.map((item) => ({ type: 'hubspot' as const, at: item.occurredAt ? Date.parse(item.occurredAt) || 0 : 0, item })),
+  ];
+  return rows.sort((a, b) => b.at - a.at).slice(0, max);
 }
 
 /** Valor vacío consistente para campos sin dato (— o texto custom). */
