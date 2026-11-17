@@ -5,6 +5,12 @@
 
 import type { VerifyEmploymentWithAiStatus } from '@/modules/contact-enrichment/current-employment-ai-runner';
 
+/** La web no aportó nada nuevo y queda lo que ya había dicho Apollo (caso Marisel 17-11). */
+export const EMPLOYMENT_AI_KEPT_PREVIOUS_MESSAGE = {
+  tone: 'info' as const,
+  text: 'La web no aportó nada nuevo: se mantiene lo que dijo Apollo.',
+};
+
 /** Máximo de contactos por tanda desde la barra de la tabla. */
 export const EMPLOYMENT_AI_MAX_CONTACTS = 25;
 
@@ -20,7 +26,7 @@ export function employmentAiResultMessage(status: VerifyEmploymentWithAiStatus):
     case 'no_current_role':
       return { tone: 'warning', text: 'Según la web, ya no está en la empresa. Revisa el aviso antes de contactar.' };
     case 'unknown':
-      return { tone: 'info', text: 'No se pudo confirmar con la web. Revisa lo que encontró o confírmalo en LinkedIn.' };
+      return { tone: 'info', text: 'No se pudo confirmar con la web: confírmalo en LinkedIn.' };
     case 'missing_name_or_company':
       return { tone: 'error', text: 'Falta el nombre o la empresa del contacto para buscarlo.' };
     case 'claude_not_configured':

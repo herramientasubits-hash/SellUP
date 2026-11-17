@@ -50,6 +50,8 @@ export interface VerifyEmploymentWithAiResult {
   /** Motivo cuando quedó «sin verificar». */
   rejection: EmploymentAiRejection | null;
   check: CurrentEmploymentCheck | null;
+  /** La web no aportó nada y se mantuvo la comprobación anterior de Apollo. */
+  keptPrevious?: boolean;
 }
 
 export interface EmploymentAiPatch {
@@ -170,5 +172,5 @@ export async function verifyCandidateEmploymentWithAi(
 
   const patch = employmentAiPatch(candidate, outcome.check);
   if (patch) await deps.persist(candidate.id, patch);
-  return { ok: true, status: outcome.check.status, rejection: outcome.rejection, check: outcome.check };
+  return { ok: true, status: outcome.check.status, rejection: outcome.rejection, check: outcome.check, keptPrevious: !patch };
 }
