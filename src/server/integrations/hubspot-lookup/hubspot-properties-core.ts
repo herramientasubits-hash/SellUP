@@ -150,6 +150,11 @@ function toIsoDate(raw: string): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+/** ¿La propiedad es un identificador (no una cantidad)? */
+function isIdentifier(definition: HubSpotPropertyDefinition): boolean {
+  return /(^|_)(id|ids)$/i.test(definition.name) || /\bID\b/.test(definition.label);
+}
+
 const BOOLEAN_LABELS: Readonly<Record<string, string>> = { true: 'Sí', false: 'No' };
 
 /** Un valor del registro → lo que se pinta (o null si no hay nada que mostrar). */
@@ -180,7 +185,9 @@ export function formatPropertyValue(
     const iso = toIsoDate(raw);
     return iso ? { value: iso, kind: definition.type === 'date' ? 'date' : 'datetime' } : { value: raw, kind: 'text' };
   }
-  if (definition.type === 'number') {
+  // Un id («Created by user ID», «Record ID»…) es un número, pero no una cantidad: va tal cual,
+  // sin puntos de miles.
+  if (definition.type === 'number' && !isIdentifier(definition)) {
     return { value: raw, kind: 'number' };
   }
   if (definition.fieldType === 'phonenumber') {

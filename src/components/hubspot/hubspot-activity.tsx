@@ -112,10 +112,36 @@ export function HubSpotActivityTimelineItem({ item, showBody = true }: { item: H
       time={formatActivityDate(item.occurredAt)}
       description={subtitle}
     >
-      {showBody && item.body ? (
-        <p className="whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground">{item.body}</p>
-      ) : null}
+      {showBody && item.body ? <ActivityBody text={item.body} /> : null}
     </TimelineItem>
+  );
+}
+
+/** Desde cuántos caracteres el texto sale plegado, con «Ver más». */
+const BODY_FOLD_CHARS = 320;
+
+/** El texto de una nota o llamada: entero si es corto; si no, plegado con «Ver más». */
+function ActivityBody({ text }: { text: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const foldable = text.length > BODY_FOLD_CHARS;
+  return (
+    <div className="space-y-1">
+      <p
+        className={`whitespace-pre-line break-words text-xs leading-relaxed text-muted-foreground ${foldable && !expanded ? 'line-clamp-5' : ''}`}
+      >
+        {text}
+      </p>
+      {foldable && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+        >
+          {expanded ? 'Ver menos' : 'Ver más'}
+        </button>
+      )}
+    </div>
   );
 }
 

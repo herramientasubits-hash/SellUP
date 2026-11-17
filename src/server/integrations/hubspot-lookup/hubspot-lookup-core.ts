@@ -22,8 +22,12 @@ export const HUBSPOT_LOOKUP_SEARCH_LIMIT = 6;
 export const HUBSPOT_ACTIVITY_MAX_ITEMS = 60;
 /** Cuántos registros asociados se leen por tipo (una página de HubSpot). */
 export const HUBSPOT_ASSOCIATIONS_LIMIT = 100;
-/** Largo máximo del texto de una actividad: es un resumen, no el correo entero. */
-export const HUBSPOT_ACTIVITY_BODY_MAX_CHARS = 420;
+/**
+ * Largo máximo del texto de una actividad. Una nota con el mensaje que se mandó se lee
+ * entera (dueña 17-11: se cortaba en «Quedo atento a tus comentarios y r…»); la ficha la
+ * muestra plegada con «Ver más».
+ */
+export const HUBSPOT_ACTIVITY_BODY_MAX_CHARS = 4000;
 
 type Props = Record<string, string | null | undefined>;
 
