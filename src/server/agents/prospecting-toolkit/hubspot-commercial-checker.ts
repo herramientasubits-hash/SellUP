@@ -22,6 +22,10 @@ import type {
 import { normalizeCompanyName } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
+import {
+  HUBSPOT_CLIENT_LIFECYCLE_VALUE,
+  HUBSPOT_FORECAST_LIFECYCLE_VALUE,
+} from '@/server/integrations/hubspot-free-company-policy';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -323,13 +327,27 @@ export function classifyHubSpotCommercialMatch(params: {
   const lifecycle = company.lifecycleStage?.toLowerCase().trim() ?? null;
   const leadStatus = company.leadStatus?.toLowerCase().trim() ?? null;
 
-  if (lifecycle === 'customer') {
+  // FEEDBACK 17-11 — en el portal de UBITS la etapa «Cliente» es el valor interno
+  // `1443029400`; `customer` es «Forecast». Antes sólo se miraba `customer`, así que un
+  // cliente real caía en «posible coincidencia» y llegaba a Por revisar.
+  if (lifecycle === HUBSPOT_CLIENT_LIFECYCLE_VALUE || leadStatus === 'customer') {
     return {
       hubspotMatchStatus: 'exact_match_customer',
       commercialStatus: 'customer',
       recyclableStatus: 'not_recyclable',
       reviewFlags: ['hubspot_existing_customer'],
-      reason: `Cliente activo en HubSpot (lifecyclestage=customer)`,
+      reason: 'Cliente en HubSpot (etapa «Cliente»)',
+    };
+  }
+
+  // «Forecast»: hay un negocio en pronóstico. Nunca se recicla ni se ofrece.
+  if (lifecycle === HUBSPOT_FORECAST_LIFECYCLE_VALUE) {
+    return {
+      hubspotMatchStatus: 'exact_match_prospect_active',
+      commercialStatus: 'active_prospect',
+      recyclableStatus: 'not_recyclable',
+      reviewFlags: ['hubspot_existing_prospect'],
+      reason: 'Negocio en pronóstico en HubSpot (etapa «Forecast»)',
     };
   }
 

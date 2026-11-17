@@ -151,7 +151,9 @@ const HUBSPOT_STAGE_LABELS: Record<string, string> = {
   marketingqualifiedlead: 'calificado por marketing (MQL)',
   salesqualifiedlead: 'calificado por ventas (SQL)',
   opportunity: 'oportunidad',
-  customer: 'cliente',
+  // Portal de UBITS: «Cliente» es `1443029400`; `customer` es «Forecast».
+  '1443029400': 'cliente',
+  customer: 'forecast (negocio en pronóstico)',
   evangelist: 'promotor',
   other: 'otra',
 };
