@@ -68,10 +68,17 @@ export function personTokens(fullName: string): string[] {
   return tokens.length > 1 ? tokens.slice(1) : tokens;
 }
 
+/**
+ * El texto nombra a la persona: su nombre Y al menos un apellido. Un apellido solo no alcanza
+ * («Silva» o «Contreras» aparecen en cualquier lado).
+ */
 export function textMentionsPerson(text: string, fullName: string): boolean {
   const haystack = ` ${plain(text)} `;
-  const tokens = personTokens(fullName);
-  return tokens.length > 0 && tokens.some((t) => haystack.includes(` ${t} `));
+  const all = plain(fullName).split(' ').filter((t) => t.length >= 2);
+  const surnames = personTokens(fullName);
+  if (surnames.length === 0) return false;
+  const firstNameOk = all.length < 2 || haystack.includes(` ${all[0]} `);
+  return firstNameOk && surnames.some((t) => haystack.includes(` ${t} `));
 }
 
 /** Palabras que no identifican a una empresa ni a un cargo. */
@@ -110,11 +117,6 @@ export function textMentionsCompany(text: string, companyName: string | null, co
   return brand.length >= 6 && words.join('').includes(brand);
 }
 
-/**
- * El cargo se lee en el texto aunque cambie la forma: «&» por «and», palabras de relleno y hasta
- * un tercio de las palabras distintas («Head of Training & Development» ≈ «Head Training and
- * Development»).
- */
 /**
  * El mismo cargo en inglés y en español (dueña 17-11: «General Manager» = «Gerente General»). Cada
  * palabra se lleva a su forma en español; el orden no importa.
@@ -159,6 +161,11 @@ function titleTokens(text: string): string[] {
   return significantTokens(text).map((t) => TITLE_WORD_TO_SPANISH[t] ?? t);
 }
 
+/**
+ * El cargo se lee en el texto aunque cambie la forma: «&» por «and», palabras de relleno y hasta
+ * un tercio de las palabras distintas («Head of Training & Development» ≈ «Head Training and
+ * Development»), y en inglés o español. El nivel del cargo tiene que coincidir.
+ */
 export function titleRoughlyInText(title: string | null, text: string): boolean {
   const tokens = titleTokens(title ?? '');
   if (tokens.length === 0) return false;

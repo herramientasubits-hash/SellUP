@@ -323,6 +323,12 @@ describe('pruebas de la dueña 17-11 (tarde)', () => {
     assert.match(p.caption, /encontró su perfil de LinkedIn, pero el resultado no muestra en qué empresa trabaja hoy/);
   });
 
+  it('un apellido solo no es la persona (hace falta el nombre también)', () => {
+    assert.equal(textMentionsPerson('Carolina Silva - Gerente - Caja Los Andes', 'Pamela Silva Andrades'), false);
+    assert.equal(textMentionsPerson('Pamela Silva - Gerente - Caja Los Andes', 'Pamela Silva Andrades'), true);
+    assert.equal(textMentionsPerson('nuestra Gerente General, Alejandra Sepúlveda', 'Alejandra Sepúlveda'), true);
+  });
+
   it('cargos equivalentes en inglés y español', () => {
     assert.equal(titlesEquivalent('General Manager', 'Gerente General'), true);
     assert.equal(titlesEquivalent('Human Resources Manager', 'Gerente de Recursos Humanos'), true);
