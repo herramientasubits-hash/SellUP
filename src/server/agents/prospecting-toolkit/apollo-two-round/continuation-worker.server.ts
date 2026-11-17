@@ -191,6 +191,31 @@ async function hasActiveUserSession(): Promise<boolean> {
   }
 }
 
+/** `ready_for_review` → `generating` (sólo ese estado). true = se reabrió. Nunca lanza. */
+export async function reopenClosedBatchForContinuation(client: SupabaseClient, batchId: string): Promise<boolean> {
+  const { data, error } = await client
+    .from('prospect_batches')
+    .update({ status: 'generating' })
+    .eq('id', batchId)
+    .eq('status', 'ready_for_review')
+    .select('id');
+  if (error) {
+    console.error(`[ApolloContinuation] no se pudo reabrir el lote ${batchId}:`, error.message);
+    return false;
+  }
+  return Array.isArray(data) && data.length === 1;
+}
+
+/** Devuelve a `ready_for_review` un lote reabierto que esta vuelta no escribió. Nunca lanza. */
+export async function restoreClosedBatchAfterContinuation(client: SupabaseClient, batchId: string): Promise<void> {
+  const { error } = await client
+    .from('prospect_batches')
+    .update({ status: 'ready_for_review' })
+    .eq('id', batchId)
+    .eq('status', 'generating');
+  if (error) console.error(`[ApolloContinuation] no se pudo devolver el lote ${batchId}:`, error.message);
+}
+
 /**
  * AGENT1-AUDIT-WS2 §§ 3, 4 — deja en el lote POR QUÉ la pierna Lusha no corrió (o
  * falló) tras la continuación. Antes el lote seguía diciendo lo que dijo la pausa
@@ -417,9 +442,23 @@ export async function runApolloRoundContinuationWorkerFromEnv(
       //
       // AGENT1-AUDIT-WS2 § 1 — el plazo cuenta desde el inicio del CONDUCTOR, no
       // desde este trabajo: el segundo trabajo de la invocación no tiene 300 s.
-      const outcome = await runApolloTwoRoundWizardDiscovery(runInput, undefined, {
-        startedAtMs: invocationStartedAtMs,
-      });
+      // Prod 17-11 (masiva, lote 58b2270e): la búsqueda de Claude escribió DESPUÉS de
+      // encolar esta continuación y cerró el lote (`ready_for_review`); el escritor de
+      // Apollo no admite lotes cerrados y la masiva quedó parada. Se reabre justo antes
+      // —sólo `ready_for_review`, nunca uno que la persona ya tomó— y el escritor, el
+      // último de la corrida, vuelve a decidir el estado. Si falla, vuelve a como estaba.
+      const reopened = await reopenClosedBatchForContinuation(client, job.batchId);
+      let outcome: Awaited<ReturnType<typeof runApolloTwoRoundWizardDiscovery>>;
+      try {
+        outcome = await runApolloTwoRoundWizardDiscovery(runInput, undefined, {
+          startedAtMs: invocationStartedAtMs,
+        });
+      } catch (error) {
+        if (reopened) await restoreClosedBatchAfterContinuation(client, job.batchId);
+        throw error;
+      }
+      // Una pausa sin escritura deja el lote como estaba: se reabrirá en la próxima vuelta.
+      if (reopened && outcome.persistenceOutcome === undefined) await restoreClosedBatchAfterContinuation(client, job.batchId);
       const paused = outcome.assessmentDeadlineReached === true;
       const pending = outcome.pendingOrganizationCount ?? 0;
 
