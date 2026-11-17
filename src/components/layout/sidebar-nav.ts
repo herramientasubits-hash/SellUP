@@ -44,14 +44,14 @@ export interface SidebarNavRoot {
  */
 const MODULE_VIEWS: Readonly<Record<string, readonly SidebarNavChild[]>> = {
   "/accounts": [
-    { id: "accounts-empresas", label: "Empresas", href: ACCOUNTS_EMPRESAS_ROUTE },
+    { id: "accounts-empresas", label: "Lista de empresas", href: ACCOUNTS_EMPRESAS_ROUTE },
     // El detalle de una búsqueda (`/prospect-batches/…`) también es de esta vista.
     { id: "accounts-busquedas", label: "Búsquedas", href: EMPRESAS_SEARCHES_ROUTE, aliases: ["/prospect-batches"] },
     { id: "accounts-por-revisar", label: "Por revisar", href: PROSPECTOS_TAB_ROUTE },
     { id: "accounts-descartadas", label: "Descartadas", href: PROSPECTOS_DISCARDED_TAB_ROUTE },
   ],
   "/contacts": [
-    { id: "contacts-contactos", label: "Contactos", href: CONTACTS_APPROVED_ROUTE },
+    { id: "contacts-contactos", label: "Lista de contactos", href: CONTACTS_APPROVED_ROUTE },
     { id: "contacts-por-revisar", label: "Por revisar", href: CONTACTS_CANDIDATES_ROUTE },
     { id: "contacts-rechazados", label: "Contactos rechazados", href: CONTACTS_REJECTED_ROUTE },
   ],
