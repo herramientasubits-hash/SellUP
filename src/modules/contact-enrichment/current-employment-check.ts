@@ -245,6 +245,46 @@ export function assessCurrentEmployment(input: AssessCurrentEmploymentInput): Cu
   };
 }
 
+/**
+ * Una fuente más vieja que esto no prueba el trabajo de hoy: la gente cambia de cargo cada 2–3
+ * años, y el buscador puede devolver una copia de un perfil de LinkedIn que ya no existe.
+ */
+export const EMPLOYMENT_EVIDENCE_MAX_AGE_DAYS = 730;
+
+const DAY_MS = 86_400_000;
+const AGE_UNIT_DAYS: Record<string, number> = { second: 1 / 86_400, minute: 1 / 1_440, hour: 1 / 24, day: 1, week: 7, month: 30, year: 365 };
+
+/**
+ * Fecha de una fuente web: acepta la antigüedad del buscador («2924 days ago», «3 weeks ago») o
+ * una fecha («April 30, 2025», «2025-04-30»). null si no se entiende.
+ */
+export function parseEvidenceDate(value: string | null | undefined, checkedAt: string): Date | null {
+  const text = clean(value);
+  if (!text) return null;
+  const relative = text.toLowerCase().match(/^(\d+)\s*(second|minute|hour|day|week|month|year)s?\s+ago$/);
+  if (relative) {
+    const base = new Date(checkedAt).getTime();
+    if (Number.isNaN(base)) return null;
+    return new Date(base - Number(relative[1]) * AGE_UNIT_DAYS[relative[2]] * DAY_MS);
+  }
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? null : new Date(parsed);
+}
+
+/** Días entre la fecha de la fuente y la comprobación (null si no se sabe). */
+export function evidenceAgeDays(value: string | null | undefined, checkedAt: string): number | null {
+  const date = parseEvidenceDate(value, checkedAt);
+  const base = new Date(checkedAt).getTime();
+  if (!date || Number.isNaN(base)) return null;
+  return Math.max(0, Math.floor((base - date.getTime()) / DAY_MS));
+}
+
+/** La fuente es demasiado vieja para decir dónde trabaja hoy. Sin fecha, no se la descarta. */
+export function isStaleEvidence(value: string | null | undefined, checkedAt: string): boolean {
+  const days = evidenceAgeDays(value, checkedAt);
+  return days !== null && days > EMPLOYMENT_EVIDENCE_MAX_AGE_DAYS;
+}
+
 /** Cargo que debe mostrarse tras la comprobación (el actual sólo si sigue en la empresa). */
 export function titleAfterEmploymentCheck(check: CurrentEmploymentCheck, shownTitle: string | null): string | null {
   return check.status === 'title_changed' && check.current_title ? check.current_title : shownTitle;
