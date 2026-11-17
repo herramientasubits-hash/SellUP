@@ -92,19 +92,32 @@ function fail(status: VerifyEmploymentWithAiStatus): VerifyEmploymentWithAiResul
 }
 
 /**
- * Qué se guarda. Un «sin verificar» de la IA nunca tapa una comprobación anterior que sí dijo
- * algo (de Apollo o de otra verificación): sólo se anota cuando no había nada.
+ * El cargo que había antes de la IA. Si una verificación anterior de la IA lo cambió, se vuelve a
+ * comprobar el original: «Verificar de nuevo» reemplaza a la verificación anterior, no la apila.
+ */
+export function titleBeforeAi(candidate: EmploymentAiCandidate): string | null {
+  const previous = readCurrentEmploymentCheck(candidate.enrichmentMetadata[CURRENT_EMPLOYMENT_METADATA_KEY]);
+  if (previous?.source === 'ai_web' && previous.status === 'title_changed' && previous.previous_title) {
+    return previous.previous_title;
+  }
+  return candidate.title;
+}
+
+/**
+ * Qué se guarda. Un «sin verificar» de la IA nunca tapa una comprobación de Apollo que sí dijo
+ * algo; una verificación anterior de la IA sí se reemplaza (y si había cambiado el cargo, se
+ * devuelve el original).
  */
 export function employmentAiPatch(
   candidate: EmploymentAiCandidate,
   check: CurrentEmploymentCheck,
 ): EmploymentAiPatch | null {
   const previous = readCurrentEmploymentCheck(candidate.enrichmentMetadata[CURRENT_EMPLOYMENT_METADATA_KEY]);
-  if (check.status === 'unknown' && previous && previous.status !== 'unknown') return null;
+  if (check.status === 'unknown' && previous && previous.status !== 'unknown' && previous.source !== 'ai_web') return null;
   const patch: EmploymentAiPatch = {
     enrichment_metadata: { ...candidate.enrichmentMetadata, [CURRENT_EMPLOYMENT_METADATA_KEY]: check },
   };
-  const title = titleAfterEmploymentCheck(check, candidate.title);
+  const title = titleAfterEmploymentCheck(check, titleBeforeAi(candidate));
   if (title && title !== candidate.title) patch.title = title;
   return patch;
 }
@@ -123,7 +136,7 @@ export async function verifyCandidateEmploymentWithAi(
 
   const target: EmploymentAiTarget = {
     fullName: candidate.fullName.trim(),
-    title: candidate.title,
+    title: titleBeforeAi(candidate),
     companyName: candidate.companyName.trim(),
     companyDomain: candidate.companyDomain,
     linkedinUrl: candidate.linkedinUrl,
