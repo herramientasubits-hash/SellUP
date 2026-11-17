@@ -18,8 +18,10 @@ import {
   EMPLOYMENT_AI_TOOL,
   assessEmploymentAiResponse,
   buildEmploymentAiRequest,
+  linkedinProfileSlug,
   textMentionsCompany,
   textMentionsPerson,
+  titleRoughlyInText,
   type EmploymentAiTarget,
 } from '../current-employment-ai-check';
 import {
@@ -77,6 +79,9 @@ describe('textMentionsPerson / textMentionsCompany', () => {
     assert.equal(textMentionsCompany('Analista en Cygnus | LinkedIn', 'Cygnus S.A.'), true);
     assert.equal(textMentionsCompany('Analista en Cygnus | LinkedIn', 'Grupo Cygnus Holding', 'cygnus.cl'), true);
     assert.equal(textMentionsCompany('Analista en Falabella', 'Cygnus S.A.', 'cygnus.cl'), false);
+    assert.equal(textMentionsCompany('Gerente en Caja de Compensación Los Andes', 'Caja Los Andes'), true);
+    assert.equal(textMentionsCompany('Gerente en Cajalosandes', 'Otra', 'cajalosandes.cl'), true);
+    assert.equal(textMentionsCompany('Gerente en Caja Los Héroes', 'Caja Los Andes'), false);
   });
 });
 
@@ -112,13 +117,75 @@ describe('assessEmploymentAiResponse', () => {
     assert.equal(outcome.check.evidence_date, 'June 3, 2025');
   });
 
-  it('confirma cuando la frase dice el mismo cargo y la empresa', () => {
+  it('confirma cuando el resultado dice el mismo cargo y la empresa', () => {
     const outcome = assess([
       searchResult(LINKEDIN, 'Paola Contreras Montenegro - Human Resources Manager - Cygnus | LinkedIn'),
       submission({ verdict: 'confirmed', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Human Resources Manager - Cygnus' }),
     ]);
     assert.equal(outcome.check.status, 'confirmed');
-    assert.equal(outcome.check.current_title, 'Human Resources Manager');
+    assert.equal(outcome.check.title_confirmed, true);
+  });
+
+  it('caso real 17-11: «Caja Los Andes» en SellUp es «Caja de Compensación Los Andes» en LinkedIn', () => {
+    const url = 'https://cl.linkedin.com/in/pamela-silva-andrades-2aa09b58';
+    const outcome = assess(
+      [
+        searchResult(url, 'Pamela Silva Andrades - Gerente de Personas - Caja de Compensación Los Andes | LinkedIn'),
+        submission({ verdict: 'confirmed', evidence_url: url, quote: 'Pamela Silva, Gerente de Personas en Caja Los Andes' }),
+      ],
+      { ...TARGET, fullName: 'Pamela Silva Andrades', title: 'Gerente Recursos Humanos', companyName: 'Caja Los Andes', companyDomain: 'cajalosandes.cl' },
+    );
+    assert.equal(outcome.check.status, 'confirmed');
+    // Sigue en la empresa; «Gerente de Personas» no es «Gerente Recursos Humanos» y Claude no dio otro cargo.
+    assert.equal(outcome.check.title_confirmed, false);
+  });
+
+  it('el cargo con «&» y otras palabras de relleno igual se reconoce', () => {
+    const url = 'https://cl.linkedin.com/in/tamara-matus-69743b17';
+    const outcome = assess(
+      [
+        searchResult(url, 'Tamara Matus - Head of Training & Development - Caja Los Andes | LinkedIn'),
+        submission({ verdict: 'confirmed', evidence_url: url, quote: 'Tamara Matus, Head of Training and Development' }),
+      ],
+      { ...TARGET, fullName: 'Tamara Matus', title: 'Head of Training and Development', companyName: 'Caja Los Andes', companyDomain: 'cajalosandes.cl' },
+    );
+    assert.equal(outcome.check.status, 'confirmed');
+    assert.equal(outcome.check.title_confirmed, true);
+  });
+
+  it('su perfil de LinkedIn guardado prueba la identidad aunque Claude diga not_found', () => {
+    const url = 'https://cl.linkedin.com/in/alejandra-sep%C3%BAlveda-4383b278';
+    const outcome = assess(
+      [
+        searchResult(url, 'Alejandra S. - Jefa de Ventas - EGLO Chile | LinkedIn'),
+        submission({ verdict: 'not_found', evidence_url: null, quote: null }),
+      ],
+      {
+        ...TARGET,
+        fullName: 'Alejandra Sepúlveda',
+        title: 'General Manager',
+        companyName: 'EGLO ILUMINACION CHILE',
+        companyDomain: 'eglo.cl',
+        linkedinUrl: 'https://www.linkedin.com/in/alejandra-sep%C3%BAlveda-4383b278',
+      },
+    );
+    assert.equal(outcome.check.status, 'confirmed');
+    assert.equal(outcome.check.title_confirmed, false);
+  });
+
+  it('acepta lo citado de la página (no sólo el título del resultado)', () => {
+    const url = 'https://www.cygnus.cl/equipo';
+    const outcome = assess([
+      searchResult(url, 'Nuestro equipo'),
+      {
+        type: 'text',
+        text: 'Aparece en el equipo.',
+        citations: [{ type: 'web_search_result_location', url, cited_text: 'Paola Contreras, Human Resources Manager de Cygnus desde 2021.' }],
+      },
+      submission({ verdict: 'confirmed', evidence_url: url, quote: 'Paola Contreras, HR Manager de Cygnus' }),
+    ]);
+    assert.equal(outcome.check.status, 'confirmed');
+    assert.equal(outcome.check.evidence_quote, 'Paola Contreras, Human Resources Manager de Cygnus desde 2021.');
   });
 
   it('otra empresa ⇒ other_company con la empresa nueva', () => {
@@ -134,37 +201,17 @@ describe('assessEmploymentAiResponse', () => {
     ]);
     assert.equal(outcome.check.status, 'other_company');
     assert.equal(outcome.check.current_company, 'Falabella');
+    assert.equal(outcome.check.current_title, 'HR Business Partner');
   });
 
-  it('acepta la frase si está en lo citado de la página (no sólo en el título)', () => {
-    const url = 'https://www.cygnus.cl/equipo';
+  it('Claude inventa la empresa (no está en los resultados) ⇒ sin verificar, con lo encontrado', () => {
     const outcome = assess([
-      searchResult(url, 'Nuestro equipo'),
-      {
-        type: 'text',
-        text: 'Aparece en el equipo.',
-        citations: [{ type: 'web_search_result_location', url, cited_text: 'Paola Contreras, Human Resources Manager de Cygnus desde 2021.' }],
-      },
-      submission({ verdict: 'confirmed', evidence_url: url, quote: 'Paola Contreras, Human Resources Manager de Cygnus' }),
-    ]);
-    assert.equal(outcome.check.status, 'confirmed');
-  });
-
-  it('frase inventada (no está en la fuente) ⇒ sin verificar', () => {
-    const outcome = assess([
-      searchResult(LINKEDIN, 'Paola Contreras Montenegro - Cygnus | LinkedIn'),
-      submission({ verdict: 'confirmed', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Human Resources Manager - Cygnus' }),
+      searchResult(LINKEDIN, 'Paola Contreras Montenegro - Analista | LinkedIn'),
+      submission({ verdict: 'confirmed', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Analista - Cygnus' }),
     ]);
     assert.equal(outcome.check.status, 'unknown');
-    assert.equal(outcome.rejection, 'quote_not_in_source');
-  });
-
-  it('URL que no salió en la búsqueda ⇒ sin verificar', () => {
-    const outcome = assess([
-      searchResult(LINKEDIN, 'Paola Contreras Montenegro - Analista - Cygnus | LinkedIn'),
-      submission({ verdict: 'title_changed', current_title: 'Analista', evidence_url: 'https://otra.com/x', quote: 'Paola Contreras Montenegro - Analista - Cygnus' }),
-    ]);
-    assert.equal(outcome.rejection, 'source_not_in_results');
+    assert.equal(outcome.rejection, 'company_not_in_results');
+    assert.equal(outcome.check.evidence_quote, 'Paola Contreras Montenegro - Analista | LinkedIn');
   });
 
   it('homónimo (otra persona) ⇒ sin verificar', () => {
@@ -172,28 +219,33 @@ describe('assessEmploymentAiResponse', () => {
       searchResult(LINKEDIN, 'Paola Rojas - Analista - Cygnus | LinkedIn'),
       submission({ verdict: 'title_changed', current_title: 'Analista', evidence_url: LINKEDIN, quote: 'Paola Rojas - Analista - Cygnus' }),
     ]);
-    assert.equal(outcome.rejection, 'quote_without_person');
+    assert.equal(outcome.rejection, 'person_not_in_results');
   });
 
-  it('confirmar sin que la frase diga el cargo ⇒ sin verificar (no se adivina)', () => {
-    const outcome = assess([
-      searchResult(LINKEDIN, 'Paola Contreras Montenegro - Cygnus | LinkedIn'),
-      submission({ verdict: 'confirmed', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Cygnus' }),
-    ]);
-    assert.equal(outcome.rejection, 'title_not_in_quote');
-  });
-
-  it('«otra empresa» que en realidad es la misma ⇒ sin verificar', () => {
+  it('«otra empresa» que en realidad es la misma ⇒ no se marca como ida', () => {
     const outcome = assess([
       searchResult(LINKEDIN, 'Paola Contreras Montenegro - Analista - Cygnus Chile | LinkedIn'),
       submission({ verdict: 'other_company', current_company: 'Cygnus Chile', evidence_url: LINKEDIN, quote: 'Paola Contreras Montenegro - Analista - Cygnus Chile' }),
     ]);
-    assert.equal(outcome.check.status, 'unknown');
+    assert.notEqual(outcome.check.status, 'other_company');
   });
 
-  it('not_found o sin entrega ⇒ sin verificar con su motivo', () => {
+  it('not_found sin resultados o sin entrega ⇒ sin verificar con su motivo', () => {
     assert.equal(assess([submission({ verdict: 'not_found', evidence_url: null, quote: null })]).rejection, 'not_found');
     assert.equal(assess([{ type: 'text', text: 'nada' }]).rejection, 'no_submission');
+  });
+});
+
+describe('titleRoughlyInText / linkedinProfileSlug', () => {
+  it('tolera «&», relleno y una palabra distinta', () => {
+    assert.equal(titleRoughlyInText('Head of Training and Development', 'Head of Training & Development'), true);
+    assert.equal(titleRoughlyInText('Gerente Recursos Humanos', 'Gerente de Recursos Humanos'), true);
+    assert.equal(titleRoughlyInText('Gerente Recursos Humanos', 'Analista de Marketing'), false);
+  });
+
+  it('el mismo perfil con o sin subdominio de país, https o barra final', () => {
+    assert.equal(linkedinProfileSlug('http://www.linkedin.com/in/Ana-Perez-12/'), linkedinProfileSlug('https://cl.linkedin.com/in/ana-perez-12'));
+    assert.equal(linkedinProfileSlug('https://example.com/ana'), null);
   });
 });
 
@@ -354,6 +406,20 @@ describe('leyenda y textos', () => {
     const p = resolveTitleProvenance({ source: 'hubspot', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: check } });
     assert.equal(p.tone, 'left');
     assert.match(p.leftNotice?.description ?? '', /Según la web, hoy trabaja en Falabella como HRBP/);
+  });
+
+  it('sigue en la empresa sin cargo confirmado ⇒ lo dice así', () => {
+    const check = { status: 'confirmed', source: 'ai_web', checked_at: NOW, current_company: 'Caja Los Andes', title_confirmed: false };
+    const p = resolveTitleProvenance({ source: 'hubspot', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: check } });
+    assert.equal(p.tone, 'verified');
+    assert.match(p.caption, /Sigue en Caja Los Andes según la IA en la web .* el cargo no se pudo confirmar/);
+  });
+
+  it('sin verificar pero con algo encontrado ⇒ lo muestra con su enlace', () => {
+    const check = { status: 'unknown', source: 'ai_web', checked_at: NOW, evidence_url: LINKEDIN, evidence_quote: 'Paola Contreras - Analista' };
+    const p = resolveTitleProvenance({ source: 'apollo', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: check } });
+    assert.match(p.caption, /la IA encontró «Paola Contreras - Analista»/);
+    assert.equal(p.evidenceUrl, LINKEDIN);
   });
 
   it('la IA no encontró nada ⇒ sigue «sin verificar» pero lo dice', () => {
