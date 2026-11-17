@@ -131,8 +131,11 @@ export function CandidateMainInfoSection({
   candidate,
   companyAction,
   companyConsistency = null,
+  titleAction,
 }: {
   candidate: PendingContactCandidate;
+  /** CONTACT-CURRENT-EMPLOYMENT-AI-1: el botón «Verificar con IA» bajo el cargo. */
+  titleAction?: React.ReactNode;
   /** Hito 17A.9G: la consistencia del correo con la empresa. Sólo avisa, no bloquea. */
   companyConsistency?: ContactCandidateCompanyConsistency | null;
   /**
@@ -174,9 +177,9 @@ export function CandidateMainInfoSection({
           {candidate.full_name || null}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Briefcase} label="Cargo">
-          {candidate.title ? (
+          {candidate.title || titleAction ? (
             <span className="flex flex-col gap-0.5">
-              <span>{candidate.title}</span>
+              {candidate.title && <span>{candidate.title}</span>}
               <span
                 className={
                   titleProvenance.tone === 'left'
@@ -188,6 +191,7 @@ export function CandidateMainInfoSection({
               >
                 {titleProvenance.caption}
               </span>
+              {titleAction}
             </span>
           ) : null}
         </CandidateDetailItem>
