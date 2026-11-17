@@ -16,6 +16,7 @@ import { buildCompanySearchTerms, normalizeCompanyName } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
 import { isHubSpotFreePoolEnabled } from '@/lib/feature-flags.server';
 import { assessHubSpotCompanyAvailability } from '@/server/integrations/hubspot-free-company-pool.server';
+import { HUBSPOT_FREE_POLICY_PROPERTIES } from '@/server/integrations/hubspot-free-company-policy';
 import { isStrongHubSpotIdentityMatch, markFreeHubSpotMatchesPure } from './hubspot-free-match';
 import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
@@ -180,11 +181,10 @@ const DESIRED_PROPERTIES = [
   'linkedin_company_page',
   'linkedinbio',
   'founded_year',
-  'hubspot_owner_id',
-  'hs_lead_status',
-  // HUBSPOT-FREE-POOL-SOURCE-1 — lo que la regla de «empresa libre» necesita.
-  'hs_num_open_deals',
-  'hs_last_sales_activity_timestamp',
+  // HUBSPOT-FREE-POOL-SOURCE-1 — lo que la regla de «empresa libre» necesita (dueño,
+  // estado, negocios, última actividad y actividad agendada). Si falta una, la regla
+  // no se evalúa y la coincidencia queda como duplicado.
+  ...HUBSPOT_FREE_POLICY_PROPERTIES,
   'type',
   'macro_industria',
   'pais',

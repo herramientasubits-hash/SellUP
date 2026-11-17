@@ -14,7 +14,8 @@
  * Decisión de la dueña (15-10): las cuatro bolsas entran.
  *
  * Una empresa está libre si NO es cliente, NO tiene negocio abierto, NADIE le hizo
- * una actividad de venta en los últimos `RECENT_SALES_ACTIVITY_DAYS` días y además:
+ * una actividad de venta en los últimos `RECENT_SALES_ACTIVITY_DAYS` días, NO tiene
+ * una actividad agendada a futuro y además:
  * está Recycled, o su dueño es una bolsa, o no tiene dueño, o su dueño está
  * desactivado. Un dueño que no aparece en ningún listado NO se presume libre.
  *
@@ -23,13 +24,28 @@
 
 import { getMacroIndustryByKey } from '@/modules/macro-industry-catalog/macro-industries';
 
+/**
+ * FEEDBACK 17-11 (Grupo Refax: reunión agendada y llamadas del vendedor, pero SellUp
+ * la ofreció como libre). `hs_last_sales_activity_timestamp` es la última vez que el
+ * CONTACTO interactuó (abrió un correo, agendó): las llamadas, correos, notas y
+ * reuniones que registra el vendedor viven en `notes_last_updated` («Fecha de última
+ * actividad», la que ve el vendedor en la ficha) y `notes_last_contacted`. Cuenta la
+ * más reciente de las tres.
+ */
+export const HUBSPOT_LAST_ACTIVITY_PROPERTIES = [
+  'notes_last_updated',
+  'notes_last_contacted',
+  'hs_last_sales_activity_timestamp',
+] as const;
+
 /** Propiedades de HubSpot que la regla necesita. */
 export const HUBSPOT_FREE_POLICY_PROPERTIES = [
   'hubspot_owner_id',
   'hs_lead_status',
   'lifecyclestage',
   'hs_num_open_deals',
-  'hs_last_sales_activity_timestamp',
+  ...HUBSPOT_LAST_ACTIVITY_PROPERTIES,
+  'notes_next_activity_date',
 ] as const;
 
 /** Valor interno de la etapa «Cliente» en el portal de UBITS (verificado 15-10). */
@@ -89,7 +105,13 @@ export function buildHubSpotOwnerDirectory(
 }
 
 export type HubSpotFreeReason = 'recycled' | 'pool_owner' | 'no_owner' | 'deactivated_owner';
-export type HubSpotTakenReason = 'customer' | 'open_deal' | 'recent_sales_activity' | 'active_owner' | 'unknown_owner';
+export type HubSpotTakenReason =
+  | 'customer'
+  | 'open_deal'
+  | 'recent_sales_activity'
+  | 'scheduled_activity'
+  | 'active_owner'
+  | 'unknown_owner';
 
 export type HubSpotAvailability =
   | { free: true; reason: HubSpotFreeReason }
@@ -110,9 +132,19 @@ export function parseHubSpotTimestamp(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** La actividad de venta más reciente de la ficha (vendedor o contacto); `null` si no hay. */
+export function latestHubSpotActivity(properties: PolicyProperties): number | null {
+  let latest: number | null = null;
+  for (const name of HUBSPOT_LAST_ACTIVITY_PROPERTIES) {
+    const at = parseHubSpotTimestamp(properties[name]);
+    if (at !== null && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
+}
+
 /**
  * Decide si la empresa está libre. Primero lo que la bloquea siempre (cliente,
- * negocio abierto, actividad reciente); después, por qué está libre.
+ * negocio abierto, actividad reciente o agendada); después, por qué está libre.
  */
 export function classifyHubSpotCompanyAvailability(
   properties: PolicyProperties,
@@ -128,9 +160,14 @@ export function classifyHubSpotCompanyAvailability(
   if ((Number.isFinite(openDeals) && openDeals > 0) || (leadStatus !== null && NOT_FREE_LEAD_STATUSES.has(leadStatus))) {
     return { free: false, reason: 'open_deal' };
   }
-  const lastActivity = parseHubSpotTimestamp(properties.hs_last_sales_activity_timestamp);
+  const lastActivity = latestHubSpotActivity(properties);
   if (lastActivity !== null && now.getTime() - lastActivity < RECENT_SALES_ACTIVITY_DAYS * DAY_MS) {
     return { free: false, reason: 'recent_sales_activity' };
+  }
+  // Una reunión, llamada o tarea agendada a futuro: alguien la está trabajando hoy.
+  const nextActivity = parseHubSpotTimestamp(properties.notes_next_activity_date);
+  if (nextActivity !== null && nextActivity >= now.getTime()) {
+    return { free: false, reason: 'scheduled_activity' };
   }
 
   if (leadStatus === HUBSPOT_RECYCLED_LEAD_STATUS) return { free: true, reason: 'recycled' };
