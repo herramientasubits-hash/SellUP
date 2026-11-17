@@ -219,6 +219,14 @@ function createDeps(admin: SupabaseClient): BulkSearchEngineDeps {
         .limit(1);
       return Boolean(data && data.length);
     },
+    driveContinuation: async (batchId) => {
+      // La misma continuación que conduce el Centro de procesos (con su propia
+      // comprobación de que el lote es de quien la pide).
+      const { continueApolloRound } = await import('@/modules/prospect-batches/apollo-continuation-actions');
+      await continueApolloRound(batchId).catch((error: unknown) => {
+        console.error('[BulkSearch] continuación de Apollo falló', batchId, error instanceof Error ? error.message : error);
+      });
+    },
     runWizard: (request) => executeProspectWizardGenerationAction(request),
 
     writeProgress: async (bulkSearchId, leaseToken, patch) => {
