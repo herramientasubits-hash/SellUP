@@ -7,6 +7,7 @@ import {
   Calculator,
   Database,
   LayoutDashboard,
+  MessageSquare,
   Settings,
   Target,
   Users,
@@ -109,6 +110,8 @@ export const CONTACTS_REJECTED_ROUTE = "/contacts?tab=rejected";
  * Configuración (`/settings/source-catalog/**`); esas rutas siguen vivas solo
  * como redirección.
  */
+/** Comentarios y alertas sobre empresas y contactos, en un solo sitio (168). */
+export const COMMENTS_ROUTE = "/comments";
 export const SOURCE_CATALOG_ROUTE = "/source-catalog";
 export const SOURCE_CATALOG_BATCHES_ROUTE = "/source-catalog/socrata-batches";
 
@@ -152,6 +155,14 @@ export const mainNavItems: NavItem[] = [
     title: "Contactos",
     href: "/contacts",
     icon: Users,
+  },
+  {
+    // Feedback de vendedores 17-11: lo que el equipo reporta sobre empresas y
+    // contactos (un número que no existe, un dato mal…), todo junto. Cada uno ve
+    // lo de las fichas de su alcance.
+    title: "Comentarios y alertas",
+    href: COMMENTS_ROUTE,
+    icon: MessageSquare,
   },
   // Q3F-5AZ.2D-1 — "Revisión de prospectos" removed from the sidebar. Human
   // review now lives inside the official Prospectos surface
