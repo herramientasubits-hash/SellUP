@@ -217,6 +217,11 @@ const STARTUP_DATABASE_DOMAINS = new Set([
 ]);
 
 const GENERIC_DIRECTORY_DOMAINS = new Set([
+  // Prod 17-11 (masiva MX × Manufactura): directorios que entraron como empresas.
+  'quiminet.com',
+  'directoriodefabricas.com',
+  'dirind.com',
+  'colombia.co', // portal de Marca País, no una empresa
   'guiatic.com',
   'yelp.com',
   'foursquare.com',

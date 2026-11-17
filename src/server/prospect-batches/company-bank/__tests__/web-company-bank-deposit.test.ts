@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { DeliveryCappedCompany } from '@/server/agents/prospecting-toolkit/types';
-import { planWebBankDeposit } from '../web-company-bank-deposit';
+import { isBankableCompanyDomain, planWebBankDeposit } from '../web-company-bank-deposit';
 import { PIPELINE_CANDIDATE_BANK_PAYLOAD_KIND, readBankPipelineCandidate } from '../pipeline-candidate-bank-payload';
 import { isLotAtDeliveryCap } from '@/modules/prospect-batches/chat-wizard-execution/wizard-tavily-first';
 
@@ -138,5 +138,41 @@ describe('guardas estáticas del cableado', () => {
     assert.match(server, /deliverySlots: async \(batchId\) => \{[\s\S]*?\.in\('status', \[\.\.\.BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES\]\)/);
     const core = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
     assert.match(core, /rescueDispositionWithinCap\(item\.row, ctx, deps, admittedIds\)/);
+  });
+});
+
+describe('planWebBankDeposit — sólo empresas nuevas (Prod 17-11)', () => {
+  function withDuplicateStatus(name: string, domain: string, duplicateStatus: string): DeliveryCappedCompany {
+    const base = capped(name, domain);
+    const candidate = base.bankCandidate as { scoring: Record<string, unknown> };
+    return {
+      ...base,
+      bankCandidate: { ...candidate, scoring: { ...candidate.scoring, metadata: { duplicateStatus } } },
+    } as DeliveryCappedCompany;
+  }
+
+  it('lo que ya está en HubSpot o SellUp, o es posible duplicado, no entra al banco', () => {
+    const plan = planWebBankDeposit({
+      countryCode: 'MX',
+      macroIndustryKey: 'industry_manufacturing_chemicals_automotive',
+      sourceBatchId: 'b-1',
+      capped: [
+        withDuplicateStatus('Cydsa', 'cydsa.com', 'existing_in_hubspot'),
+        withDuplicateStatus('Bocar', 'bocar.com', 'possible_duplicate'),
+        withDuplicateStatus('Ya en SellUp', 'yaensellup.com.mx', 'existing_in_sellup'),
+        withDuplicateStatus('Apymsa', 'apymsa.com.mx', 'new_candidate'),
+      ],
+    });
+    assert.deepEqual(plan.items.map((item) => item.claims[0]?.key), ['domain:apymsa.com.mx']);
+    assert.equal(plan.notBankable.length, 3);
+  });
+
+  it('directorios, portales y constructores de sitios no entran al banco', () => {
+    for (const domain of ['quiminet.com', 'directoriodefabricas.com', 'dirind.com', 'colombia.co', 'central-de-autopartes.ueniweb.com']) {
+      assert.equal(isBankableCompanyDomain(domain), false, domain);
+    }
+    for (const domain of ['cydsa.com', 'apymsa.com.mx', 'nemak.com', 'subpesca.cl']) {
+      assert.equal(isBankableCompanyDomain(domain), true, domain);
+    }
   });
 });

@@ -16,7 +16,9 @@
  * escribe como empresa de la web, no como de Apollo.
  */
 
+import { isProspectableCompanyResult } from '@/server/agents/prospecting-toolkit/noise-filter';
 import { normalizeDomain } from '@/server/agents/prospecting-toolkit/normalization';
+import { isPlatformHostByLabel } from '@/server/agents/prospecting-toolkit/shared-hosts';
 import type { DeliveryCappedCompany } from '@/server/agents/prospecting-toolkit/types';
 import { APOLLO_BANK_MISSING_TARGET_CONDITIONS } from './apollo-company-bank-bridge';
 import { COMPANY_BANK_MAX_PAYLOAD_BYTES, type CompanyBankDepositItem } from './company-bank-types';
@@ -27,6 +29,31 @@ export type WebBankDepositPlan = {
   /** Lo que NO puede ir al banco (se pierde como antes). */
   notBankable: DeliveryCappedCompany[];
 };
+
+/**
+ * Prod 17-11 (masiva MX, lote 58b2270e): el sobrante entraba al banco aunque ya
+ * estuviera en HubSpot (Cydsa, Covestro), fuera posible duplicado (Bocar, que ya
+ * estaba en revisión en otra ronda) o fuera un directorio (Quiminet, Dirind). El
+ * banco reparte empresas NUEVAS: eso no entra.
+ */
+const NOT_NEW_DUPLICATE_STATUSES = new Set([
+  'existing_in_hubspot',
+  'existing_in_sellup',
+  'possible_duplicate',
+  'duplicate',
+]);
+
+function readDuplicateStatus(candidate: Record<string, unknown> | null | undefined): string | null {
+  const scoring = candidate?.scoring as { metadata?: { duplicateStatus?: unknown } } | undefined;
+  const status = scoring?.metadata?.duplicateStatus;
+  return typeof status === 'string' ? status : null;
+}
+
+/** true = el dominio es de una empresa (no directorio, base de datos ni plataforma). */
+export function isBankableCompanyDomain(domain: string): boolean {
+  if (isPlatformHostByLabel(domain)) return false;
+  return isProspectableCompanyResult({ url: `https://${domain}/` }).isProspectable;
+}
 
 export function planWebBankDeposit(input: {
   countryCode: string;
@@ -50,8 +77,11 @@ export function planWebBankDeposit(input: {
           requestedSubindustries: [...(input.requestedSubindustries ?? [])],
         }
       : null;
+    const duplicateStatus = readDuplicateStatus(company.bankCandidate);
     if (
       !domain ||
+      (duplicateStatus !== null && NOT_NEW_DUPLICATE_STATUSES.has(duplicateStatus)) ||
+      !isBankableCompanyDomain(domain) ||
       claims.length === 0 ||
       payload === null ||
       Buffer.byteLength(JSON.stringify(payload), 'utf8') > COMPANY_BANK_MAX_PAYLOAD_BYTES

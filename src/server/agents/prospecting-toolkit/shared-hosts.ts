@@ -34,6 +34,8 @@ export const SHARED_PLATFORM_HOSTS: ReadonlySet<string> = new Set([
   'facebook.com', 'fb.com', 'fb.me', 'instagram.com', 'twitter.com', 'x.com', 'tiktok.com',
   'youtube.com', 'youtu.be', 'linkedin.com', 'lnkd.in', 'whatsapp.com', 'wa.me', 'wa.link',
   'pinterest.com', 'threads.net', 't.me', 'telegram.me',
+  // Constructores de sitios de negocio (Prod 17-11: central-de-autopartes.ueniweb.com)
+  'ueniweb.com',
   // Acortadores y enlaces en bio
   'bit.ly', 'tinyurl.com', 'goo.gl', 'ow.ly', 'linktr.ee', 'linkin.bio', 'beacons.ai',
   // Google: Sites, perfiles de negocio, mapas
