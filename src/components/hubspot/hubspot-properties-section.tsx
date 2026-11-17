@@ -15,12 +15,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/feedback/spinner';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { Heading } from '@/components/typography/heading';
 import { formatInAppZone } from '@/lib/format-date';
 import { fetchHubSpotProperties } from '@/modules/hubspot-lookup/client';
 import { filterPropertySections } from '@/server/integrations/hubspot-lookup/hubspot-properties-core';
 import type { HubSpotPropertiesLookupResult, HubSpotPropertyEntry } from '@/modules/hubspot-lookup/types';
 
-export { HUBSPOT_DATA_TAB } from '@/modules/hubspot-lookup/types';
 
 export type HubSpotPropertiesState = { status: 'idle' } | { status: 'loading' } | HubSpotPropertiesLookupResult;
 
@@ -149,19 +149,62 @@ export function HubSpotPropertiesSection({ kind, state, onRetry, hubspotUrl }: H
         <EmptyState variant="plain" icon={Search} title="Ningún dato coincide" description="Prueba con otra palabra." />
       ) : (
         // Una sección debajo de otra (dueña 17-11: «en dos columnas se ve muy feo»).
-        <div className="flex flex-col gap-4">
+        // Va dentro del bloque «Todos los datos en HubSpot» del Resumen: cada grupo es un
+        // subtítulo con su lista (no una tarjeta dentro de otra tarjeta).
+        <div className="flex flex-col gap-5">
           {visible.map((section) => (
-            <DrawerSection key={section.name} title={section.label} icon={Database}>
+            <section key={section.name} aria-label={section.label} className="space-y-1.5">
+              <Heading level={6} as="h4" weight="semibold" className="text-sm text-foreground">
+                {section.label}
+              </Heading>
               <dl className="divide-y divide-border/60">
                 {section.entries.map((entry) => (
                   <PropertyRow key={entry.name} entry={entry} />
                 ))}
               </dl>
-            </DrawerSection>
+            </section>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+interface HubSpotPropertiesDisclosureProps {
+  kind: 'company' | 'contact';
+  /** Sin id (no vinculado a HubSpot): el bloque no se muestra. */
+  hubspotId: string | null | undefined;
+  hubspotUrl?: string | null;
+}
+
+const DISCLOSURE_HINT: Record<'company' | 'contact', string> = {
+  company: 'Lo que HubSpot tiene de la empresa: calificación, enriquecimiento, validación de datos, redes, ingresos…',
+  contact: 'Lo que HubSpot tiene del contacto: área, nivel, rol, teléfonos, país, responsable…',
+};
+
+/**
+ * «Todos los datos en HubSpot», plegado al final del Resumen (dueña 17-11: la pestaña
+ * «HubSpot» ya no cabía en la fila de pestañas). HubSpot sólo se lee al abrirlo.
+ */
+export function HubSpotPropertiesDisclosure({ kind, hubspotId, hubspotUrl }: HubSpotPropertiesDisclosureProps) {
+  const [open, setOpen] = React.useState(false);
+  const properties = useHubSpotProperties(kind, hubspotId, open);
+  if (!hubspotId) return null;
+  return (
+    <DrawerSection
+      title="Todos los datos en HubSpot"
+      icon={Database}
+      hint={DISCLOSURE_HINT[kind]}
+      action={
+        <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? 'Ocultar' : 'Ver todos'}
+        </Button>
+      }
+    >
+      {open ? (
+        <HubSpotPropertiesSection kind={kind} state={properties.state} onRetry={properties.retry} hubspotUrl={hubspotUrl} />
+      ) : null}
+    </DrawerSection>
   );
 }
 
