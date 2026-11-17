@@ -68,12 +68,6 @@ export type ImportHubSpotContactResult =
   | { success: true; accountId: string; contactId: string; created: boolean }
   | { success: false; error: string };
 
-/**
- * La pestaña «HubSpot» de las fichas y páginas (empresa y contacto). Vive aquí, en un
- * módulo sin 'use client', para que una página del servidor la pueda usar como texto.
- */
-export const HUBSPOT_DATA_TAB = 'hubspot';
-
 /** Ruta que abre una empresa de HubSpot en modo consulta (lista de Empresas). */
 export const HUBSPOT_COMPANY_PARAM = 'hubspot';
 /** Ruta que abre un contacto de HubSpot en modo consulta (lista de Contactos). */
