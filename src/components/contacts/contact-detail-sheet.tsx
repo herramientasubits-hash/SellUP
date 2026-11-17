@@ -22,6 +22,7 @@ import {
   UserX,
   Pencil,
   PhoneCall,
+  MessageSquare,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -54,6 +55,20 @@ import { ContactHubSpotSyncButton } from './contact-hubspot-sync-button';
 import { getFirstCallEnabled } from '@/modules/speech/actions';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import { ContactHubSpotSyncBadge } from './contact-hubspot-sync-badge';
+// Comentarios y alertas (168): una pestaña con el hilo y una marca junto a cada dato.
+import { useRecordComments } from '@/components/record-comments/use-record-comments';
+import {
+  RecordCommentsPanel,
+  type CommentComposerPreset,
+} from '@/components/record-comments/record-comments-panel';
+import {
+  FieldCommentMarker,
+  PhoneReportControl,
+} from '@/components/record-comments/field-comment-marker';
+import type {
+  RecordCommentFieldKey,
+  RecordCommentReason,
+} from '@/modules/record-comments/types';
 import {
   HUBSPOT_AUTO_SYNC_BLOCKED_LABELS,
   HUBSPOT_AUTO_UPDATE_BLOCKED_DETAIL,
@@ -154,6 +169,43 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // «Editar contacto» es el botón principal del pie: el panel abre el editor y,
   // al cerrarlo, vuelve a leer la ficha.
   const [editOpen, setEditOpen] = React.useState(false);
+  // Comentarios: complementarios. Si la 168 no está aplicada, `available` es
+  // falso y la ficha queda como antes (sin pestaña ni marcas).
+  const comments = useRecordComments('contact', open ? contactId : null);
+  const [tab, setTab] = React.useState('resumen');
+  const [commentPreset, setCommentPreset] = React.useState<CommentComposerPreset | null>(null);
+  const openComments = React.useCallback(
+    (fieldKey: RecordCommentFieldKey, fieldValue?: string | null) => {
+      setCommentPreset({ fieldKey, fieldValue: fieldValue ?? null, nonce: Date.now() });
+      setTab('comentarios');
+    },
+    [],
+  );
+  const reportPhone = React.useCallback(
+    (reason: RecordCommentReason, phone: string) => {
+      void comments.add({ fieldKey: 'phone', fieldValue: phone, kind: 'alert', reason, body: '' });
+    },
+    [comments],
+  );
+  const openAlertCount = comments.comments.filter((c) => c.kind === 'alert' && !c.resolvedAt).length;
+  const marker = (fieldKey: RecordCommentFieldKey, fieldValue?: string | null) =>
+    comments.available ? (
+      <FieldCommentMarker
+        comments={comments.comments}
+        fieldKey={fieldKey}
+        fieldValue={fieldValue}
+        onOpen={openComments}
+      />
+    ) : null;
+  const phoneControl = (phone: string) =>
+    comments.available ? (
+      <PhoneReportControl
+        comments={comments.comments}
+        phone={phone}
+        onReport={reportPhone}
+        onOpen={openComments}
+      />
+    ) : null;
 
   const loadData = React.useCallback(async (id: string) => {
     setLoading(true);
@@ -221,6 +273,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         // Sin esto, reabrir el drawer tras un fallo mostraría el estado terminal
         // anterior antes de que la nueva lectura terminara.
         setLoadOutcome(null);
+        setTab('resumen');
+        setCommentPreset(null);
       });
     }
   }, [open, contactId, loadData]);
@@ -347,7 +401,12 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 ) : null}
               </DetailItem>
               <DetailItem icon={Briefcase} label="Cargo" emptyLabel="Sin cargo">
-                {contact.job_title}
+                {contact.job_title ? (
+                  <span className="inline-flex flex-wrap items-center gap-1">
+                    {contact.job_title}
+                    {marker('job_title')}
+                  </span>
+                ) : null}
               </DetailItem>
               <DetailItem icon={Tag} label="Rol en la empresa" emptyLabel="Sin rol asignado">
                 {contact.role_in_account ? ROLE_LABELS[contact.role_in_account as ContactRole] : null}
@@ -359,12 +418,20 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
             </SurfaceCard>
           </section>
 
-        <Tabs defaultValue="resumen">
+        <Tabs value={tab} onValueChange={setTab}>
                 <TabsList variant="segmented" className="mb-2">
                   <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
                   <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                   <TabsTrigger value="enriquecimiento"><Sparkles className="h-4 w-4" /> Origen y calidad</TabsTrigger>
                   <TabsTrigger value="hubspot"><Globe className="h-4 w-4" /> HubSpot</TabsTrigger>
+                  {comments.available && (
+                    <TabsTrigger value="comentarios">
+                      <MessageSquare className="h-4 w-4" /> Comentarios
+                      {openAlertCount > 0 && (
+                        <Badge variant="warning" className="ml-1 tabular-nums">{openAlertCount}</Badge>
+                      )}
+                    </TabsTrigger>
+                  )}
                 </TabsList>
 
                 {/* Resumen */}
@@ -374,25 +441,34 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       <DetailList className="gap-y-3 sm:grid-cols-1">
                         <DetailItem icon={Mail} label="Email">
                           {contact.email ? (
-                            <a href={`mailto:${contact.email}`} className={`break-all ${INLINE_LINK}`}>
-                              {contact.email}
-                            </a>
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              <a href={`mailto:${contact.email}`} className={`break-all ${INLINE_LINK}`}>
+                                {contact.email}
+                              </a>
+                              {marker('email')}
+                            </span>
                           ) : (
                             <span className="text-text-muted">Sin email. Añádelo con «Editar contacto».</span>
                           )}
                         </DetailItem>
                         {contact.mobile_phone && (
                           <DetailItem icon={Phone} label="Celular">
-                            <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                              {contact.mobile_phone}
-                            </a>
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                                {contact.mobile_phone}
+                              </a>
+                              {phoneControl(contact.mobile_phone)}
+                            </span>
                           </DetailItem>
                         )}
                         {contact.phone && (
                           <DetailItem icon={Phone} label="Teléfono">
-                            <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                              {contact.phone}
-                            </a>
+                            <span className="inline-flex flex-wrap items-center gap-1">
+                              <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                                {contact.phone}
+                              </a>
+                              {phoneControl(contact.phone)}
+                            </span>
                           </DetailItem>
                         )}
                         {providerPhone && (
@@ -404,6 +480,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               {resolvePhoneSourceLabel(providerPhone.source) ? (
                                 <Badge variant="neutral">{resolvePhoneSourceLabel(providerPhone.source)}</Badge>
                               ) : null}
+                              {phoneControl(providerPhone.number)}
                             </span>
                           </DetailItem>
                         )}
@@ -446,6 +523,7 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             >
                               {contact.linkedin_url}
                             </a>
+                            {marker('linkedin')}
                           </DetailItem>
                         )}
                       </DetailList>
@@ -515,6 +593,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                     )}
                   </DrawerSection>
                 </TabsContent>
+
+                {/* Comentarios y alertas (168) */}
+                {comments.available && (
+                  <TabsContent value="comentarios">
+                    <RecordCommentsPanel target="contact" state={comments} preset={commentPreset} />
+                  </TabsContent>
+                )}
 
                 {/* Enriquecimiento — Calidad y trazabilidad */}
                 <TabsContent value="enriquecimiento">

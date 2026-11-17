@@ -357,6 +357,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '166_commercial_scope_rls.sql',
       // Revisión 16-11: candado por búsqueda del rescate con IA (sin tablas ni teléfonos). NO APLICADA.
       '167_claude_rescue_batch_lease.sql',
+      // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
+      '168_record_comments.sql',
     ]);
   });
 
