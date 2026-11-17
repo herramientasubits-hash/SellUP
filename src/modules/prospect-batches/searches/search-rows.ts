@@ -41,6 +41,11 @@ export interface SearchRow {
     deliveredCount: number;
     targetCount: number;
   } | null;
+  /**
+   * Sólo en la fila que junta TODAS las rondas de una búsqueda masiva (dueña 17-11:
+   * la masiva es una sola búsqueda, no una fila por ronda). Sus lotes, en orden.
+   */
+  bulkGroup?: { batchIds: string[] } | null;
 }
 
 export interface SearchesSummary {
@@ -157,6 +162,87 @@ export function markBulkRounds(rows: readonly SearchRow[], bulkSearches: readonl
     const base = searchDisplayName({ formLabel: BULK_SEARCH_FORM_LABEL, country: row.country, industry: row.industry, name: row.name });
     return { ...row, name: `${base} · Ronda ${bulkSearch.round}`, formLabel: BULK_SEARCH_FORM_LABEL, bulkSearch };
   });
+}
+
+const BULK_LIVE_STATUS: Readonly<Partial<Record<BulkSearchView['status'], { label: string; tone: Tone }>>> = {
+  running: { label: 'Buscando', tone: 'info' },
+  paused: { label: 'En pausa', tone: 'neutral' },
+  cancelled: { label: 'Cancelada', tone: 'neutral' },
+  failed: { label: 'Con error', tone: 'negative' },
+};
+
+/** Adónde lleva una búsqueda masiva: su página con todas las rondas juntas. */
+export function bulkSearchHref(bulkSearchId: string): string {
+  return `/prospect-batches/masiva/${encodeURIComponent(bulkSearchId)}`;
+}
+
+/**
+ * Junta las rondas de cada búsqueda masiva en UNA fila (dueña 17-11: «todas deberían
+ * quedar sobre una misma búsqueda, no repartidas en 5»). La fila suma lo de sus rondas
+ * y queda donde estaba su ronda más reciente; las búsquedas que no son de una masiva
+ * no cambian. Una masiva sin ninguna ronda visible todavía no tiene fila.
+ */
+export function groupBulkRounds(rows: readonly SearchRow[], bulkSearches: readonly BulkSearchView[]): SearchRow[] {
+  const bulkByBatch = new Map<string, BulkSearchView>();
+  for (const search of bulkSearches) for (const batchId of search.batchIds) bulkByBatch.set(batchId, search);
+
+  const roundsByBulk = new Map<string, SearchRow[]>();
+  for (const row of rows) {
+    const search = bulkByBatch.get(row.id);
+    if (!search) continue;
+    roundsByBulk.set(search.id, [...(roundsByBulk.get(search.id) ?? []), row]);
+  }
+
+  const emitted = new Set<string>();
+  const result: SearchRow[] = [];
+  for (const row of rows) {
+    const search = bulkByBatch.get(row.id);
+    if (!search) {
+      result.push(row);
+      continue;
+    }
+    if (emitted.has(search.id)) continue;
+    emitted.add(search.id);
+    result.push(toBulkGroupRow(search, roundsByBulk.get(search.id) ?? [row]));
+  }
+  return result;
+}
+
+function toBulkGroupRow(search: BulkSearchView, rounds: readonly SearchRow[]): SearchRow {
+  const first = rounds[0];
+  const sum = (pick: (row: SearchRow) => number) => rounds.reduce((acc, row) => acc + pick(row), 0);
+  const needsReview = sum((row) => row.needsReview);
+  const status =
+    BULK_LIVE_STATUS[search.status] ??
+    (needsReview > 0
+      ? { label: BATCH_STATUS_LABELS.ready_for_review, tone: SEARCH_STATUS_TONES.ready_for_review }
+      : { label: BATCH_STATUS_LABELS.completed, tone: SEARCH_STATUS_TONES.completed });
+  const batchIds = search.batchIds.filter((batchId) => rounds.some((row) => row.id === batchId));
+  return {
+    id: search.id,
+    name: searchDisplayName({ formLabel: BULK_SEARCH_FORM_LABEL, country: first.country, industry: first.industry, name: search.label }),
+    statusLabel: status.label,
+    statusTone: status.tone,
+    formLabel: BULK_SEARCH_FORM_LABEL,
+    country: first.country,
+    industry: first.industry,
+    found: sum((row) => row.found),
+    needsReview,
+    approved: sum((row) => row.approved),
+    converted: sum((row) => row.converted),
+    createdAt: search.createdAt,
+    createdBy: first.createdBy,
+    visibility: rounds.every((row) => row.visibility === 'full') ? 'full' : 'assigned',
+    bulkSearch: {
+      id: search.id,
+      label: search.label,
+      round: batchIds.length,
+      status: search.status,
+      deliveredCount: search.deliveredCount,
+      targetCount: search.targetCount,
+    },
+    bulkGroup: { batchIds },
+  };
 }
 
 /** Las cifras de arriba salen de las mismas filas de la tabla: siempre cuadran. */

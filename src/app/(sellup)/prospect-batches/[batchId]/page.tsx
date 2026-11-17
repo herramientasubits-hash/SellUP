@@ -2,7 +2,8 @@ import { formatInAppZone } from '@/lib/format-date';
 import { MetricStrip } from "@/components/shared/metric-strip";
 import { notFound } from 'next/navigation';
 import { EMPRESAS_SEARCHES_ROUTE } from '@/config/navigation';
-import { searchDisplayName, searchFormLabel } from '@/modules/prospect-batches/searches/search-rows';
+import { bulkSearchHref, searchDisplayName, searchFormLabel } from '@/modules/prospect-batches/searches/search-rows';
+import { findBulkSearchRoundForBatch } from '@/modules/prospect-batches/bulk-search/bulk-search-service.server';
 import Link from 'next/link';
 import {
   Building2,
@@ -101,7 +102,7 @@ export const maxDuration = 300;
 export default async function BatchDetailPage({ params }: Props) {
   const { batchId } = await params;
 
-  const [batch, candidates, isAdmin, latestContinuation, viewer, bulkEnrich, canAssignSearch] = await Promise.all([
+  const [batch, candidates, isAdmin, latestContinuation, viewer, bulkEnrich, canAssignSearch, bulkRound] = await Promise.all([
     getProspectBatchById(batchId),
     getCandidatesByBatch(batchId),
     isCurrentUserAdmin(),
@@ -116,6 +117,8 @@ export default async function BatchDetailPage({ params }: Props) {
         .then((supabase) => hasCandidateAssignmentColumn(supabase))
         .catch(() => false),
     ]).then(([inScope, column]) => inScope && column),
+    // Dueña 17-11: una ronda de una masiva lleva a la búsqueda completa.
+    findBulkSearchRoundForBatch(batchId).catch(() => null),
   ]);
   const assignableUsers = canAssignSearch ? await getActiveUsers().catch(() => []) : [];
 
@@ -324,6 +327,20 @@ export default async function BatchDetailPage({ params }: Props) {
           </div>
         }
       />
+
+      {bulkRound && (
+        <Alert variant="info">
+          <AlertTitle className="text-sm text-foreground">
+            Esta es la ronda {bulkRound.round} de una búsqueda masiva
+          </AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-x-2 text-xs">
+            Las cifras de aquí son sólo de esta ronda.
+            <Link href={bulkSearchHref(bulkRound.bulkSearchId)} className="font-medium text-primary underline-offset-4 hover:underline">
+              Ver la búsqueda completa
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {runAttention !== 'none' && isRunOwner && <StalledRunBanner batchId={batch.id} attention={runAttention} />}
 

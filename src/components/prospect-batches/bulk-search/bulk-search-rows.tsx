@@ -22,6 +22,7 @@ import {
   type BulkDisplayState,
 } from '@/modules/prospect-batches/bulk-search/bulk-search-display';
 import type { BulkSearchView } from '@/modules/prospect-batches/bulk-search/bulk-search-view';
+import { bulkSearchHref } from '@/modules/prospect-batches/searches/search-rows';
 
 const TONE: Record<BulkDisplayState, string> = {
   searching: 'bg-primary/10 text-primary',
@@ -189,14 +190,14 @@ export function BulkSearchRow({
   state,
   onControl,
   onNavigate,
-  viewHref = '/accounts?tab=busquedas',
+  viewHref,
   extraAction,
 }: {
   search: BulkSearchView;
   state: BulkDisplayState;
   onControl: (action: 'pause' | 'resume' | 'cancel') => void;
   onNavigate?: () => void;
-  /** Adónde lleva «Ver» (en Growth, a «Por revisar»). */
+  /** Adónde lleva «Ver»; por defecto, la página de la masiva con todas sus rondas. */
   viewHref?: string;
   /** Una acción más al pie (en Growth, «Asignar a…»). */
   extraAction?: React.ReactNode;
@@ -242,7 +243,7 @@ export function BulkSearchRow({
             {extraAction}
             {search.deliveredCount > 0 && (
               <Button size="xs" variant="outline" asChild>
-                <Link href={viewHref} onClick={onNavigate}>
+                <Link href={viewHref ?? bulkSearchHref(search.id)} onClick={onNavigate}>
                   Ver
                 </Link>
               </Button>
