@@ -43,6 +43,12 @@ import { normalizeApolloPersonId } from '@/server/integrations/apollo-person-id'
 import { resolvePhoneRevealProviderIdentity } from './provider-suppression-core';
 import { isPhoneRevealRoleAuthorized } from './phone-reveal-authorized-roles';
 import { normalizeLinkedinProfileUrl } from './linkedin-profile-url';
+import {
+  CURRENT_EMPLOYMENT_METADATA_KEY,
+  assessCurrentEmployment,
+  titleAfterEmploymentCheck,
+  type CurrentEmploymentSnapshot,
+} from './current-employment-check';
 
 export const CANDIDATE_IDENTITY_COMPLETION_HITO = 'AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION';
 
@@ -217,6 +223,8 @@ export interface IdentityCompletionCandidate {
   fullName: string | null;
   companyName: string | null;
   companyDomain: string | null;
+  /** Cargo que mostramos hoy (de HubSpot). Opcional para no romper lectores viejos. */
+  title?: string | null;
   enrichmentMetadata: Record<string, unknown>;
 }
 
@@ -255,6 +263,8 @@ export interface IdentityLookupPerson {
   fullName?: string | null;
   linkedinUrl: string | null;
   email: string | null;
+  /** Trabajo actual según Apollo (people/match). Sólo Apollo; null si no lo trajo. */
+  currentEmployment?: CurrentEmploymentSnapshot | null;
 }
 
 export type IdentityLookup =
@@ -263,6 +273,8 @@ export type IdentityLookup =
 
 export interface IdentityCompletionPatch {
   apollo_person_id?: string;
+  /** Cargo actual según Apollo, cuando sigue en la empresa con otro cargo. */
+  title?: string;
   linkedin_url?: string;
   email?: string;
   enrichment_metadata: Record<string, unknown>;
@@ -414,6 +426,7 @@ export async function runCandidateIdentityCompletion(
   let emailProvider: 'apollo' | 'lusha' | null = null;
   let mismatch = false;
   let anyAnswered = false;
+  let employmentSnapshot: CurrentEmploymentSnapshot | null = null;
   let failure: 'provider_unavailable' | 'provider_error' | null = null;
 
   const providerIdentityNow = () =>
@@ -433,6 +446,9 @@ export async function runCandidateIdentityCompletion(
         return;
       }
       if (provider === 'apollo' && apolloPersonId === null) apolloPersonId = normalizeApolloPersonId(lookup.person.id);
+      if (provider === 'apollo' && !employmentSnapshot && lookup.person.currentEmployment) {
+        employmentSnapshot = lookup.person.currentEmployment;
+      }
       const li = canonicalLinkedin(lookup.person.linkedinUrl);
       if (li && foundLinkedin === null && before.missingLinkedin) {
         foundLinkedin = li;
@@ -490,10 +506,28 @@ export async function runCandidateIdentityCompletion(
         : 'not_found';
 
   // Nada que anotar si no se llamó a ningún proveedor (p. ej. Apollo sin clave configurada).
+  // CONTACT-CURRENT-EMPLOYMENT-1 — la misma respuesta de Apollo dice dónde trabaja HOY: se compara
+  // con la empresa y el cargo de HubSpot, sin gastar nada más.
+  const employmentCheck = employmentSnapshot
+    ? assessCurrentEmployment({
+        snapshot: employmentSnapshot,
+        shownTitle: clean(candidate.title),
+        companyName: clean(candidate.companyName),
+        companyDomain: clean(candidate.companyDomain),
+        checkedAt: deps.nowIso,
+      })
+    : null;
+  const usefulEmploymentCheck = employmentCheck && employmentCheck.status !== 'unknown' ? employmentCheck : null;
+  const currentTitle = usefulEmploymentCheck
+    ? titleAfterEmploymentCheck(usefulEmploymentCheck, clean(candidate.title))
+    : null;
+  const newTitle = currentTitle && currentTitle !== clean(candidate.title) ? currentTitle : null;
+
   if (providers.length > 0 || gainedSomething) {
     const patch: IdentityCompletionPatch = {
       enrichment_metadata: {
         ...candidate.enrichmentMetadata,
+        ...(usefulEmploymentCheck ? { [CURRENT_EMPLOYMENT_METADATA_KEY]: usefulEmploymentCheck } : {}),
         [IDENTITY_COMPLETION_METADATA_KEY]: {
           outcome,
           purpose: input.purpose,
@@ -511,6 +545,7 @@ export async function runCandidateIdentityCompletion(
     if (newApolloPersonId) patch.apollo_person_id = newApolloPersonId;
     if (newLinkedin) patch.linkedin_url = newLinkedin;
     if (newEmail) patch.email = newEmail;
+    if (newTitle) patch.title = newTitle;
     try {
       await deps.persist(candidate.id, patch);
     } catch {
