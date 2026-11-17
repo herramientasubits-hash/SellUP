@@ -16,7 +16,10 @@ import {
   buildHubSpotSiblingBlockMatch,
   describeHubSpotSiblingBlock,
   findBlockingHubSpotSibling,
+  hubSpotBrandCore,
   isSameCompanyHubSpotRecord,
+  isSameHubSpotBrand,
+  hubSpotDomainRoot,
   type HubSpotSiblingVerdict,
 } from '../hubspot-free-sibling-guard';
 import { classifyHubSpotCommercialMatch, type HubSpotExtendedCompanyMatch } from '../hubspot-commercial-checker';
@@ -107,11 +110,78 @@ describe('findBlockingHubSpotSibling', () => {
   });
 });
 
+describe('mismo grupo en otro país (decisión de la dueña 17-11)', () => {
+  type Side = { name: string; domain?: string | null };
+  // Casos reales de Prod: la filial libre ↔ el cliente del mismo grupo en HubSpot.
+  const SAME_BRAND: Array<[Side, Side]> = [
+    [{ name: 'Falabella Argentina', domain: 'falabella.com.ar' }, { name: 'Falabella Retail Colombia', domain: 'falabella.com.co' }],
+    [{ name: 'Inchcape Chile', domain: 'inchcape.cl' }, { name: 'INCHCAPE GLOBAL BUSINESS SERVICES SAS', domain: 'inchcape.com' }],
+    [{ name: 'Itaú', domain: 'itau.com.ar' }, { name: 'Itaú Paraguay', domain: 'https://www.itau.com.py/' }],
+    [{ name: 'Sodexo Chile', domain: 'sodexo.cl' }, { name: 'Sodexo México', domain: 'sodexo.com.mx' }],
+    // Dos o más palabras: basta la marca, aunque no haya dominio.
+    [{ name: 'Zurich Santander Chile' }, { name: 'Zurich Santander México' }],
+    [{ name: 'Laboratorios Bagó Argentina' }, { name: 'Laboratorios Bago Peru' }],
+  ];
+  for (const [free, client] of SAME_BRAND) {
+    it(`«${free.name}» es del mismo grupo que «${client.name}»`, () => assert.equal(isSameHubSpotBrand(free, client), true));
+  }
+
+  // Parecidos reales que NO son el mismo grupo.
+  const DIFFERENT: Array<[Side, Side]> = [
+    // Marca de una palabra común sin la misma raíz de dominio (falsos positivos vistos en Prod).
+    [{ name: 'ALFA Group', domain: 'alfagroup.cl' }, { name: 'Alfa Co SAC', domain: 'alfaco.pe' }],
+    [{ name: 'Grupo Medical', domain: 'grupomedical.cl' }, { name: 'MEDICAL CORPORATION GROUP', domain: 'medicalcorp.com' }],
+    [{ name: 'Sodexo Chile', domain: 'sodexo.cl' }, { name: 'Sodexo México', domain: null }],
+    [{ name: 'Caja Los Andes' }, { name: 'Universidad de los Andes' }],
+    [{ name: 'Caja Los Andes' }, { name: 'Banco Caja Social' }],
+    [{ name: 'Banco Ciudad' }, { name: 'Clínica Ciudad del Mar Chile' }],
+    [{ name: 'Clínica Alemana' }, { name: 'Clínica Las Condes' }],
+    [{ name: 'AFP Capital' }, { name: 'Engen Capital' }],
+    [{ name: 'Inchcape Chile', domain: 'inchcape.cl' }, { name: 'Inchcape MACAM', domain: 'inchcape.com' }],
+    [{ name: 'Mutual de Seguridad' }, { name: 'Grupo Mutual' }],
+    [{ name: 'EL NORTE - Compañía de Seguros S.A.' }, { name: 'Clínica General del Norte' }],
+    [{ name: 'Axon Pharma CHILE' }, { name: 'Pint Pharma Chile SPA' }],
+  ];
+  for (const [free, other] of DIFFERENT) {
+    it(`«${free.name}» NO es del mismo grupo que «${other.name}»`, () => assert.equal(isSameHubSpotBrand(free, other), false));
+  }
+
+  it('la raíz del dominio quita sufijos genéricos y de país', () => {
+    assert.equal(hubSpotDomainRoot('www.falabella.com.co'), 'falabella');
+    assert.equal(hubSpotDomainRoot('https://itau.com.py/personas'), 'itau');
+    assert.equal(hubSpotDomainRoot('shop.sodexo.cl'), 'sodexo');
+  });
+
+  it('la marca quita país, forma jurídica y palabras genéricas', () => {
+    assert.equal(hubSpotBrandCore('Falabella Retail Colombia'), 'falabella');
+    assert.equal(hubSpotBrandCore('Grupo Domex, S.A. de C.V. República Dominicana'), 'domex');
+    assert.equal(hubSpotBrandCore('Grupo Chile S.A.'), null);
+  });
+
+  it('un cliente del mismo grupo bloquea; un dato distinto de «cliente» no', () => {
+    const block = findBlockingHubSpotSibling([
+      sibling({ relation: 'group_client', name: 'Falabella México', availability: { free: false, reason: 'customer' } }),
+    ]);
+    assert.equal(block?.kind, 'taken');
+    assert.match(describeHubSpotSiblingBlock(block!), /El mismo grupo en HubSpot \(«Falabella México»\) es cliente/);
+    assert.equal(
+      findBlockingHubSpotSibling([sibling({ relation: 'group_client', availability: { free: false, reason: 'active_owner' } })]),
+      null,
+    );
+  });
+});
+
 describe('verificador de duplicados: el freno está conectado', () => {
   const source = readFileSync(join(__dirname, '..', 'hubspot-duplicate-checker.ts'), 'utf8');
 
   it('mira las fichas hermanas antes de marcar libre', () => {
     assert.match(source, /if \(availability\?\.free\) \{\s*const block = await findHubSpotSiblingBlock/);
+  });
+
+  it('busca clientes del mismo grupo (etapa Cliente o Current Customer)', () => {
+    assert.match(source, /searchClientsByBrandWord/);
+    assert.match(source, /hs_current_customer/);
+    assert.match(source, /relation: 'group_client'/);
   });
 
   it('pide la empresa madre a HubSpot', () => {
