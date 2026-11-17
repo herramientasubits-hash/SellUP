@@ -62,6 +62,11 @@ export interface CurrentEmploymentCheck {
   evidence_url?: string | null;
   evidence_quote?: string | null;
   evidence_date?: string | null;
+  /**
+   * Sólo «Verificar con IA»: false cuando la fuente confirma que sigue en la empresa pero no dice
+   * el cargo (o lo dice con otras palabras). Sin «Sin verificar», se trata como confirmado.
+   */
+  title_confirmed?: boolean | null;
 }
 
 /** Estados que merecen aviso: la persona posiblemente ya no está en la empresa. */
@@ -265,6 +270,7 @@ export function readCurrentEmploymentCheck(value: unknown): CurrentEmploymentChe
           evidence_url: clean(value.evidence_url),
           evidence_quote: clean(value.evidence_quote),
           evidence_date: clean(value.evidence_date),
+          title_confirmed: typeof value.title_confirmed === 'boolean' ? value.title_confirmed : null,
         }
       : {}),
   };

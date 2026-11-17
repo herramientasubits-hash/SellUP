@@ -20,7 +20,7 @@ export function employmentAiResultMessage(status: VerifyEmploymentWithAiStatus):
     case 'no_current_role':
       return { tone: 'warning', text: 'Según la web, ya no está en la empresa. Revisa el aviso antes de contactar.' };
     case 'unknown':
-      return { tone: 'info', text: 'No se encontró información pública confiable. Confírmalo en LinkedIn.' };
+      return { tone: 'info', text: 'No se pudo confirmar con la web. Revisa lo que encontró o confírmalo en LinkedIn.' };
     case 'missing_name_or_company':
       return { tone: 'error', text: 'Falta el nombre o la empresa del contacto para buscarlo.' };
     case 'claude_not_configured':
