@@ -69,7 +69,9 @@ export function resolveTitleProvenance(input: TitleProvenanceInput): TitleProven
     const staleYears = staleDays !== null ? Math.floor(staleDays / 365) : null;
     return {
       tone: 'unverified',
-      caption: found && staleYears !== null
+      caption: byAi && check?.evidence_own_profile && staleYears === null
+        ? `Según ${sourceName} · sin verificar${on}: la IA encontró su perfil de LinkedIn, pero el resultado no muestra en qué empresa trabaja hoy. Ábrelo en «Ver fuente» para confirmarlo.`
+        : found && staleYears !== null
         ? `Según ${sourceName} · sin verificar${on}: la IA sólo encontró una fuente de hace ${staleYears} años («${found}»). Puede que ya no esté o que el perfil ya no exista: confírmalo en LinkedIn.`
         : found
         ? `Según ${sourceName} · sin verificar${on}: la IA encontró «${found}», pero no confirma la empresa. Revísalo en la fuente.`
