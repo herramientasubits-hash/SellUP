@@ -53,7 +53,7 @@ async function resolveActor(): Promise<{ internalUserId: string; roleKey: string
 }
 
 const CANDIDATE_SELECT = `id, status, source, source_contact_id, apollo_person_id, email, linkedin_url,
-   first_name, last_name, full_name, enrichment_metadata,
+   first_name, last_name, full_name, title, enrichment_metadata,
    run:contact_enrichment_runs ( company_name, company_domain )`;
 
 function mapCandidate(row: unknown): IdentityCompletionCandidate {
@@ -78,6 +78,7 @@ function mapCandidate(row: unknown): IdentityCompletionCandidate {
     fullName: str(r.full_name),
     companyName: run?.company_name ?? null,
     companyDomain: run?.company_domain ?? null,
+    title: str(r.title),
     enrichmentMetadata:
       metadata && typeof metadata === 'object' && !Array.isArray(metadata)
         ? (metadata as Record<string, unknown>)
@@ -114,6 +115,7 @@ async function runCompletion(
         if (patch.apollo_person_id) update.apollo_person_id = patch.apollo_person_id;
         if (patch.linkedin_url) update.linkedin_url = patch.linkedin_url;
         if (patch.email) update.email = patch.email;
+        if (patch.title) update.title = patch.title;
         let query = admin.from('contact_enrichment_candidates').update(update).eq('id', id);
         // Nunca se pisa un valor que otro proceso escribió entre la lectura y esta escritura.
         if (patch.apollo_person_id) query = query.is('apollo_person_id', null);

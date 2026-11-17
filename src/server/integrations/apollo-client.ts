@@ -124,6 +124,20 @@ export interface ApolloPerson {
    * Apollo 2026-10-21). Ver modules/contact-enrichment/apollo-direct-phone-hint.ts.
    */
   has_direct_phone?: string | boolean | null;
+  /**
+   * people/match (pagado) trae el historial laboral; la búsqueda gratuita no. Se lee sólo para
+   * saber el trabajo ACTUAL (CONTACT-CURRENT-EMPLOYMENT-1).
+   */
+  employment_history?: ApolloEmploymentHistoryEntry[] | null;
+}
+
+export interface ApolloEmploymentHistoryEntry {
+  organization_id?: string | null;
+  organization_name?: string | null;
+  title?: string | null;
+  current?: boolean | null;
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 // ============================================================
