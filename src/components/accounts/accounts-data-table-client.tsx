@@ -71,6 +71,7 @@ import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { readOpenAccountParam } from './open-account-link';
+import { onOpenRecord } from '@/modules/global-search/open-record-link';
 import { HubSpotCompanyPreviewSheet } from '@/components/hubspot/hubspot-company-preview-sheet';
 import { onHubSpotOpen, readHubSpotParam } from '@/modules/hubspot-lookup/types';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
@@ -250,11 +251,14 @@ export function AccountsDataTableClient({
   // ficha y se quita el parámetro, para que recargar no la vuelva a abrir.
   React.useEffect(() => {
     const { accountId, rest } = readOpenAccountParam(window.location.search);
-    if (!accountId) return;
-    // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    openDetail(accountId);
-    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+    if (accountId) {
+      // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      openDetail(accountId);
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+    }
+    // Búsqueda general estando ya en Empresas: abre la ficha lateral (no la página).
+    return onOpenRecord('account', (id) => openDetail(id));
   }, [openDetail]);
 
   // `/accounts?hubspot=<Company ID>` (búsqueda general): la empresa de HubSpot en modo

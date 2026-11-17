@@ -77,9 +77,24 @@ describe('resultados de HubSpot en la búsqueda general', () => {
     );
     assert.equal(c.id, 'account-acc-1');
     assert.equal(c.group, 'Empresas');
-    assert.equal(c.href, '/accounts/acc-1');
+    // Abre la ficha lateral en su lista, no la página completa (dueña 17-11).
+    assert.equal(c.href, '/accounts?abrir=acc-1');
     assert.equal(p.id, 'contact-con-1');
     assert.equal(p.group, 'Contactos');
+    assert.equal(p.href, '/contacts?abrir=con-1');
+  });
+
+  it('con quien abre fichas, lo de SellUp se abre en su ficha lateral', () => {
+    const drawers: string[] = [];
+    const [c, p] = hubspotSearchItems(
+      [company({ sellup: { status: 'visible', id: 'acc-1' } })],
+      [contact({ sellup: { status: 'visible', id: 'con-1' } })],
+      undefined,
+      (kind, id) => drawers.push(`${kind}:${id}`),
+    );
+    c.onSelect?.();
+    p.onSelect?.();
+    assert.deepEqual(drawers, ['account:acc-1', 'contact:con-1']);
   });
 
   it('si la lleva otra persona, se consulta y se dice quién', () => {
