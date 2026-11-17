@@ -27,8 +27,7 @@ export interface ChatPanelProps {
   historyActive?: boolean;
   /**
    * Botones propios del asistente que monta el panel (sólo icono, con tooltip),
-   * pintados justo antes de «Nueva conversación». Ej.: el modo «Búsqueda por
-   * lotes con ID de HubSpot» del Agente 2A.
+   * pintados justo antes de «Nueva conversación».
    */
   headerActions?: React.ReactNode;
   /** «Nueva conversación». Sin esto no hay botón. */

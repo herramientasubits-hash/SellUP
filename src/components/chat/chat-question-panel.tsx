@@ -72,6 +72,11 @@ export interface ChatQuestionPanelProps {
    */
   onBack?: (() => void) | null;
   backLabel?: string;
+  /**
+   * Las teclas de número eligen opciones y cada una muestra su número. `false` las apaga
+   * (el Agente 2 no usa atajos): las opciones se eligen sólo tocándolas.
+   */
+  keyboardShortcuts?: boolean;
   className?: string;
   "aria-label"?: string;
 }
@@ -142,6 +147,7 @@ export function ChatQuestionPanel({
   onFilterChange,
   filterSuggestions,
   filterEmptyLabel = "Ninguna opción coincide.",
+  keyboardShortcuts = true,
   className,
   ...props
 }: ChatQuestionPanelProps) {
@@ -185,7 +191,7 @@ export function ChatQuestionPanel({
   );
 
   React.useEffect(() => {
-    if (collapsed) return undefined;
+    if (collapsed || !keyboardShortcuts) return undefined;
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTyping()) return;
       const number = Number(event.key);
@@ -200,7 +206,7 @@ export function ChatQuestionPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [collapsed, visible, choose, canOther, otherIndex]);
+  }, [collapsed, keyboardShortcuts, visible, choose, canOther, otherIndex]);
 
   const otherText = other.trim();
   const canSubmit = otherText.length > 0 || (isMultiple && selected.length > 0);
@@ -346,7 +352,7 @@ export function ChatQuestionPanel({
                     >
                       <Check className="size-4" aria-hidden />
                     </span>
-                  ) : index < MAX_KEYED ? (
+                  ) : keyboardShortcuts && index < MAX_KEYED ? (
                     <Kbd aria-hidden="true">{index + 1}</Kbd>
                   ) : null}
                 </button>
@@ -368,7 +374,7 @@ export function ChatQuestionPanel({
                 <span className="text-sm font-medium text-foreground">
                   {otherLabel}
                 </span>
-                <Kbd aria-hidden="true">{otherIndex}</Kbd>
+                {keyboardShortcuts && <Kbd aria-hidden="true">{otherIndex}</Kbd>}
               </div>
               <input
                 ref={otherRef}

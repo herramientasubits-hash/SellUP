@@ -154,6 +154,7 @@ export function buildQuickSearchCandidateRow(input: {
     entry_mode: data.entryMode,
     ...(data.entryMode === 'linkedin_single' ? { linkedin_source: 'user_input' } : {}),
     ...(data.entryMode === 'email_single' ? { email_source: 'user_input' } : {}),
+    ...(data.entryMode === 'hubspot_id_single' ? { hubspot_contact_id_source: 'user_input' } : {}),
     organization: {
       name: p.providerCompanyName,
       website_url: p.providerCompanyWebsiteUrl,

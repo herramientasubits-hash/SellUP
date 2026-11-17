@@ -211,6 +211,28 @@ describe('createQuickSearchCandidate — HubSpot y correo', () => {
     assert.ok(calls.includes('run:req-1:apollo'));
   });
 
+  it('Bryan 17-11 — por ID de HubSpot: «Primero HubSpot», marca el ID como dato del usuario y no el correo', async () => {
+    const { deps, rows } = makeDeps();
+    const hubspotData = data({
+      entryMode: 'hubspot_id_single',
+      linkedinUrl: null,
+      linkedinSlug: null,
+      profile: profile({ provider: 'hubspot', sourceContactId: '987654321', linkedinUrl: null }),
+      hubspotContact: { id: '987654321', associatedCompanyId: null },
+      providersCalled: [],
+      creditsSpent: 0,
+    });
+    const result = await createQuickSearchCandidate({ data: hubspotData, company: null, companyMatchedBy: null }, deps);
+    assert.equal(result.ok, true);
+    const row = rows[0];
+    assert.equal(row.matched_hubspot_contact_id, '987654321');
+    assert.equal(row.enrichment_metadata.hubspot_first, true);
+    assert.equal(row.enrichment_metadata.entry_mode, 'hubspot_id_single');
+    assert.equal(row.enrichment_metadata.hubspot_contact_id_source, 'user_input');
+    assert.equal(row.enrichment_metadata.email_source, undefined);
+    assert.equal(row.status, 'pending_review');
+  });
+
   it('un proveedor nunca escribe teléfono en el candidato', async () => {
     const { deps, rows } = makeDeps();
     await createQuickSearchCandidate(

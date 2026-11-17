@@ -24,6 +24,10 @@ interface ContactEnrichmentWizardProps {
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
   onBusyChange?: (busy: boolean) => void;
   placeholder?: string;
+  /** Las otras formas de buscar, bajo la conversación (Bryan 17-11). */
+  modeOptions?: React.ReactNode;
+  /** «Buscarlas como lote» cuando se pegan varios HubSpot IDs (Bryan 17-11). */
+  onSearchAsBatch?: (raw: string) => void;
 }
 
 export function ContactEnrichmentWizard({
@@ -33,6 +37,8 @@ export function ContactEnrichmentWizard({
   ref,
   onBusyChange,
   placeholder,
+  modeOptions,
+  onSearchAsBatch,
 }: ContactEnrichmentWizardProps = {}) {
   return (
     <ContactEnrichmentChatWizard
@@ -42,6 +48,8 @@ export function ContactEnrichmentWizard({
       initialCompany={initialCompany}
       onCreateManualContact={onCreateManualContact}
       placeholder={placeholder}
+      modeOptions={modeOptions}
+      onSearchAsBatch={onSearchAsBatch}
     />
   );
 }
