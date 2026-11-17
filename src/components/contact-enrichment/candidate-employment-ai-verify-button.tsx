@@ -2,7 +2,7 @@
 
 /**
  * «Verificar con IA» en la ficha del candidato (CONTACT-CURRENT-EMPLOYMENT-AI-1): Claude busca a
- * la persona en la web y confirma si sigue en la empresa y con qué cargo. ~US$0,01–0,03 por
+ * la persona en la web y confirma si sigue en la empresa y con qué cargo. ~US$0,02–0,05 por
  * contacto, que queda en «Uso de IA». El resultado vuelve en la recarga del candidato.
  */
 

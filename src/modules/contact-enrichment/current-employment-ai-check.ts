@@ -16,7 +16,6 @@ import type {
   AnthropicRequestBody,
 } from '@/server/agents/prospecting-toolkit/claude-classifier/anthropic-messages-client';
 import { canonicalUrl, extractCitedTextsByUrl } from '@/server/agents/prospecting-toolkit/claude-classifier/evidence-verifier';
-import { quoteAppearsInText } from '@/server/agents/prospecting-toolkit/claude-classifier/page-text';
 import { normalizeKeys } from '@/server/agents/first-call/tool-input';
 import {
   companyNamesMatch,
@@ -73,17 +72,64 @@ export function textMentionsPerson(text: string, fullName: string): boolean {
   return tokens.length > 0 && tokens.some((t) => haystack.includes(` ${t} `));
 }
 
-/** El texto nombra a la empresa: el nombre sin sufijos societarios o la marca del dominio. */
+/** Palabras que no identifican a una empresa ni a un cargo. */
+const FILLER_WORDS = new Set([
+  'de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'en', 'and', 'of', 'the', 'for', 'a', 'al', 'para', 'por',
+]);
+
+function significantTokens(text: string): string[] {
+  return plain(text.replace(/&/g, ' and ')).split(' ').filter((t) => t.length >= 2 && !FILLER_WORDS.has(t));
+}
+
+/**
+ * El texto nombra a la empresa. Tolerante a cómo la escribe cada fuente (dueña 17-11: «Caja Los
+ * Andes» en SellUp es «Caja de Compensación Los Andes» en LinkedIn): vale el nombre entero, todas
+ * sus palabras propias en cualquier orden, o la marca del dominio (también escrita junta:
+ * «cajalosandes»).
+ */
 export function textMentionsCompany(text: string, companyName: string | null, companyDomain: string | null = null): boolean {
-  const haystack = ` ${plain(text)} `;
+  const words = plain(text).split(' ').filter(Boolean);
+  const haystack = ` ${words.join(' ')} `;
   const name = normalizeCompanyNameForMatch(companyName);
-  if (name && name.length >= 3 && haystack.includes(` ${name} `)) return true;
+  if (name && name.length >= 3) {
+    if (haystack.includes(` ${name} `)) return true;
+    const tokens = significantTokens(name);
+    if (tokens.length >= 2 && tokens.every((t) => haystack.includes(` ${t} `))) return true;
+  }
   const brand = clean(companyDomain)
     ?.toLowerCase()
     .replace(/^[a-z]+:\/\//, '')
     .replace(/^www\./, '')
-    .split('.')[0];
-  return !!brand && brand.length >= 4 && haystack.includes(` ${brand} `);
+    .split('.')[0]
+    .replace(/[^a-z0-9]/g, '');
+  if (!brand || brand.length < 4) return false;
+  if (haystack.includes(` ${brand} `)) return true;
+  // La marca escrita junta («cajalosandes») frente a «caja los andes» en el texto.
+  return brand.length >= 6 && words.join('').includes(brand);
+}
+
+/**
+ * El cargo se lee en el texto aunque cambie la forma: «&» por «and», palabras de relleno y hasta
+ * un tercio de las palabras distintas («Head of Training & Development» ≈ «Head Training and
+ * Development»).
+ */
+export function titleRoughlyInText(title: string | null, text: string): boolean {
+  const tokens = significantTokens(title ?? '');
+  if (tokens.length === 0) return false;
+  const haystack = ` ${plain(text.replace(/&/g, ' and ')).split(' ').join(' ')} `;
+  const present = tokens.filter((t) => haystack.includes(` ${t} `)).length;
+  return present >= Math.max(1, Math.ceil((tokens.length * 2) / 3));
+}
+
+/** `linkedin.com/in/<slug>` sin variantes (http/https, subdominio de país, barra final). */
+export function linkedinProfileSlug(url: string | null | undefined): string | null {
+  const match = url ? /linkedin\.com\/in\/([^/?#]+)/i.exec(url) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]).toLowerCase();
+  } catch {
+    return match[1].toLowerCase();
+  }
 }
 
 // ── Pedido a Claude ───────────────────────────────────────────────
@@ -134,7 +180,9 @@ export function buildEmploymentAiUserMessage(target: EmploymentAiTarget): string
     `Empresa: ${target.companyName}${target.companyDomain ? ` (${target.companyDomain})` : ''}${target.countryName ? `, ${target.countryName}` : ''}`,
     ...(target.linkedinUrl ? [`Su LinkedIn (en SellUp): ${target.linkedinUrl}`] : []),
     '',
-    `Haz hasta ${EMPLOYMENT_AI_WEB_SEARCHES} búsquedas: «"${target.fullName}" ${target.companyName}» y, si no aparece, «"${target.fullName}" LinkedIn».`,
+    target.linkedinUrl
+      ? `Haz hasta ${EMPLOYMENT_AI_WEB_SEARCHES} búsquedas: primero «"${target.fullName}" LinkedIn ${target.companyName}» (busca el resultado con su perfil) y, si no aparece, «"${target.fullName}" ${target.companyName}».`
+      : `Haz hasta ${EMPLOYMENT_AI_WEB_SEARCHES} búsquedas: «"${target.fullName}" ${target.companyName}» y, si no aparece, «"${target.fullName}" LinkedIn».`,
     'Antes de entregar, escribe en una o dos líneas lo que encontraste, citando el resultado.',
     `Entrega con ${EMPLOYMENT_AI_TOOL}.`,
   ].join('\n');
@@ -182,6 +230,7 @@ export function readEmploymentAiSubmission(content: readonly AnthropicContentBlo
 }
 
 interface SearchResultInfo {
+  url: string;
   title: string;
   pageAge: string | null;
 }
@@ -195,7 +244,7 @@ export function extractSearchResults(content: readonly AnthropicContentBlock[]):
       if (item?.type !== 'web_search_result' || typeof item.url !== 'string') continue;
       const key = canonicalUrl(item.url);
       if (!key) continue;
-      results.set(key, { title: clean(item.title) ?? '', pageAge: clean(item.page_age) });
+      results.set(key, { url: item.url, title: clean(item.title) ?? '', pageAge: clean(item.page_age) });
     }
   }
   return results;
@@ -206,11 +255,9 @@ export function extractSearchResults(content: readonly AnthropicContentBlock[]):
 export type EmploymentAiRejection =
   | 'no_submission'
   | 'not_found'
-  | 'source_not_in_results'
-  | 'quote_not_in_source'
-  | 'quote_without_person'
-  | 'quote_without_company'
-  | 'title_not_in_quote';
+  | 'person_not_in_results'
+  | 'company_not_in_results'
+  | 'other_company_not_in_results';
 
 export interface EmploymentAiOutcome {
   check: CurrentEmploymentCheck;
@@ -218,16 +265,39 @@ export interface EmploymentAiOutcome {
   rejection: EmploymentAiRejection | null;
 }
 
-function unknownCheck(base: Omit<CurrentEmploymentCheck, 'status'>, rejection: EmploymentAiRejection): EmploymentAiOutcome {
-  return {
-    check: { ...base, status: 'unknown', current_title: null, current_company: null, evidence_url: null, evidence_quote: null },
-    rejection,
-  };
+/** Un trozo de texto que la fuente dice tal cual (título del resultado o texto citado). */
+interface EvidenceSegment {
+  key: string;
+  url: string;
+  text: string;
+  pageAge: string | null;
+  /** El resultado ES su perfil de LinkedIn (el que tenemos guardado). */
+  ownProfile: boolean;
+}
+
+function evidenceSegments(content: readonly AnthropicContentBlock[], linkedinUrl: string | null): EvidenceSegment[] {
+  const profile = linkedinProfileSlug(linkedinUrl);
+  const cited = extractCitedTextsByUrl(content);
+  const segments: EvidenceSegment[] = [];
+  for (const [key, result] of extractSearchResults(content)) {
+    const ownProfile = !!profile && linkedinProfileSlug(result.url) === profile;
+    const texts = [result.title, ...(cited.get(key) ?? [])].filter((t) => t.trim().length > 0);
+    for (const text of texts) segments.push({ key, url: result.url, text, pageAge: result.pageAge, ownProfile });
+  }
+  return segments;
+}
+
+/** Su perfil primero, después el resultado que señaló Claude, después el resto. */
+function rankSegments(segments: EvidenceSegment[], preferredKey: string | null): EvidenceSegment[] {
+  const score = (s: EvidenceSegment) => (s.ownProfile ? 2 : 0) + (preferredKey && s.key === preferredKey ? 1 : 0);
+  return [...segments].sort((a, b) => score(b) - score(a));
 }
 
 /**
- * Lo que Claude entregó, contrastado con lo que de verdad dicen las fuentes. Cualquier duda
- * deja el contacto «sin verificar» (estado `unknown`) con el motivo.
+ * Lo que Claude entregó, contrastado con lo que de verdad dicen las fuentes. La prueba la ponen
+ * los resultados de la búsqueda, no la redacción de Claude: un trozo (título o texto citado) que
+ * nombre a la persona —o que sea su perfil de LinkedIn guardado— y a la empresa. Si no hay
+ * prueba, queda «sin verificar», pero se guarda lo que se encontró para que el vendedor lo vea.
  */
 export function assessEmploymentAiResponse(params: {
   content: readonly AnthropicContentBlock[];
@@ -235,10 +305,11 @@ export function assessEmploymentAiResponse(params: {
   checkedAt: string;
 }): EmploymentAiOutcome {
   const { target } = params;
+  const previousTitle = clean(target.title);
   const base: Omit<CurrentEmploymentCheck, 'status'> = {
     source: 'ai_web',
     checked_at: params.checkedAt,
-    previous_title: clean(target.title),
+    previous_title: previousTitle,
     current_title: null,
     current_company: null,
     current_since: null,
@@ -247,55 +318,73 @@ export function assessEmploymentAiResponse(params: {
     evidence_date: null,
   };
   const raw = readEmploymentAiSubmission(params.content);
-  if (!raw) return unknownCheck(base, 'no_submission');
-  const verdict = AI_VERDICTS.includes(raw.verdict as AiVerdict) ? (raw.verdict as AiVerdict) : 'not_found';
-  if (verdict === 'not_found') return unknownCheck(base, 'not_found');
+  const verdict = raw && AI_VERDICTS.includes(raw.verdict as AiVerdict) ? (raw.verdict as AiVerdict) : 'not_found';
+  const claimedUrl = clean(raw?.evidence_url);
+  const claimedKey = claimedUrl ? canonicalUrl(claimedUrl) : null;
+  const claimedTitle = clean(raw?.current_title);
+  const claimedCompany = clean(raw?.current_company);
 
-  const url = clean(raw.evidence_url);
-  const quote = clean(raw.quote);
-  const key = url ? canonicalUrl(url) : null;
-  const results = extractSearchResults(params.content);
-  const result = key ? results.get(key) : undefined;
-  if (!url || !key || !result || !quote) return unknownCheck(base, 'source_not_in_results');
+  const segments = rankSegments(evidenceSegments(params.content, target.linkedinUrl), claimedKey);
+  const aboutPerson = segments.filter((s) => s.ownProfile || textMentionsPerson(s.text, target.fullName));
+  const evidence = (s: EvidenceSegment) => ({ evidence_url: s.url, evidence_quote: s.text.slice(0, 160), evidence_date: s.pageAge });
 
-  const sourceTexts = [result.title, ...(extractCitedTextsByUrl(params.content).get(key) ?? [])];
-  if (!sourceTexts.some((text) => text && quoteAppearsInText(quote, text))) return unknownCheck(base, 'quote_not_in_source');
-  if (!textMentionsPerson(quote, target.fullName)) return unknownCheck(base, 'quote_without_person');
-
-  const currentTitle = clean(raw.current_title);
-  const currentCompany = clean(raw.current_company);
-  const evidence = { evidence_url: url, evidence_quote: quote, evidence_date: result.pageAge };
-
-  if (verdict === 'other_company') {
-    // La otra empresa tiene que estar en la frase y no ser la nuestra con otro nombre.
-    if (!currentCompany || !textMentionsCompany(quote, currentCompany)) return unknownCheck(base, 'quote_without_company');
-    if (companyNamesMatch(currentCompany, target.companyName) || textMentionsCompany(currentCompany, target.companyName, target.companyDomain)) {
-      return unknownCheck(base, 'quote_without_company');
+  // 1) Sigue en la empresa: un trozo sobre la persona que nombra a la empresa.
+  const atCompany = aboutPerson.find((s) => textMentionsCompany(s.text, target.companyName, target.companyDomain));
+  if (atCompany && verdict !== 'other_company') {
+    const newTitle = claimedTitle && !titlesMatch(claimedTitle, previousTitle) && titleRoughlyInText(claimedTitle, atCompany.text);
+    const sameTitle = !!previousTitle && titleRoughlyInText(previousTitle, atCompany.text);
+    if (newTitle && !sameTitle) {
+      return {
+        check: { ...base, ...evidence(atCompany), status: 'title_changed', current_title: claimedTitle, current_company: target.companyName, title_confirmed: true },
+        rejection: null,
+      };
     }
     return {
-      check: { ...base, ...evidence, status: 'other_company', current_title: currentTitle, current_company: currentCompany },
+      check: {
+        ...base,
+        ...evidence(atCompany),
+        status: 'confirmed',
+        current_title: previousTitle,
+        current_company: target.companyName,
+        // Sigue en la empresa, pero la fuente no dice el cargo (o lo dice con otras palabras).
+        title_confirmed: sameTitle,
+      },
       rejection: null,
     };
   }
 
-  if (!textMentionsCompany(quote, target.companyName, target.companyDomain)) return unknownCheck(base, 'quote_without_company');
-  // El cargo que se confirma o el nuevo tiene que leerse en la frase.
-  const claimedTitle = verdict === 'confirmed' ? base.previous_title : currentTitle;
-  if (!claimedTitle || !titleInText(claimedTitle, quote)) return unknownCheck(base, 'title_not_in_quote');
-  const sameTitle = verdict === 'confirmed' || titlesMatch(currentTitle, base.previous_title);
-  return {
-    check: {
-      ...base,
-      ...evidence,
-      status: sameTitle ? 'confirmed' : 'title_changed',
-      current_title: sameTitle ? base.previous_title : currentTitle,
-      current_company: currentCompany ?? target.companyName,
-    },
-    rejection: null,
-  };
-}
+  // 2) Otra empresa: un trozo sobre la persona que nombra la empresa nueva y no la nuestra.
+  if (verdict === 'other_company' && claimedCompany && !companyNamesMatch(claimedCompany, target.companyName)) {
+    const elsewhere = aboutPerson.find(
+      (s) => textMentionsCompany(s.text, claimedCompany) && !textMentionsCompany(s.text, target.companyName, target.companyDomain),
+    );
+    if (elsewhere) {
+      return {
+        check: {
+          ...base,
+          ...evidence(elsewhere),
+          status: 'other_company',
+          current_title: claimedTitle && titleRoughlyInText(claimedTitle, elsewhere.text) ? claimedTitle : null,
+          current_company: claimedCompany,
+        },
+        rejection: null,
+      };
+    }
+  }
 
-function titleInText(title: string, text: string): boolean {
-  const t = plain(title);
-  return t.length > 0 && ` ${plain(text)} `.includes(` ${t} `);
+  // 3) Sin prueba: «sin verificar», con lo mejor que se encontró sobre la persona.
+  const found = aboutPerson[0] ?? null;
+  const rejection: EmploymentAiRejection = !raw
+    ? 'no_submission'
+    : aboutPerson.length === 0
+      ? verdict === 'not_found'
+        ? 'not_found'
+        : 'person_not_in_results'
+      : verdict === 'other_company'
+        ? 'other_company_not_in_results'
+        : 'company_not_in_results';
+  return {
+    check: { ...base, ...(found ? evidence(found) : {}), status: 'unknown' },
+    rejection,
+  };
 }

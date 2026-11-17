@@ -670,7 +670,7 @@ export function ContactCandidatesDataTableClient({
           title: 'Verificar cargo con IA',
           description: (rows) => {
             const count = Math.min(rows.length, EMPLOYMENT_AI_MAX_CONTACTS);
-            return `Claude buscará en la web si ${count === 1 ? 'esta persona sigue' : `estas ${count} personas siguen`} en la empresa y con qué cargo. Cuesta cerca de US$0,01–0,03 por contacto y queda en «Uso de IA».${rows.length > EMPLOYMENT_AI_MAX_CONTACTS ? ` Se verifican hasta ${EMPLOYMENT_AI_MAX_CONTACTS} por tanda.` : ''}`;
+            return `Claude buscará en la web si ${count === 1 ? 'esta persona sigue' : `estas ${count} personas siguen`} en la empresa y con qué cargo. Cuesta cerca de US$0,02–0,05 por contacto y queda en «Uso de IA».${rows.length > EMPLOYMENT_AI_MAX_CONTACTS ? ` Se verifican hasta ${EMPLOYMENT_AI_MAX_CONTACTS} por tanda.` : ''}`;
           },
           confirmLabel: 'Verificar',
         },
