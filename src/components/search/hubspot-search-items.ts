@@ -16,11 +16,15 @@ import {
   type HubSpotContactHit,
   type SellUpPresence,
 } from '@/modules/hubspot-lookup/types';
+import { openRecordHref, type OpenRecordKind } from '@/modules/global-search/open-record-link';
 
 export const HUBSPOT_SEARCH_GROUP = 'En HubSpot';
 
 /** Cómo se abre un registro de HubSpot (navegar, o avisar a la pantalla si ya se está en ella). */
 export type OpenHubSpotRecord = (kind: 'company' | 'contact', id: string) => void;
+
+/** Cómo se abre la ficha lateral de un registro de SellUp (no su página). */
+export type OpenSellUpDrawer = (kind: OpenRecordKind, id: string) => void;
 
 function compact(values: ReadonlyArray<string | null | undefined>): string[] {
   return values.filter((v): v is string => typeof v === 'string' && v.length > 0);
@@ -31,7 +35,11 @@ function presenceNote(presence: SellUpPresence): string | null {
   return presence.ownerName ? `En SellUp la lleva ${presence.ownerName}` : 'En SellUp la lleva otra persona';
 }
 
-export function hubspotCompanySearchItem(company: HubSpotCompanyHit, open?: OpenHubSpotRecord): SearchObjectItem {
+export function hubspotCompanySearchItem(
+  company: HubSpotCompanyHit,
+  open?: OpenHubSpotRecord,
+  openDrawer?: OpenSellUpDrawer,
+): SearchObjectItem {
   if (company.sellup.status === 'visible') {
     return {
       id: `account-${company.sellup.id}`,
@@ -40,7 +48,8 @@ export function hubspotCompanySearchItem(company: HubSpotCompanyHit, open?: Open
       keywords: compact([company.domain, company.website]),
       icon: Building2,
       group: 'Empresas',
-      href: `/accounts/${company.sellup.id}`,
+      href: openRecordHref('account', company.sellup.id),
+      onSelect: openDrawer ? () => openDrawer('account', (company.sellup as { id: string }).id) : undefined,
     };
   }
   return {
@@ -56,7 +65,11 @@ export function hubspotCompanySearchItem(company: HubSpotCompanyHit, open?: Open
   };
 }
 
-export function hubspotContactSearchItem(contact: HubSpotContactHit, open?: OpenHubSpotRecord): SearchObjectItem {
+export function hubspotContactSearchItem(
+  contact: HubSpotContactHit,
+  open?: OpenHubSpotRecord,
+  openDrawer?: OpenSellUpDrawer,
+): SearchObjectItem {
   if (contact.sellup.status === 'visible') {
     return {
       id: `contact-${contact.sellup.id}`,
@@ -65,7 +78,8 @@ export function hubspotContactSearchItem(contact: HubSpotContactHit, open?: Open
       keywords: compact([contact.email]),
       icon: UserIcon,
       group: 'Contactos',
-      href: `/contacts/${contact.sellup.id}`,
+      href: openRecordHref('contact', contact.sellup.id),
+      onSelect: openDrawer ? () => openDrawer('contact', (contact.sellup as { id: string }).id) : undefined,
     };
   }
   return {
@@ -86,6 +100,10 @@ export function hubspotSearchItems(
   companies: readonly HubSpotCompanyHit[],
   contacts: readonly HubSpotContactHit[],
   open?: OpenHubSpotRecord,
+  openDrawer?: OpenSellUpDrawer,
 ): SearchObjectItem[] {
-  return [...companies.map((c) => hubspotCompanySearchItem(c, open)), ...contacts.map((c) => hubspotContactSearchItem(c, open))];
+  return [
+    ...companies.map((c) => hubspotCompanySearchItem(c, open, openDrawer)),
+    ...contacts.map((c) => hubspotContactSearchItem(c, open, openDrawer)),
+  ];
 }

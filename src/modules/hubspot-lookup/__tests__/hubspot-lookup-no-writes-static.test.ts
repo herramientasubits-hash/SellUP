@@ -20,6 +20,7 @@ const LOOKUP_FILES = [
   'src/server/integrations/hubspot-lookup/hubspot-lookup.server.ts',
   'src/server/integrations/hubspot-lookup/hubspot-properties-core.ts',
   'src/components/hubspot/hubspot-properties-section.tsx',
+  'src/components/hubspot/hubspot-page-panels.tsx',
   'src/modules/hubspot-lookup/actions.ts',
   'src/modules/hubspot-lookup/lookup.server.ts',
   'src/modules/hubspot-lookup/presence.server.ts',
@@ -78,5 +79,17 @@ describe('consulta de HubSpot: 0 escrituras en HubSpot', () => {
     const actions = read('src/modules/hubspot-lookup/actions.ts');
     assert.doesNotMatch(actions, /export async function (lookup|search|get)\w*/);
     assert.match(read('src/modules/hubspot-lookup/client.ts'), /\/api\/hubspot-lookup/);
+  });
+
+  it('las páginas completas de empresa y de contacto también traen lo de HubSpot (dueña 17-11)', () => {
+    const accountPage = read('src/app/(sellup)/accounts/[accountId]/page.tsx');
+    for (const piece of ['AccountHubSpotActivity', 'AccountHubSpotContacts', 'AccountHubSpotData', 'HUBSPOT_DATA_TAB']) {
+      assert.match(accountPage, new RegExp(`<${piece}|${piece}`), `la página de empresa debe usar ${piece}`);
+    }
+    const contactPage = read('src/app/(sellup)/contacts/[contactId]/page.tsx');
+    assert.match(contactPage, /<ContactHubSpotActivity/);
+    assert.match(contactPage, /<ContactHubSpotData/);
+    // Una página del servidor no puede leer constantes de un módulo 'use client'.
+    assert.match(accountPage, /HUBSPOT_DATA_TAB \} from '@\/modules\/hubspot-lookup\/types'/);
   });
 });

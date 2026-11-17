@@ -60,6 +60,12 @@ import { currentPacks } from '@/modules/speech/first-contact-tab-view';
 import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
 import { FirstCallActivity } from '@/components/first-call/first-call-activity';
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
+import { HUBSPOT_DATA_TAB } from '@/modules/hubspot-lookup/types';
+import {
+  AccountHubSpotActivity,
+  AccountHubSpotContacts,
+  AccountHubSpotData,
+} from '@/components/hubspot/hubspot-page-panels';
 
 interface AccountDetailPageProps {
   params: Promise<{ accountId: string }>;
@@ -140,6 +146,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
   const ownerName = account.owner?.full_name ?? account.owner?.email ?? null;
 
   const isArchived = account.pipeline_status === 'archived';
+  const hubspotCompanyId = /^\d{1,20}$/.test(account.hubspot_company_id ?? '') ? account.hubspot_company_id : null;
   const firstCallContacts = toFirstCallContactOptions(contacts);
   const firstCallEnabled = firstCall.enabled && !isArchived;
   // Desde la ficha de un contacto («Preparar primer contacto») llega ya elegido.
@@ -164,6 +171,8 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
     { id: FIRST_CALL_TAB_ID, label: 'Primer contacto', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
     { id: 'agentes', label: 'Rumbo', count: contactEnrichmentRuns.length + agent3RunsCount },
+    // Todos sus datos de HubSpot (dueña 17-11), sólo si está vinculada.
+    ...(hubspotCompanyId ? [{ id: HUBSPOT_DATA_TAB, label: 'HubSpot' }] : []),
   ];
 
   return (
@@ -359,6 +368,11 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             contacts={contacts}
             summary={contactsSummary}
           />
+          {hubspotCompanyId && (
+            <div className="mt-4">
+              <AccountHubSpotContacts accountId={account.id} hubspotCompanyId={hubspotCompanyId} archived={isArchived} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Primer contacto (Agente 3): investigación y preparaciones ── */}
@@ -412,6 +426,11 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
               </Timeline>
             )}
           </SurfaceCard>
+          {hubspotCompanyId && (
+            <div className="mt-4">
+              <AccountHubSpotActivity hubspotCompanyId={hubspotCompanyId} />
+            </div>
+          )}
           <div className="mt-4">
             <FirstCallActivity state={firstCall} kind="events" />
           </div>
@@ -422,6 +441,13 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
           <AccountAgentsRunHistory runs={contactEnrichmentRuns} />
           <FirstCallActivity state={firstCall} kind="runs" />
         </TabsContent>
+
+        {/* ── HubSpot: todos sus datos ─────────────────────────── */}
+        {hubspotCompanyId && (
+          <TabsContent value={HUBSPOT_DATA_TAB}>
+            <AccountHubSpotData hubspotCompanyId={hubspotCompanyId} />
+          </TabsContent>
+        )}
       </UrlTabs>
     </div>
   );
