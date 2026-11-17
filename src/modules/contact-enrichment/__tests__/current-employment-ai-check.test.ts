@@ -32,7 +32,13 @@ import {
   type EmploymentAiUsageEntry,
   type VerifyEmploymentWithAiDeps,
 } from '../current-employment-ai-runner';
-import { CURRENT_EMPLOYMENT_METADATA_KEY, type CurrentEmploymentCheck } from '../current-employment-check';
+import {
+  CURRENT_EMPLOYMENT_METADATA_KEY,
+  evidenceAgeDays,
+  isStaleEvidence,
+  parseEvidenceDate,
+  type CurrentEmploymentCheck,
+} from '../current-employment-check';
 import { resolveTitleProvenance } from '@/components/contact-enrichment/contact-candidate-title-provenance';
 import {
   addToEmploymentAiTally,
@@ -114,7 +120,7 @@ describe('assessEmploymentAiResponse', () => {
     assert.equal(outcome.check.current_title, 'Analista de Recursos Humanos');
     assert.equal(outcome.check.previous_title, 'Human Resources Manager');
     assert.equal(outcome.check.evidence_url, LINKEDIN);
-    assert.equal(outcome.check.evidence_date, 'June 3, 2025');
+    assert.equal(outcome.check.evidence_date, '2025-06-03');
   });
 
   it('confirma cuando el resultado dice el mismo cargo y la empresa', () => {
@@ -233,6 +239,47 @@ describe('assessEmploymentAiResponse', () => {
   it('not_found sin resultados o sin entrega ⇒ sin verificar con su motivo', () => {
     assert.equal(assess([submission({ verdict: 'not_found', evidence_url: null, quote: null })]).rejection, 'not_found');
     assert.equal(assess([{ type: 'text', text: 'nada' }]).rejection, 'no_submission');
+  });
+});
+
+describe('fuentes viejas', () => {
+  it('caso real 17-11 (Tamara): una copia de su perfil de hace 8 años no confirma nada', () => {
+    const url = 'https://www.linkedin.com/in/tamara-ficticia-69743b17/';
+    const outcome = assess(
+      [
+        searchResult(url, 'Tamara Matus - Jefe de Formación y Aprendizaje - Caja Los Andes', '2924 days ago'),
+        submission({ verdict: 'title_changed', current_title: 'Jefe de Formación y Aprendizaje', current_company: 'Caja Los Andes', evidence_url: url }),
+      ],
+      { ...TARGET, fullName: 'Tamara Matus', title: 'Head of Training and Development', companyName: 'Caja Los Andes', companyDomain: 'cajalosandes.cl', linkedinUrl: url },
+    );
+    assert.equal(outcome.check.status, 'unknown');
+    assert.equal(outcome.rejection, 'stale_source');
+    assert.equal(outcome.check.evidence_url, url);
+    assert.equal(outcome.check.evidence_date, '2018-11-15');
+  });
+
+  it('si además hay un resultado reciente, ese sí cuenta', () => {
+    const outcome = assess([
+      searchResult('https://old.example/p', 'Paola Contreras Montenegro - Gerente - Otra SA', '9 years ago'),
+      searchResult(LINKEDIN, 'Paola Contreras Montenegro - Human Resources Manager - Cygnus | LinkedIn', '3 weeks ago'),
+      submission({ verdict: 'confirmed', evidence_url: LINKEDIN }),
+    ]);
+    assert.equal(outcome.check.status, 'confirmed');
+    assert.equal(outcome.check.evidence_url, LINKEDIN);
+  });
+
+  it('entiende «N days ago», semanas, años y fechas escritas', () => {
+    assert.equal(evidenceAgeDays('2924 days ago', NOW), 2924);
+    assert.equal(evidenceAgeDays('3 weeks ago', NOW), 21);
+    assert.equal(evidenceAgeDays('1 year ago', NOW), 365);
+    assert.equal(evidenceAgeDays('June 3, 2025', NOW), 532);
+    assert.equal(parseEvidenceDate('lo que sea', NOW), null);
+  });
+
+  it('más de 2 años es viejo; sin fecha no se descarta', () => {
+    assert.equal(isStaleEvidence('2924 days ago', NOW), true);
+    assert.equal(isStaleEvidence('700 days ago', NOW), false);
+    assert.equal(isStaleEvidence(null, NOW), false);
   });
 });
 
@@ -380,6 +427,25 @@ describe('employmentAiPatch', () => {
     assert.ok(patch);
     assert.equal(patch?.title, undefined);
   });
+
+  it('«Verificar de nuevo» reemplaza a la IA anterior y devuelve el cargo original', () => {
+    const changedByAi = { ...unknown, status: 'title_changed', previous_title: 'Head of Training', current_title: 'Jefe de Formación' };
+    const c = candidate({ title: 'Jefe de Formación', enrichmentMetadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: changedByAi } });
+    const patch = employmentAiPatch(c, { ...unknown, previous_title: 'Head of Training' });
+    assert.ok(patch);
+    assert.equal(patch?.title, 'Head of Training');
+    assert.equal((patch?.enrichment_metadata[CURRENT_EMPLOYMENT_METADATA_KEY] as CurrentEmploymentCheck).status, 'unknown');
+  });
+
+  it('al volver a verificar, a Claude se le pregunta por el cargo original', async () => {
+    const changedByAi = { ...unknown, status: 'title_changed', previous_title: 'Head of Training', current_title: 'Jefe de Formación' };
+    const { d, bodies } = deps({
+      loadCandidate: async () => candidate({ title: 'Jefe de Formación', enrichmentMetadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: changedByAi } }),
+      responses: [[submission({ verdict: 'not_found' })]],
+    });
+    await verifyCandidateEmploymentWithAi('cand-1', d);
+    assert.match(JSON.stringify(bodies[0].messages), /Cargo que tenemos: Head of Training/);
+  });
 });
 
 describe('leyenda y textos', () => {
@@ -420,6 +486,13 @@ describe('leyenda y textos', () => {
     const p = resolveTitleProvenance({ source: 'apollo', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: check } });
     assert.match(p.caption, /la IA encontró «Paola Contreras - Analista»/);
     assert.equal(p.evidenceUrl, LINKEDIN);
+  });
+
+  it('sólo encontró una fuente vieja ⇒ dice de hace cuántos años y que confirme en LinkedIn', () => {
+    const check = { status: 'unknown', source: 'ai_web', checked_at: NOW, evidence_url: LINKEDIN, evidence_quote: 'Tamara - Jefe', evidence_date: '2018-11-15' };
+    const p = resolveTitleProvenance({ source: 'hubspot', enrichment_metadata: { [CURRENT_EMPLOYMENT_METADATA_KEY]: check } });
+    assert.match(p.caption, /una fuente de hace 8 años/);
+    assert.match(p.caption, /confírmalo en LinkedIn/);
   });
 
   it('la IA no encontró nada ⇒ sigue «sin verificar» pero lo dice', () => {

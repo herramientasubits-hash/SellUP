@@ -8,6 +8,8 @@
 import { formatInAppZone } from '@/lib/format-date';
 import {
   CURRENT_EMPLOYMENT_LEFT_STATUSES,
+  evidenceAgeDays,
+  isStaleEvidence,
   readCurrentEmploymentCheck,
 } from '@/modules/contact-enrichment/current-employment-check';
 import type { ContactSource } from '@/modules/contact-enrichment/types';
@@ -63,9 +65,13 @@ export function resolveTitleProvenance(input: TitleProvenanceInput): TitleProven
 
   if (!check || check.status === 'unknown') {
     const found = byAi && check?.evidence_quote ? check.evidence_quote : null;
+    const staleDays = byAi && check && isStaleEvidence(check.evidence_date, check.checked_at) ? evidenceAgeDays(check.evidence_date, check.checked_at) : null;
+    const staleYears = staleDays !== null ? Math.floor(staleDays / 365) : null;
     return {
       tone: 'unverified',
-      caption: found
+      caption: found && staleYears !== null
+        ? `Según ${sourceName} · sin verificar${on}: la IA sólo encontró una fuente de hace ${staleYears} años («${found}»). Puede que ya no esté o que el perfil ya no exista: confírmalo en LinkedIn.`
+        : found
         ? `Según ${sourceName} · sin verificar${on}: la IA encontró «${found}», pero no confirma la empresa. Revísalo en la fuente.`
         : byAi
           ? `Según ${sourceName} · sin verificar: la IA no encontró información pública confiable${on}`
