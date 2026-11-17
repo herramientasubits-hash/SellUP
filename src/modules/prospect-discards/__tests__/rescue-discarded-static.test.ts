@@ -64,4 +64,52 @@ describe('rescatar descartadas con IA', () => {
     const queries = read('src/modules/prospect-discards/queries.ts');
     assert.match(queries, /\.or\('evidence->claude_rescue->>banked\.is\.null,evidence->claude_rescue->>banked\.neq\.true'\)/);
   });
+  it('🔴 dueña 16-11: al terminar una continuación de Apollo (búsqueda o ronda de la masiva) se pide el rescate', () => {
+    const action = read('src/modules/prospect-batches/apollo-continuation-actions.ts');
+    assert.match(action, /if \(resolution === 'completed'\) await requestRescueAfterContinuation\(batchId, internalUserId\);/);
+    assert.match(action, /triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy \}\)/);
+    const cron = read('src/app/api/cron/apollo-round-continuation/route.ts');
+    assert.match(cron, /if \(resolution === 'completed' \|\| resolution === 'exhausted'\) \{[\s\S]*?triggerRescueContinuation\(\{ batchId, continuation: 1, spentUsd: 0, triggeredBy: null \}\)/);
+    assert.match(action, /if \(resolution === 'exhausted'\) \{\s*\/\/[^\n]*\n\s*await requestRescueAfterContinuation\(batchId, internalUserId\);/);
+  });
+  it('🔴 revisión 16-11: la guardada en el banco no se puede mandar también a revisión', () => {
+    const core = read('src/modules/prospect-discards/send-to-review-core.ts');
+    assert.match(core, /if \(disp\.status === 'discarded' && isBankedByRescue\(disp\.evidence\)\) \{\s*return \{ outcome: 'reject', reason: 'status_conflict' \};/);
+  });
+
+  it('🔴 revisión 16-11: la filial sin web no pasa del tope y nunca hereda la web rechazada', () => {
+    const rb = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.ts');
+    assert.match(rb, /if \(options\.overCap \|\| \(await batchIsFullNow\(ctx, deps\)\)\) \{\s*return stays\(/);
+    assert.match(rb, /columns: \{ \.\.\.columns, name: displayName, domain: null, website: null \}/);
+  });
+
+  it('🔴 revisión 16-11: el barrido no lanza vueltas en paralelo ni sobre lotes sin presupuesto', () => {
+    const sweep = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-pending-sweep.server.ts');
+    assert.match(sweep, /for \(const batchId of busy\) perBatch\.delete\(batchId\);/);
+    assert.match(sweep, /spent >= RESCUE_BATCH_MAX_COST_USD\) perBatch\.delete\(batchId\)/);
+    assert.match(sweep, /\.order\('created_at', \{ ascending: false \}\)/);
+  });
+
+  it('🔴 revisión 16-11: sin poder contar la búsqueda con tope, no hay lugar', () => {
+    const server = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-batch.server.ts');
+    assert.match(server, /if \(error \|\| count === null\) return 0;/);
+  });
+  it('🔴 revisión 16-11: la migración 167 toma el candado con UNA sentencia atómica y sólo para el servicio', () => {
+    const sql = read('supabase/migrations/167_claude_rescue_batch_lease.sql');
+    assert.match(sql, /jsonb_set\(\s*COALESCE\(metadata, '\{\}'::jsonb\),\s*'\{claude_rescue_lease_until\}'/);
+    assert.match(sql, /metadata->>'claude_rescue_lease_until' IS NULL\s*OR \(metadata->>'claude_rescue_lease_until'\)::timestamptz < now\(\)/);
+    assert.match(sql, /SET metadata = metadata - 'claude_rescue_lease_until'/);
+    assert.match(sql, /REVOKE ALL ON FUNCTION public\.agent1_try_claude_rescue_lease\(uuid, integer\) FROM PUBLIC, anon, authenticated;/);
+    assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.agent1_try_claude_rescue_lease\(uuid, integer\) TO service_role;/);
+    assert.doesNotMatch(sql, /SET metadata = \$|SET metadata = '\{/, 'nunca reescribe toda la metadata');
+  });
+
+  it('🔴 revisión 16-11: la búsqueda de web reusada no se relanza por los nombres oficiales (EC/BO)', () => {
+    const ds = read('src/server/agents/prospecting-toolkit/claude-classifier/rescue/domain-search.ts');
+    assert.match(ds, /if \(typeof search\?\.skipped === 'string'\) return false;/);
+  });
+
+  it('revisión 16-11: hasta 5 redirecciones (cada salto con control anti-SSRF)', () => {
+    assert.match(read('src/server/agents/prospecting-toolkit/website-verifier.ts'), /const MAX_REDIRECTS = 5;/);
+  });
 });

@@ -1087,7 +1087,7 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
     // catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL. AUTORADA y NO APLICADA.
     // Dueña 09-11 mueve el techo a la 162 (mide el espacio de la base: sólo lee el catálogo de Postgres;
     // no es del catálogo de industrias, y el barrido de abajo lo comprueba sobre su SQL). AUTORADA y APLICADA 09-11.
-    assert.match(last, /^166_/);
+    assert.match(last, /^167_/);
     // Y por encima de la 119 no hay NINGUNA migración de catálogo. Lo que se vigila
     // NO es el techo por sí mismo: es que ninguna migración posterior al cutover toque
     // las tablas del catálogo. Cada archivo nuevo entra a esta lista con su nombre y
@@ -1308,6 +1308,8 @@ describe('§ 22 — este hito no añade ni aplica migraciones', () => {
       '165_slack_notification_settings_and_bulletins.sql',
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
       '166_commercial_scope_rls.sql',
+      // Revisión 16-11: candado por búsqueda del rescate con IA (sin tablas ni teléfonos). NO APLICADA.
+      '167_claude_rescue_batch_lease.sql',
     ]);
     for (const file of aboveCatalog) {
       const sql = read(`supabase/migrations/${file}`);

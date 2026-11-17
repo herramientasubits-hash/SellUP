@@ -110,6 +110,13 @@ async function handleCronRequest(request: NextRequest) {
       const batchId = await pickNextClaimableContinuationBatchId(client as unknown as ContinuationPickClient);
       if (batchId) {
         stats = await runApolloRoundContinuationWorkerFromEnv({ batchId, limit: 1, client });
+        // Dueña 16-11 — lo que esta continuación descartó pasa por el rescate ya, no mañana.
+        const resolution = stats.resolutions[0]?.resolution;
+        if (resolution === 'completed' || resolution === 'exhausted') {
+          await import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-chain.server')
+            .then((m) => m.triggerRescueContinuation({ batchId, continuation: 1, spentUsd: 0, triggeredBy: null }))
+            .catch(() => false);
+        }
       }
     } catch (err) {
       workerFailed = true;

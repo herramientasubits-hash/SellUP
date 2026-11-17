@@ -23,7 +23,9 @@ import { isBlockedHostname, isBlockedIpAddress, isIpLiteralHostname } from './ip
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const DEFAULT_TIMEOUT_MS = 8000;
-const MAX_REDIRECTS = 3;
+// Revisión 16-11: 3 → 5. Webs como acuenta.cl encadenan más saltos (idioma, cookies, www)
+// y quedaban «inalcanzables». Cada salto sigue pasando por el control anti-SSRF.
+const MAX_REDIRECTS = 5;
 const MAX_HTML_BYTES = 50_000; // Solo los primeros 50 KB para extraer signals
 
 const USER_AGENT = 'SellUp-WebVerifier/1.0 (website verification; non-commercial)';

@@ -103,9 +103,15 @@ export async function continueApolloRound(batchId: string): Promise<ContinueApol
     return { status: 'pending_continuation', pendingOrganizationCount: 0, retryAfterMs: RETRY_AFTER_PROGRESS_MS };
   }
   if (resolution === 'completed' || resolution === 'nothing_pending') {
+    // Dueña 16-11 — la continuación (Apollo y la cascada a Lusha) escribe DESPUÉS de que
+    // la búsqueda respondió: lo que descartó pasa por el rescate de la IA ahora (antes
+    // esperaba al cron del día siguiente). Búsquedas normales y rondas de la masiva.
+    if (resolution === 'completed') await requestRescueAfterContinuation(batchId, internalUserId);
     return { status: 'finished', pendingOrganizationCount: 0, retryAfterMs: null };
   }
   if (resolution === 'exhausted') {
+    // Revisión 16-11 — lo que alcanzó a escribir también pasa por el rescate.
+    await requestRescueAfterContinuation(batchId, internalUserId);
     // AGENT1-STUCK-RUNS-CLOSE-1 — agotada la continuación, el lote no puede
     // quedarse «generando»: lo encontrado pasa a revisión.
     const client = stuckRunsClient();
@@ -209,4 +215,18 @@ export async function findPendingApolloContinuation(): Promise<PendingApolloCont
   }
 
   return null;
+}
+
+/** Pide una vuelta del rescate de la IA sobre el lote. Nunca lanza. */
+async function requestRescueAfterContinuation(batchId: string, triggeredBy: string): Promise<void> {
+  try {
+    const [{ isAgent1ClaudeRescueEnabled }, { triggerRescueContinuation }] = await Promise.all([
+      import('@/lib/feature-flags.server'),
+      import('@/server/agents/prospecting-toolkit/claude-classifier/rescue/rescue-chain.server'),
+    ]);
+    if (!isAgent1ClaudeRescueEnabled()) return;
+    await triggerRescueContinuation({ batchId, continuation: 1, spentUsd: 0, triggeredBy });
+  } catch (error) {
+    console.error('[ApolloContinuation] no se pudo pedir el rescate:', error instanceof Error ? error.message : error);
+  }
 }

@@ -1024,6 +1024,13 @@ jobs:
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 
+      # La 167 (candado por búsqueda del rescate con IA) aplicada de verdad: una sola vuelta a la
+      # vez, nunca pisa el resto de la metadata, el vencido se libera, sólo service_role.
+      - name: Run Claude rescue batch lease migration tests against real PostgreSQL
+        run: npm run test:claude-rescue-lease:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
       # APOLLO-SAVED-CONTACT-PHONES-1 — la 155 aplicada de verdad: nunca pisa un teléfono,
       # re-chequea la supresión de la persona bajo lock, respeta tombstones, sólo service_role
       # la ejecuta, y una DSAR de Apollo (115) SÍ borra el número importado.

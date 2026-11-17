@@ -377,6 +377,9 @@ export async function readBatchRescueSpentUsd(
   return Math.round(total * 1_000_000) / 1_000_000;
 }
 
+/** Lo que dura el candado si la vuelta muere sin soltarlo (una función de Vercel: 300 s). */
+const RESCUE_LEASE_TTL_SECONDS = 330;
+
 export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatchDeps {
   const domainSearchEnabled = isAgent1ClaudeDomainFinderEnabled();
   const reasonCodes = domainSearchEnabled
@@ -421,7 +424,9 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .select('id', { count: 'exact', head: true })
         .eq('batch_id', batchId)
         .in('status', [...BATCH_IDENTITY_BLOCKING_CANDIDATE_STATUSES]);
-      if (error || count === null) return null;
+      // Revisión 16-11 — con tope y sin poder contar, NO hay lugar (al banco): antes `null`
+      // dejaba la búsqueda sin tope y un fallo puntual permitía pasar de 10.
+      if (error || count === null) return 0;
       return Math.max(0, cap - count);
     },
     loadDispositions: async (batchId) => {
@@ -532,6 +537,19 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       }
       console.error('[claude-rescue] admit failed:', outcome.outcome);
       return null;
+    },
+    // Revisión 16-11 — candado por búsqueda (migración 167): una vuelta a la vez. Sin la
+    // función (migración sin aplicar) responde `unavailable` y el rescate sigue igual.
+    acquireBatchLease: async (batchId) => {
+      const { data, error } = await createSupabaseAdminClient().rpc('agent1_try_claude_rescue_lease', {
+        p_batch_id: batchId,
+        p_ttl_seconds: RESCUE_LEASE_TTL_SECONDS,
+      });
+      if (error) return 'unavailable';
+      return data === true ? 'acquired' : 'busy';
+    },
+    releaseBatchLease: async (batchId) => {
+      await createSupabaseAdminClient().rpc('agent1_release_claude_rescue_lease', { p_batch_id: batchId });
     },
     // Dueña 14-11 — lo rescatado que no cabe en la búsqueda va al banco gratuito.
     loadBatchBankTarget: async (batchId) => {

@@ -114,3 +114,33 @@ describe('más descartadas a las que la IA les busca la web', () => {
     }
   });
 });
+
+import { bankFailedBeforeFix } from '../rescue-dispositions';
+
+describe('las que el banco rechazó antes del arreglo se reintentan una vez', () => {
+  it('bank_outcome failed: sin la marca ⇒ reintento; con la marca, hasta 3 intentos', () => {
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', bank_outcome: 'failed' } }), true);
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', bank_outcome: 'failed', bank_found_web_v1: true, bank_attempts: 1 } }), true);
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', bank_outcome: 'failed', bank_found_web_v1: true, bank_attempts: 3 } }), false);
+    assert.equal(bankFailedBeforeFix({ claude_rescue: { decision: 'reassign', banked: true } }), false);
+    assert.equal(bankFailedBeforeFix(null), false);
+  });
+});
+
+import { resolveRescueTargetBatchId } from '../rescue-target-batch';
+import { decideRescueContinuation } from '../rescue-chain';
+
+describe('revisión 16-11 — disparadores', () => {
+  it('un reintento del navegador («already_started») no lanza otra cadena de rescate', () => {
+    assert.equal(resolveRescueTargetBatchId({ ok: true, batchId: 'b1', status: 'already_started' }), null);
+    assert.equal(resolveRescueTargetBatchId({ ok: true, batchId: 'b1', status: 'ready_for_review' }), 'b1');
+  });
+
+  it('guardar en el banco cuenta como avance: la cadena sigue si queda trabajo', () => {
+    const summary = {
+      ok: true, candidatesCompleted: 0, candidatesDiscarded: 0, candidatesUnchanged: 0, dispositionsAdmitted: 0,
+      dispositionsKept: 0, reassigned: 0, failed: 0, remaining: 20, estimatedCostUsd: 0.5, dispositionsBanked: 60,
+    } as never;
+    assert.deepEqual(decideRescueContinuation({ summary, continuationsDone: 1, spentUsd: 0.5 }), { continue: true, nextContinuation: 2 });
+  });
+});

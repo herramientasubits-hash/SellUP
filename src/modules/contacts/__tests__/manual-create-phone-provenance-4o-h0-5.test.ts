@@ -714,7 +714,8 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // Dueña 11-11 mueve el techo a la 165 (avisos de Slack configurables e historial de boletines; sin teléfono).
       // (la 165 fue el techo anterior)
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
-      '166_commercial_scope_rls.sql',
+      // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
+      '167_claude_rescue_batch_lease.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

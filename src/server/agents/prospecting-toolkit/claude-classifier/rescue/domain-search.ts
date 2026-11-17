@@ -630,7 +630,13 @@ export function websiteNotFoundBeforeOfficialNames(
   if (rescue?.decision !== 'website_not_found') return false;
   if (!OFFICIAL_NAME_COUNTRIES.has((row.country_code ?? '').toUpperCase())) return false;
   if (dispositionTaxId(row) === null) return false;
-  const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as { official_names_checked?: unknown } | undefined;
+  const search = row.evidence?.[CLAUDE_DOMAIN_SEARCH_EVIDENCE_KEY] as
+    | { official_names_checked?: unknown; skipped?: unknown }
+    | undefined;
+  // Revisión 16-11 — una búsqueda REUSADA (otra fila de la misma empresa ya buscó, o ya se
+  // sabía duplicada) no se vuelve a pedir por los nombres oficiales: antes se relanzaba en
+  // cada barrido durante 30 días sin avanzar (Ecuador/Bolivia).
+  if (typeof search?.skipped === 'string') return false;
   return search?.official_names_checked !== true;
 }
 

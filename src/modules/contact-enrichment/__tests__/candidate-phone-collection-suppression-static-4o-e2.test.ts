@@ -355,6 +355,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '165_slack_notification_settings_and_bulletins.sql',
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
       '166_commercial_scope_rls.sql',
+      // Revisión 16-11: candado por búsqueda del rescate con IA (sin tablas ni teléfonos). NO APLICADA.
+      '167_claude_rescue_batch_lease.sql',
     ]);
   });
 
