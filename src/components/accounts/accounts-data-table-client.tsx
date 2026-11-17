@@ -71,6 +71,8 @@ import { AccountDetailSheet } from './account-detail-sheet';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { FIRST_CONTACT_VIEW_RESULT_EVENT } from '@/modules/speech/first-contact-runs-client';
 import { readOpenAccountParam } from './open-account-link';
+import { HubSpotCompanyPreviewSheet } from '@/components/hubspot/hubspot-company-preview-sheet';
+import { onHubSpotOpen, readHubSpotParam } from '@/modules/hubspot-lookup/types';
 import { ContactEnrichmentDrawer } from '@/components/contact-enrichment/contact-enrichment-drawer';
 import { AccountsAgentChooser } from './accounts-agent-chooser';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
@@ -196,6 +198,8 @@ export function AccountsDataTableClient({
   const [detailOpen, setDetailOpen] = React.useState(false);
   // Con qué pestaña se abre el panel: «Resumen», salvo al volver del Agente 3 («Primer contacto»).
   const [detailTab, setDetailTab] = React.useState('resumen');
+  // Empresa de HubSpot abierta en modo consulta (desde la búsqueda general: `?hubspot=<id>`).
+  const [hubspotPreviewId, setHubspotPreviewId] = React.useState<string | null>(null);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [archivingId, setArchivingId] = React.useState<string | null>(null);
   const [enrichCompany, setEnrichCompany] = React.useState<ContactEnrichmentInitialCompany | null>(null);
@@ -252,6 +256,23 @@ export function AccountsDataTableClient({
     openDetail(accountId);
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
   }, [openDetail]);
+
+  // `/accounts?hubspot=<Company ID>` (búsqueda general): la empresa de HubSpot en modo
+  // consulta. Al montar se lee la dirección (y se quita el parámetro, para que recargar
+  // no la vuelva a abrir); estando ya en Empresas, la búsqueda avisa con un evento.
+  React.useEffect(() => {
+    const { hubspotId, rest } = readHubSpotParam(window.location.search);
+    if (hubspotId) {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+      // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHubspotPreviewId(hubspotId);
+    }
+    return onHubSpotOpen('company', (id) => {
+      setDetailOpen(false);
+      setHubspotPreviewId(id);
+    });
+  }, []);
 
   // Una preparación de Rumbo terminó (aunque se haya abierto desde el Centro de
   // procesos): en Empresas el resultado se ve en la ficha, en «Primer contacto».
@@ -744,6 +765,26 @@ export function AccountsDataTableClient({
           setDetailOpen(false);
           setDetailAccountId(null);
           setFirstContact({ kind: 'request', request });
+        }}
+      />
+
+      {/* Empresa de HubSpot en modo consulta: la misma ficha; trabajarla la trae a SellUp. */}
+      <HubSpotCompanyPreviewSheet
+        hubspotCompanyId={hubspotPreviewId}
+        open={hubspotPreviewId !== null}
+        onClose={() => setHubspotPreviewId(null)}
+        firstContactAvailable={firstCallEnabled}
+        onOpenAccount={(accountId, tab) => {
+          setHubspotPreviewId(null);
+          openDetail(accountId, tab);
+        }}
+        onRequestEnrich={(company) => {
+          setHubspotPreviewId(null);
+          setEnrichCompany(company);
+        }}
+        onRequestFirstContact={(accountId) => {
+          setHubspotPreviewId(null);
+          setFirstContact({ kind: 'account', accountId });
         }}
       />
 

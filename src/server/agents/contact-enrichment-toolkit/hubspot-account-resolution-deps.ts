@@ -18,7 +18,10 @@ export type HubSpotAccountCreatedFrom =
   // AGENT2A-CANDIDATE-COMPANY-REASSIGN-1: «Reasignar empresa» en la ficha del candidato.
   | 'contact_candidate_reassignment'
   // Agente 3: «Preparar primer contacto» para una empresa elegida desde HubSpot.
-  | 'first_contact_request';
+  | 'first_contact_request'
+  // Consulta de HubSpot desde la búsqueda general: «Traer a SellUp» (o buscar contactos /
+  // preparar el primer contacto de una empresa que sólo estaba en HubSpot).
+  | 'hubspot_lookup_import';
 
 export function normalizeAccountName(name: string): string {
   return name
@@ -43,6 +46,10 @@ export function buildHubSpotAccountResolutionDeps(
 ): HubSpotAccountResolutionDeps {
   const fromApproval = createdFrom === 'contact_enrichment_approval';
   const fromReassignment = createdFrom === 'contact_candidate_reassignment';
+  // Consulta de HubSpot (dueña 17-11: «0 escrituras en HubSpot»): el completado de perfil
+  // escribe país/industria en HubSpot y puede usar Claude (con costo). Aquí no se agenda;
+  // sí la lectura de la ficha de HubSpot y las fuentes oficiales gratuitas.
+  const skipProfileCompletion = createdFrom === 'hubspot_lookup_import';
   // ALWAYS-OWNER-ON-CREATE-1 — empresas que crea ESTE juego de dependencias: nacen
   // con responsable provisional (quien buscó) y el dueño de HubSpot puede corregirlo.
   const createdAccountIds = new Set<string>();
@@ -134,7 +141,7 @@ export function buildHubSpotAccountResolutionDeps(
         ownerIsProvisional: createdAccountIds.has(accountId),
       });
       scheduleAccountOfficialEnrichment(accountId, internalUserId);
-      scheduleAccountProfileCompletion(accountId, internalUserId);
+      if (!skipProfileCompletion) scheduleAccountProfileCompletion(accountId, internalUserId);
     },
     updateAccountCountryCode: async (accountId, countryCode) => {
       await admin
