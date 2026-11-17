@@ -22,7 +22,7 @@ const viewLabels = (href: string) => NAV.find((root) => root.href === href)?.chi
 describe('Empresas — el título dice la vista', () => {
   it('los títulos son los rótulos del menú lateral', () => {
     assert.deepEqual(EMPRESAS_VIEW_TITLES, {
-      empresas: 'Empresas',
+      empresas: 'Lista de empresas',
       busquedas: 'Búsquedas',
       prospectos: 'Por revisar',
       descartadas: 'Descartadas',
@@ -44,12 +44,12 @@ describe('Empresas — el título dice la vista', () => {
 describe('Contactos — el título dice la vista', () => {
   it('«Contactos» y «Por revisar» como en el menú; los duplicados, aparte', () => {
     assert.deepEqual(CONTACTOS_VIEW_TITLES, {
-      approved: 'Contactos',
+      approved: 'Lista de contactos',
       candidates: 'Por revisar',
       duplicates: 'Duplicados',
       rejected: 'Contactos rechazados',
     });
-    assert.deepEqual(viewLabels('/contacts'), ['Contactos', 'Por revisar', 'Contactos rechazados']);
+    assert.deepEqual(viewLabels('/contacts'), ['Lista de contactos', 'Por revisar', 'Contactos rechazados']);
   });
 
   it('las migas: «Contactos › Por revisar» y «Contactos › Duplicados»', () => {
