@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  bulkSearchHref,
+  groupBulkRounds,
   markBulkRounds,
   searchDisplayName,
   searchFormLabel,
@@ -124,5 +126,58 @@ describe('Búsquedas — el nombre, como lo nombramos en Rumbo (dueña 28-10)', 
     const bulk = { id: 'b', label: 'x', status: 'completed', deliveredCount: 30, targetCount: 25, batchIds: ['r1', 'r2'] } as never;
     const [row] = markBulkRounds([toSearchRow(batch({ id: 'r2', country: 'México', industry: 'Seguros' }))], [bulk]);
     assert.equal(row.name, 'Muchas empresas por criterios · México · Seguros · Ronda 2');
+  });
+});
+
+describe('Búsquedas — una masiva es UNA búsqueda (dueña 17-11)', () => {
+  const bulk = (status: string) =>
+    ({
+      id: 'bulk-1',
+      label: 'México · Transporte & Logística',
+      status,
+      deliveredCount: 20,
+      targetCount: 50,
+      createdAt: '2026-11-17T16:48:00.000Z',
+      batchIds: ['r1', 'r2'],
+    }) as never;
+
+  it('junta sus rondas en una fila con las cifras sumadas, donde estaba la más reciente', () => {
+    const rows = groupBulkRounds(
+      [toSearchRow(batch({ id: 'nueva' })), toSearchRow(batch({ id: 'r2' })), toSearchRow(batch({ id: 'otra' })), toSearchRow(batch({ id: 'r1' }))],
+      [bulk('completed')],
+    );
+    assert.deepEqual(rows.map((row) => row.id), ['nueva', 'bulk-1', 'otra']);
+    const grouped = rows[1];
+    assert.equal(grouped.found, 24);
+    assert.equal(grouped.needsReview, 12);
+    assert.equal(grouped.approved, 10);
+    assert.equal(grouped.formLabel, 'Muchas empresas por criterios');
+    assert.equal(grouped.statusLabel, 'Listo para revisión');
+    assert.deepEqual(grouped.bulkGroup, { batchIds: ['r1', 'r2'] });
+    assert.equal(grouped.bulkSearch!.round, 2);
+    assert.equal(grouped.createdAt, '2026-11-17T16:48:00.000Z');
+  });
+
+  it('mientras busca, la fila lo dice', () => {
+    const [row] = groupBulkRounds([toSearchRow(batch({ id: 'r1' }))], [bulk('running')]);
+    assert.equal(row.statusLabel, 'Buscando');
+    assert.deepEqual(row.bulkGroup, { batchIds: ['r1'] });
+  });
+
+  it('si alguna ronda es sólo lo asignado, la fila también', () => {
+    const [row] = groupBulkRounds(
+      [toSearchRow(batch({ id: 'r1' })), toSearchRow(batch({ id: 'r2', visibility: 'assigned' }))],
+      [bulk('completed')],
+    );
+    assert.equal(row.visibility, 'assigned');
+  });
+
+  it('sin masivas, nada cambia', () => {
+    const input = [toSearchRow(batch({ id: 'a' }))];
+    assert.deepEqual(groupBulkRounds(input, []), input);
+  });
+
+  it('la masiva tiene su propia página', () => {
+    assert.equal(bulkSearchHref('bulk-1'), '/prospect-batches/masiva/bulk-1');
   });
 });
