@@ -15,6 +15,7 @@ import { isBulkSearchServerRunnerEnabled, isGrowthBulkSearchEnabled } from './bu
 import {
   controlBulkSearch,
   createBulkSearch,
+  getBulkSearch,
   listBulkSearches,
   resolveBulkSearchOptions,
   runBulkSearchRound,
@@ -302,6 +303,26 @@ export async function runBulkSearchRoundForUser(userId: string, bulkSearchId: st
 
 export async function controlBulkSearchForUser(userId: string, bulkSearchId: string, action: BulkSearchControlAction) {
   return controlBulkSearch(createDeps(createSupabaseAdminClient()), bulkSearchId, userId, action);
+}
+
+export async function getBulkSearchForUser(userId: string, bulkSearchId: string) {
+  return getBulkSearch(createDeps(createSupabaseAdminClient()), bulkSearchId, userId);
+}
+
+/**
+ * La masiva de la que salió un lote, si es de quien mira (para el aviso «es la
+ * ronda N de una búsqueda masiva» en la página del lote). `null` si no aplica.
+ */
+export async function findBulkSearchRoundForBatch(batchId: string): Promise<{ bulkSearchId: string; round: number } | null> {
+  const access = await resolveBulkSearchAccess();
+  if (!access.ok) return null;
+  const admin = createSupabaseAdminClient();
+  const { data: round } = await admin.from(ROUNDS).select('bulk_search_id').eq('batch_id', batchId).maybeSingle();
+  const bulkSearchId = (round as { bulk_search_id?: string } | null)?.bulk_search_id;
+  if (!bulkSearchId) return null;
+  const view = await getBulkSearch(createDeps(admin), bulkSearchId, access.userId);
+  const index = view?.batchIds.indexOf(batchId) ?? -1;
+  return view && index >= 0 ? { bulkSearchId, round: index + 1 } : null;
 }
 
 export async function listBulkSearchesForUser(userId: string) {

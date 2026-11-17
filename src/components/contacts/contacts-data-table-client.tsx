@@ -10,6 +10,8 @@ import { RumboIcon } from '@/components/chat/chat-mark';
 import { RUMBO_ACTION_LABELS } from '@/components/ai/rumbo-labels';
 import { firstCallHref } from '@/modules/speech/first-call-links';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
+import { HubSpotContactPreviewSheet } from '@/components/hubspot/hubspot-contact-preview-sheet';
+import { onHubSpotOpen, readHubSpotParam } from '@/modules/hubspot-lookup/types';
 import { MAX_CONTACTS_PER_RUN } from '@/server/agents/first-call/types';
 
 import { Badge } from '@/components/ui/badge';
@@ -216,6 +218,22 @@ export function ContactsDataTableClient({
     value: quick.activeId,
     onToggle: toggleQuickFilter,
   };
+
+  // Contacto de HubSpot abierto en modo consulta (búsqueda general: `?hubspot=<id>`).
+  const [hubspotPreviewId, setHubspotPreviewId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const { hubspotId, rest } = readHubSpotParam(window.location.search);
+    if (hubspotId) {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+      // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHubspotPreviewId(hubspotId);
+    }
+    return onHubSpotOpen('contact', (id) => {
+      setDetailOpen(false);
+      setHubspotPreviewId(id);
+    });
+  }, []);
 
   const openDetail = React.useCallback((contactId: string) => {
     setDetailContactId(contactId);
@@ -1008,6 +1026,21 @@ export function ContactsDataTableClient({
         confirmLabel="Archivar contacto"
         loading={archivePending}
         onConfirm={() => void confirmArchive()}
+      />
+
+      <HubSpotContactPreviewSheet
+        hubspotContactId={hubspotPreviewId}
+        open={hubspotPreviewId !== null}
+        onClose={() => setHubspotPreviewId(null)}
+        firstContactAvailable={firstCallEnabled}
+        onOpenContact={(contactId) => {
+          setHubspotPreviewId(null);
+          openDetail(contactId);
+        }}
+        onRequestFirstContact={(accountId, contactId) => {
+          setHubspotPreviewId(null);
+          setFirstContact({ kind: 'account', accountId, initialSelection: { contactIds: [contactId] } });
+        }}
       />
 
       <ContactDetailSheet

@@ -2,9 +2,10 @@
 
 // Agente 2A — Búsqueda por lotes con ID de HubSpot (backlog D1)
 //
-// Segundo modo del panel «Buscar contactos con IA». Se entra con el botón de
-// HubSpot de la cabecera («Buscar por lote de HubSpot IDs»). El usuario pega de 1 a 10 Company IDs
-// separados por coma o uno por fila y el panel busca empresa por empresa.
+// Segundo modo del panel «Buscar contactos con IA». Se entra con la opción «Varias empresas por
+// HubSpot ID» bajo la conversación (Bryan 17-11; antes era un botón de la cabecera) o con
+// «Buscarlas como lote» cuando se pegan varios IDs en «Por empresa». El usuario pega de 1 a 10
+// Company IDs separados por coma o uno por fila y el panel busca empresa por empresa.
 //
 // Bryan 04-11 — el MISMO flujo que una empresa sola: cada empresa se prepara en el servidor
 // (resolver + request) y se busca por la ruta de «Buscar contactos con IA», así que corre en
@@ -102,6 +103,19 @@ function getHubSpotIdBatchConversation(): HubSpotIdBatchConversation {
   return conversation;
 }
 
+/**
+ * «Buscarlas como lote» (Bryan 17-11): empieza un lote nuevo y limpio con lo pegado en «Por
+ * empresa». Si ya hay un lote en curso no lo toca (no se cancela en silencio): devuelve false y
+ * el panel muestra el que está corriendo.
+ */
+export function startHubSpotIdBatch(raw: string): boolean {
+  const store = getHubSpotIdBatchConversation();
+  if (store.isRunning()) return false;
+  store.reset();
+  void store.send(raw);
+  return true;
+}
+
 /** Sólo para pruebas: empieza cada caso sin la conversación del anterior. */
 export function resetHubSpotIdBatchConversationForTests(): void {
   conversation?.reset();
@@ -123,6 +137,8 @@ interface ContactEnrichmentHubSpotIdBatchProps {
   onBusyChange?: (busy: boolean) => void;
   /** Texto de la caja mientras espera los IDs. */
   placeholder?: string;
+  /** Las otras formas de buscar, encima de la caja cuando el lote no está corriendo. */
+  modeOptions?: React.ReactNode;
 }
 
 export const HUBSPOT_ID_BATCH_NEXT_PLACEHOLDER = 'Pega más Company IDs (con coma o uno por fila)';
@@ -132,6 +148,7 @@ export function ContactEnrichmentHubSpotIdBatch({
   ref,
   onBusyChange,
   placeholder = 'Company IDs (con coma o uno por fila)',
+  modeOptions,
 }: ContactEnrichmentHubSpotIdBatchProps) {
   const router = useRouter();
   const [state, store] = useHubSpotIdBatchConversation();
@@ -268,6 +285,7 @@ export function ContactEnrichmentHubSpotIdBatch({
       </div>
 
       <div className={cn(isPanel ? 'shrink-0 px-4 pb-4 pt-2' : 'sticky bottom-0 mt-auto bg-background pb-2 pt-3')}>
+        {modeOptions && composerUnlocked && !isRevealing && <div className="mb-3">{modeOptions}</div>}
         <ChatComposer
           compact
           value={composerUnlocked ? composerText : ''}

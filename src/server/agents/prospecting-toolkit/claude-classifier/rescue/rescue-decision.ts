@@ -368,6 +368,22 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
 }
 
 /**
+ * Dueña 17-11 — en una búsqueda con tope, la candidata YA en revisión que la IA reasigna a
+ * OTRA industria no se queda en «Por revisar» (el vendedor pidió una sola industria): sale
+ * como descarte por sector y se guarda en el banco con su industria real.
+ */
+export function reassignAsSectorDiscard(
+  decision: Extract<RescueDecision, { kind: 'reassign' }>,
+): Extract<RescueDecision, { kind: 'discard' }> {
+  return {
+    kind: 'discard',
+    reason: 'claude_sector_mismatch',
+    detail: `${decision.detail} — se guardó en el banco de ${decision.industryName}`,
+    sourceUrl: decision.sourceUrl,
+  };
+}
+
+/**
  * Dueña 14-11 — «lo que no es del sector pero es viable, al banco, no a Descartadas».
  * Cuando la IA descarta por SECTOR (es de otra industria del catálogo) sin poder confirmar
  * el tamaño UBITS, la empresa sigue siendo útil para quien busque ESA industria: se

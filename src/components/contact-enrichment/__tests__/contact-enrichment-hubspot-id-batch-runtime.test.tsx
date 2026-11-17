@@ -2,9 +2,9 @@
  * AGENT2A D1 — «Búsqueda por lotes con ID de HubSpot» en el panel del agente.
  *
  * Contrato RUNTIME del flujo que pidió Ventas:
- *   - junto a «Nueva conversación» hay un botón con el logo de HubSpot y el nombre
- *     «Buscar por lote de HubSpot IDs» (F1: antes era el rótulo «ID»);
- *   - al pulsarlo, el agente saluda con las instrucciones (1 a 10 IDs por coma);
+ *   - Bryan 17-11: se entra con la opción «Varias empresas por HubSpot ID» bajo la conversación
+ *     (antes era un botón de la cabecera, y antes el rótulo «ID»);
+ *   - al elegirla, el agente saluda con las instrucciones (1 a 10 IDs por coma);
  *   - la entrada se limpia de espacios y se busca empresa por empresa;
  *   - Bryan 04-11: cada empresa se prepara en el servidor y se busca por la MISMA ruta que una
  *     empresa sola; al terminar hay una tabla Nombre | País | Aprobados (nuevos) |
@@ -154,11 +154,12 @@ afterEach(() => {
   rtl.cleanup();
 });
 
+const BATCH_OPTION = /Varias empresas por HubSpot ID/;
+
 async function openBatchMode() {
   rtl.render(<Shell />);
-  const button = await rtl.screen.findByTestId('chat-panel-hubspot-id-batch');
-  rtl.fireEvent.click(button);
-  return button;
+  const panel = await rtl.screen.findByTestId('search-mode-options');
+  rtl.fireEvent.click(rtl.within(panel).getByRole('button', { name: BATCH_OPTION }));
 }
 
 function composer(): HTMLTextAreaElement {
@@ -172,21 +173,18 @@ async function send(text: string) {
 }
 
 describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
-  it('el botón de HubSpot está junto a «Nueva conversación» y se llama como pidió Ventas', async () => {
+  it('el lote es una opción bajo la conversación, no un botón de la cabecera', async () => {
     rtl.render(<Shell />);
-    const idButton = await rtl.screen.findByTestId('chat-panel-hubspot-id-batch');
-    const newButton = rtl.screen.getByTestId('chat-panel-new');
-    assert.equal(idButton.getAttribute('aria-label'), 'Buscar por lote de HubSpot IDs');
-    // F1 — el rótulo «ID» pasó a ser el logo oficial de HubSpot (archivo sin modificar).
-    assert.ok(idButton.querySelector('img[src="/brand/hubspot-sprocket.svg"]'));
-    // Inmediatamente antes de «Nueva conversación» en la cabecera.
-    assert.equal(idButton.nextElementSibling, newButton);
+    const panel = await rtl.screen.findByTestId('search-mode-options');
+    const option = rtl.within(panel).getByRole('button', { name: BATCH_OPTION });
+    assert.match(option.textContent ?? '', /Hasta 10 HubSpot IDs de empresa/);
+    assert.equal(rtl.screen.queryByTestId('chat-panel-hubspot-id-batch'), null);
   });
 
-  it('al pulsarlo el agente presenta el modo por lotes con el ejemplo', async () => {
-    const button = await openBatchMode();
-    assert.equal(button.getAttribute('aria-pressed'), 'true');
+  it('al elegirla el agente presenta el modo por lotes con el ejemplo', async () => {
+    await openBatchMode();
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID de tus empresas/);
+    assert.equal(rtl.screen.getByTestId('chat-panel').textContent?.includes('Varias empresas por HubSpot ID'), true);
     await rtl.screen.findByText(/65498491,65498497,984654/);
   });
 
@@ -272,11 +270,22 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     await rtl.waitFor(() => assert.deepEqual(searchedRequests, ['req-65498491', 'req-65498497']), { timeout: 5000 });
   });
 
-  it('volver a pulsar el botón de HubSpot regresa al asistente de una empresa', async () => {
-    const button = await openBatchMode();
-    rtl.fireEvent.click(button);
-    assert.equal(button.getAttribute('aria-pressed'), 'false');
-    assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
+  it('«Contactos de una empresa» regresa al asistente de una empresa', async () => {
+    await openBatchMode();
+    await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
+    const panel = await rtl.screen.findByTestId('search-mode-options');
+    rtl.fireEvent.click(rtl.within(panel).getByRole('button', { name: /Contactos de una empresa/ }));
     await rtl.screen.findByText(/dime el nombre, dominio o HubSpot ID/);
+    assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
+  });
+
+  it('al terminar el lote vuelven a salir las otras formas de buscar', async () => {
+    await openBatchMode();
+    await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
+    await send('65498491');
+    await rtl.screen.findByTestId('hubspot-id-batch-report', undefined, { timeout: 5000 });
+    const panel = await rtl.screen.findByTestId('search-mode-options', undefined, { timeout: 5000 });
+    assert.ok(rtl.within(panel).getByRole('button', { name: /Contactos de una empresa/ }));
+    assert.equal(rtl.within(panel).queryByRole('button', { name: BATCH_OPTION }), null);
   });
 });

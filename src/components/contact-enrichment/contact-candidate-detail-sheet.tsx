@@ -48,6 +48,8 @@ import {
   CandidateSignalsSection,
   CandidateSummarySection,
 } from './contact-candidate-detail-sections';
+import { CandidateEmploymentAiVerifyButton } from './candidate-employment-ai-verify-button';
+import { aiVerifyState } from './contact-candidate-title-provenance';
 import {
   CandidateDuplicateDecisionDialog,
   CandidateDuplicateNotice,
@@ -2075,6 +2077,15 @@ export function ContactCandidateDetailSheet({
           <CandidateMainInfoSection
             candidate={candidate}
             companyConsistency={companyConsistency}
+            titleAction={
+              <CandidateEmploymentAiVerifyButton
+                key={candidate.id}
+                candidateId={candidate.id}
+                {...aiVerifyState(candidate)}
+                disabled={busy}
+                onVerified={reloadCandidate}
+              />
+            }
             companyAction={
               candidate.status === 'pending_review' ? (
                 <Button

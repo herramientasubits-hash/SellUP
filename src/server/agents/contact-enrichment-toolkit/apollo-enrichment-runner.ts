@@ -37,6 +37,13 @@ import {
   type ContactRelevanceStatus,
 } from './contact-relevance-classifier';
 import { checkCompanyConsistency } from './company-consistency-checker';
+import {
+  CURRENT_EMPLOYMENT_METADATA_KEY,
+  CURRENT_EMPLOYMENT_SNAPSHOT_KEY,
+  assessCurrentEmployment,
+  readCurrentEmploymentSnapshot,
+  titleAfterEmploymentCheck,
+} from '@/modules/contact-enrichment/current-employment-check';
 import { isAlreadyKnownContact } from './known-contact-precheck';
 import {
   completeContactWithApollo,
@@ -66,6 +73,34 @@ import {
   type ProviderNoveltyGateObservabilityV1,
 } from './provider-native-novelty-gate';
 import { buildRoutingObservation } from './routing-observation-wiring';
+
+/**
+ * CONTACT-CURRENT-EMPLOYMENT-1 — Si people/match trajo el trabajo actual, se compara con la
+ * empresa y el cargo que mostramos. Con otro cargo en la misma empresa se muestra el actual;
+ * en otra empresa (o sin trabajo actual) queda el aviso «Posiblemente ya no está». Sin historial
+ * no se anota nada. No llama a Apollo: usa la respuesta que ya llegó.
+ */
+function withCurrentEmploymentCheck(
+  contact: NormalizedApolloContact,
+  run: { company_name: string | null; company_domain: string | null },
+  checkedAt: string,
+): NormalizedApolloContact {
+  const snapshot = readCurrentEmploymentSnapshot(contact.enrichmentMetadata?.[CURRENT_EMPLOYMENT_SNAPSHOT_KEY]);
+  if (!snapshot) return contact;
+  const check = assessCurrentEmployment({
+    snapshot,
+    shownTitle: contact.title,
+    companyName: run.company_name,
+    companyDomain: run.company_domain,
+    checkedAt,
+  });
+  if (check.status === 'unknown') return contact;
+  return {
+    ...contact,
+    title: titleAfterEmploymentCheck(check, contact.title),
+    enrichmentMetadata: { ...contact.enrichmentMetadata, [CURRENT_EMPLOYMENT_METADATA_KEY]: check },
+  };
+}
 
 const APOLLO_PROVIDER_KEY = 'apollo';
 const APOLLO_OPERATION_KEY = 'people_search';
@@ -1131,7 +1166,7 @@ export async function executeContactEnrichmentApolloRun(
       | { name?: string | null; website_url?: string | null }
       | null
       | undefined;
-    actionableContacts.push({
+    actionableContacts.push(withCurrentEmploymentCheck({
       ...finalContact,
       enrichmentMetadata: {
         ...finalContact.enrichmentMetadata,
@@ -1150,7 +1185,7 @@ export async function executeContactEnrichmentApolloRun(
           ? { apollo_person_identity_observation: res.apolloPersonIdentityObservation }
           : {}),
       },
-    });
+    }, run, searchedAt));
   }
 
   // 17A.8B: perfiles insufficient_data que completion convirtió en accionables.
@@ -1163,7 +1198,7 @@ export async function executeContactEnrichmentApolloRun(
       | { name?: string | null; website_url?: string | null }
       | null
       | undefined;
-    actionableContacts.push({
+    actionableContacts.push(withCurrentEmploymentCheck({
       ...res.contact,
       enrichmentMetadata: {
         ...res.contact.enrichmentMetadata,
@@ -1185,7 +1220,7 @@ export async function executeContactEnrichmentApolloRun(
           ? { apollo_person_identity_observation: res.apolloPersonIdentityObservation }
           : {}),
       },
-    });
+    }, run, searchedAt));
   }
 
   completionSummary.actionable_after_completion_count = actionableContacts.length;

@@ -8,6 +8,10 @@ import {
   APOLLO_DIRECT_PHONE_HINT_METADATA_KEY,
   parseApolloDirectPhoneHint,
 } from '@/modules/contact-enrichment/apollo-direct-phone-hint';
+import {
+  CURRENT_EMPLOYMENT_SNAPSHOT_KEY,
+  extractCurrentEmployment,
+} from '@/modules/contact-enrichment/current-employment-check';
 
 // ── Normalización de cargo Apollo ─────────────────────────────────
 // Apollo a veces devuelve en el campo title una mezcla de cargo real,
@@ -205,6 +209,9 @@ export function normalizeApolloPerson(
   const classifiedPhone = pickPhone(person);
   const phone = classifiedPhone?.number ?? null;
   const directPhoneHint = parseApolloDirectPhoneHint(person.has_direct_phone);
+  const currentEmployment = person.employment_history?.length
+    ? extractCurrentEmployment(person.employment_history, person.organization)
+    : null;
 
   const confidence = computeConfidence({
     hasEmail: !!email,
@@ -246,6 +253,8 @@ export function normalizeApolloPerson(
             website_url: person.organization.website_url,
           }
         : null,
+      // CONTACT-CURRENT-EMPLOYMENT-1 — sólo cuando Apollo manda historial (people/match).
+      ...(currentEmployment ? { [CURRENT_EMPLOYMENT_SNAPSHOT_KEY]: currentEmployment } : {}),
       apollo_title_normalization: {
         raw_title: titleNorm.rawTitle,
         normalized_title: titleNorm.normalizedTitle,

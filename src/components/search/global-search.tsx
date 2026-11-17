@@ -65,6 +65,14 @@ export interface GlobalSearchProps {
   loadObjects?: () => Promise<readonly SearchObjectItem[]>;
   /** Qué cubre `loadObjects`, para que un «sin resultados» no engañe. */
   objectsHint?: string;
+  /**
+   * Registros que se buscan fuera (p. ej. HubSpot) con lo escrito. Se piden con una
+   * pausa tras dejar de teclear y desde `MIN_QUERY_FOR_REMOTE` letras. Un registro con
+   * el mismo `id` que uno ya encontrado aquí no se repite.
+   */
+  searchRemote?: (query: string, signal: AbortSignal) => Promise<readonly SearchObjectItem[]>;
+  /** Cómo se llama lo que busca `searchRemote` («HubSpot»), para los avisos. */
+  remoteLabel?: string;
   /** Habilita preguntar con lo escrito; sin esto, no hay grupo de preguntas. */
   onAsk?: (question: string) => void;
   /** Una línea que explica qué hará la pregunta y dónde responde. */
@@ -75,6 +83,10 @@ export interface GlobalSearchProps {
 
 /** Cuánto hay que escribir antes de pedir registros al servidor. */
 const MIN_QUERY_FOR_OBJECTS = 2;
+/** Cuánto hay que escribir antes de buscar fuera (cada búsqueda es una consulta externa). */
+const MIN_QUERY_FOR_REMOTE = 3;
+/** Pausa tras la última tecla antes de buscar fuera. */
+const REMOTE_DEBOUNCE_MS = 350;
 /** Cuántos registros se pintan por grupo: más que eso, hay que afinar. */
 const MAX_OBJECTS_PER_GROUP = 8;
 const DEFAULT_OBJECT_GROUP = "Objetos";
@@ -104,6 +116,10 @@ function matches(haystack: readonly string[], needle: string): boolean {
   if (words.length === 0) return true;
   const text = fold(haystack.join(" "));
   return words.every((word) => text.includes(word));
+}
+
+function inScopeOf(active: SearchScope, scope: SearchScope): boolean {
+  return active === "all" || active === scope;
 }
 
 function Hint({ keys, label }: { keys: string; label: string }) {
@@ -165,6 +181,8 @@ export function GlobalSearch({
   objects,
   loadObjects,
   objectsHint,
+  searchRemote,
+  remoteLabel = "fuera",
   onAsk,
   askHint,
   placeholder = "Buscar…",
@@ -221,19 +239,56 @@ export function GlobalSearch({
       });
   }, [isOpen, loadObjects, wantsObjects]);
 
+  // Búsqueda fuera (HubSpot): una por pausa de tecleo; la respuesta de una búsqueda
+  // vieja no pisa la de la actual.
+  // Sólo si se van a ver (pestaña «Todo» u «Objetos»): cada búsqueda es una consulta externa.
+  const wantsRemote =
+    Boolean(searchRemote) && isOpen && trimmed.length >= MIN_QUERY_FOR_REMOTE && inScopeOf(activeScope, "objects");
+  const [remote, setRemote] = React.useState<{
+    query: string;
+    status: "loading" | "ready" | "error";
+    items: readonly SearchObjectItem[];
+  } | null>(null);
+  React.useEffect(() => {
+    if (!searchRemote || !wantsRemote) return;
+    // Una búsqueda vieja se cancela (también en el servidor): no gasta cupo de HubSpot.
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setRemote({ query: trimmed, status: "loading", items: [] });
+      searchRemote(trimmed, controller.signal)
+        .then((items) => {
+          if (!controller.signal.aborted) setRemote({ query: trimmed, status: "ready", items });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setRemote({ query: trimmed, status: "error", items: [] });
+        });
+    }, REMOTE_DEBOUNCE_MS);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [searchRemote, wantsRemote, trimmed]);
+  const remoteForQuery = wantsRemote && remote?.query === trimmed ? remote : null;
+  // Entre la tecla y la respuesta: «buscando», no «sin resultados».
+  const isLoadingRemote = wantsRemote && remoteForQuery?.status !== "ready" && remoteForQuery?.status !== "error";
+  const hasRemoteError = wantsRemote && remoteForQuery?.status === "error";
+
   const allObjects = React.useMemo(
     () => [...(objects ?? []), ...loadedObjects],
     [objects, loadedObjects],
   );
-  const foundObjects = React.useMemo(
-    () =>
+  const foundObjects = React.useMemo(() => {
+    const local =
       wantsObjects || !loadObjects
         ? allObjects.filter((item) =>
             matches([item.title, ...(item.meta ?? []), ...(item.keywords ?? [])], trimmed),
           )
-        : [],
-    [allObjects, trimmed, wantsObjects, loadObjects],
-  );
+        : [];
+    const remoteItems = remoteForQuery?.status === "ready" ? remoteForQuery.items : [];
+    if (remoteItems.length === 0) return local;
+    const seen = new Set(local.map((item) => item.id));
+    return [...local, ...remoteItems.filter((item) => !seen.has(item.id))];
+  }, [allObjects, trimmed, wantsObjects, loadObjects, remoteForQuery]);
   const foundNavigate = React.useMemo(
     () =>
       navigate.filter((item) =>
@@ -250,7 +305,7 @@ export function GlobalSearch({
     return available;
   }, [navigate.length, hasObjects, onAsk]);
 
-  const inScope = (scope: SearchScope) => activeScope === "all" || activeScope === scope;
+  const inScope = (scope: SearchScope) => inScopeOf(activeScope, scope);
   const objectGroups = inScope("objects") ? groupObjects(foundObjects) : [];
   const shownObjects = objectGroups.reduce((sum, group) => sum + group.items.length, 0);
   const showAsk = canAsk && inScope("ask");
@@ -259,6 +314,7 @@ export function GlobalSearch({
     Boolean(loadObjects) && inScope("objects") && wantsObjects && objectsStatus === "idle";
   const hasObjectsError = hasObjects && inScope("objects") && wantsObjects && objectsStatus === "error";
   const count = (showAsk ? 1 : 0) + shownObjects + (showNavigate ? foundNavigate.length : 0);
+  const isSearching = isLoadingObjects || isLoadingRemote;
 
   const resetAndOpen = () => {
     setQuery("");
@@ -378,12 +434,12 @@ export function GlobalSearch({
                 data-slot="search-count"
                 className="ml-auto shrink-0 text-xs tabular-nums text-text-muted"
               >
-                {isLoadingObjects ? "Buscando…" : `${count} ${count === 1 ? "resultado" : "resultados"}`}
+                {isSearching && count === 0 ? "Buscando…" : `${count} ${count === 1 ? "resultado" : "resultados"}`}
               </span>
             </div>
 
             <CommandList className="max-h-[min(60vh,26rem)]">
-              {count === 0 && !isLoadingObjects && !hasObjectsError && (
+              {count === 0 && !isSearching && !hasObjectsError && (
                 <CommandEmpty>{emptyMessage}</CommandEmpty>
               )}
 
@@ -438,6 +494,23 @@ export function GlobalSearch({
               {hasObjectsError && (
                 <p role="alert" className="px-4 py-3 text-xs text-destructive">
                   No pudimos buscar entre los registros. Cierra la búsqueda y vuelve a intentarlo.
+                </p>
+              )}
+
+              {isLoadingRemote && !isLoadingObjects && (
+                <div
+                  role="status"
+                  data-slot="search-remote-loading"
+                  className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground"
+                >
+                  <Spinner size="xs" decorative />
+                  Buscando también en {remoteLabel}…
+                </div>
+              )}
+
+              {hasRemoteError && (
+                <p role="alert" data-slot="search-remote-error" className="px-4 py-3 text-xs text-muted-foreground">
+                  {remoteLabel} no respondió: sólo se muestra lo que hay en SellUp.
                 </p>
               )}
 

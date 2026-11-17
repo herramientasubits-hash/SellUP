@@ -18,7 +18,7 @@ export const CONTACTOS_MODULE_TITLE = 'Contactos';
  * (antes «Candidatos por revisar»): son dos colas, dos títulos.
  */
 export const CONTACTOS_VIEW_TITLES: Record<ContactsTabId, string> = {
-  approved: 'Contactos',
+  approved: 'Lista de contactos',
   candidates: 'Por revisar',
   duplicates: 'Duplicados',
   rejected: 'Contactos rechazados',

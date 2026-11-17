@@ -17,6 +17,7 @@ import {
   GitBranch,
   PhoneCall,
   Rumbo,
+  MessageSquare,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -63,6 +64,24 @@ import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/per
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
+import { toast } from 'sonner';
+import { hubspotCompanyUrl } from '@/components/contact-enrichment/hubspot-company-url';
+import {
+  HubSpotActivitySection,
+  HubSpotActivityTimelineItem,
+  useHubSpotActivity,
+} from '@/components/hubspot/hubspot-activity';
+import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
+import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import type { HubSpotActivityEntry, HubSpotContactHit } from '@/modules/hubspot-lookup/types';
+// Comentarios y alertas (168): los de la empresa y los de sus contactos, en un solo hilo.
+import { useRecordComments } from '@/components/record-comments/use-record-comments';
+import {
+  RecordCommentsPanel,
+  type CommentComposerPreset,
+} from '@/components/record-comments/record-comments-panel';
+import { FieldCommentMarker } from '@/components/record-comments/field-comment-marker';
+import type { RecordCommentFieldKey } from '@/modules/record-comments/types';
 
 type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
@@ -129,6 +148,9 @@ interface SheetData {
   freshBrief: boolean;
 }
 
+/** Pestaña «Comentarios» (sólo existe con la migración 168 aplicada). */
+const COMMENTS_TAB_ID = 'comentarios';
+
 /** Si el Agente 3 no se puede leer (p. ej. migración sin aplicar), el panel sigue sirviendo. */
 const FIRST_CALL_UNAVAILABLE: FirstCallState = { enabled: false, brief: null, packs: [] };
 
@@ -150,6 +172,22 @@ export function AccountDetailSheet({
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
   const [tab, setTab] = React.useState(normalizeAccountTab(initialTab) ?? 'resumen');
+  // Comentarios: complementarios. Sin la 168 aplicada, `available` es falso y
+  // el panel queda como antes.
+  const comments = useRecordComments('account', open ? accountId : null);
+  const [commentPreset, setCommentPreset] = React.useState<CommentComposerPreset | null>(null);
+  const openComments = React.useCallback(
+    (fieldKey: RecordCommentFieldKey, fieldValue?: string | null) => {
+      setCommentPreset({ fieldKey, fieldValue: fieldValue ?? null, nonce: Date.now() });
+      setTab(COMMENTS_TAB_ID);
+    },
+    [],
+  );
+  const openAlertCount = comments.comments.filter((c) => c.kind === 'alert' && !c.resolvedAt).length;
+  const marker = (fieldKey: RecordCommentFieldKey) =>
+    comments.available ? (
+      <FieldCommentMarker comments={comments.comments} fieldKey={fieldKey} onOpen={openComments} />
+    ) : null;
   // Otra empresa en el mismo panel abierto (p. ej. terminó la preparación de otra): empieza
   // en la pestaña pedida, no en la que tenía la anterior (ajuste durante el render).
   const [shownAccountId, setShownAccountId] = React.useState(accountId);
@@ -233,6 +271,35 @@ export function AccountDetailSheet({
     window.addEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
     return () => window.removeEventListener(FIRST_CONTACT_RUN_SETTLED_EVENT, onSettled);
   }, [open, accountId, loadData]);
+
+  // HubSpot (dueña 17-11): la actividad de la empresa en HubSpot (Resumen y Actividad) y
+  // sus contactos de HubSpot que aún no están en SellUp (pestaña Contactos, al abrirla).
+  const hubspotCompanyId = open && data?.account.id === accountId ? data?.account.hubspot_company_id ?? null : null;
+  const hubspotActivity = useHubSpotActivity('company', hubspotCompanyId);
+  const hubspotContacts = useHubSpotAccountContacts(
+    hubspotCompanyId && accountId ? accountId : null,
+    tab === 'contactos',
+  );
+  const [importingContactId, setImportingContactId] = React.useState<string | null>(null);
+
+  async function handleImportHubSpotContact(contact: HubSpotContactHit) {
+    if (!accountId) return;
+    setImportingContactId(contact.id);
+    try {
+      const res = await importHubSpotContact(contact.id, hubspotCompanyId, accountId);
+      if (!res.success) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${contact.fullName} quedó en SellUp`);
+      await loadData(accountId);
+      hubspotContacts.reload();
+    } catch {
+      toast.error('No pudimos traer el contacto. Vuelve a intentarlo.');
+    } finally {
+      setImportingContactId(null);
+    }
+  }
 
   // Con el Agente 3 disponible, preparar el contacto es la acción principal del pie.
   const firstCallOffered = !!data && data.firstCall.enabled && data.account.pipeline_status !== 'archived';
@@ -321,10 +388,20 @@ export function AccountDetailSheet({
               <SurfaceCard className="p-4">
               <DetailList columns={4}>
                 <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
-                  {data.account.owner?.full_name ?? data.account.owner?.email}
+                  {data.account.owner?.full_name ?? data.account.owner?.email ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {data.account.owner?.full_name ?? data.account.owner?.email}
+                      {marker('owner')}
+                    </span>
+                  ) : null}
                 </DetailItem>
                 <DetailItem icon={MapPin} label="Ubicación" emptyLabel="Sin ubicación">
-                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).length > 0 ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                      {marker('country')}
+                    </span>
+                  ) : null}
                 </DetailItem>
                 <DetailItem icon={Globe} label="Sitio web" emptyLabel="Sin sitio web">
                   {data.account.website ? (
@@ -337,6 +414,7 @@ export function AccountDetailSheet({
                       {data.account.domain ?? data.account.website}
                     </a>
                   ) : null}
+                  {data.account.website ? marker('website') : null}
                 </DetailItem>
                 <DetailItem icon={Users} label="Contactos">
                   <span className="tabular-nums">{data.contacts.length}</span>
@@ -356,6 +434,14 @@ export function AccountDetailSheet({
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                     <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
                     <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
+                    {comments.available && (
+                      <TabsTrigger value={COMMENTS_TAB_ID}>
+                        <MessageSquare className="h-4 w-4" /> Comentarios
+                        {openAlertCount > 0 && (
+                          <Badge variant="warning" className="ml-1 tabular-nums">{openAlertCount}</Badge>
+                        )}
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   {/* Resumen */}
@@ -382,15 +468,16 @@ export function AccountDetailSheet({
                           el resumen de arriba: aquí no se repiten. */}
                       <DrawerSection title="Datos de la empresa" icon={Building2}>
                         <dl className="space-y-3">
-                          <DetailRow icon={Briefcase} label="Industria">
+                          <DetailRow icon={Briefcase} label="Industria" marker={marker('industry')}>
                             {data.account.industry || <EmptyValue />}
                           </DetailRow>
-                          <DetailRow icon={Users} label="Tamaño">
+                          <DetailRow icon={Users} label="Tamaño" marker={marker('employees')}>
                             {data.account.company_size || <EmptyValue />}
                           </DetailRow>
                           <DetailRow
                             icon={Hash}
                             label={data.account.tax_identifier_type ?? 'ID fiscal'}
+                            marker={marker('tax_id')}
                           >
                             {data.account.tax_identifier
                               ? <span className="break-all font-mono text-xs tabular-nums">{data.account.tax_identifier}</span>
@@ -425,47 +512,61 @@ export function AccountDetailSheet({
 
                     {/* Actividad reciente — llena el Resumen y da contexto sin
                         cambiar de tab. Usa el mismo auditLog del tab Actividad. */}
-                    <DrawerSection
-                      title="Actividad reciente"
-                      icon={Activity}
-                      action={
-                        data.auditLog.length > 3 ? (
-                          <span className="text-xs tabular-nums text-muted-foreground">
-                            {data.auditLog.length} eventos
-                          </span>
-                        ) : undefined
-                      }
-                    >
-                      {data.auditLog.length === 0 ? (
-                        <EmptyState
-                          variant="plain"
+                    {(() => {
+                      // Lo de SellUp y lo de HubSpot juntos, lo más reciente primero.
+                      const hubspotItems = hubspotActivity.state.status === 'ok' ? hubspotActivity.state.items : [];
+                      const recent = mergeRecentActivity(data.auditLog, hubspotItems, 4);
+                      const total = data.auditLog.length + hubspotItems.length;
+                      return (
+                        <DrawerSection
+                          title="Actividad reciente"
                           icon={Activity}
-                          title="Sin actividad todavía"
-                          description="Los cambios de estado, de responsable y las ediciones de esta empresa aparecerán aquí."
-                        />
-                      ) : (
-                        <Timeline>
-                          {data.auditLog.slice(0, 4).map((entry) => {
-                            const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
-                            return (
-                              <TimelineItem
-                                key={entry.id}
-                                icon={<Icon />}
-                                title={AUDIT_ACTION_LABELS[entry.action_type]}
-                                description={
-                                  <>
-                                    {entry.actor
-                                      ? `${entry.actor.full_name ?? entry.actor.email} · `
-                                      : ''}
-                                    {formatDate(entry.created_at)}
-                                  </>
+                          action={
+                            total > 3 ? (
+                              <span className="text-xs tabular-nums text-muted-foreground">{total} eventos</span>
+                            ) : undefined
+                          }
+                        >
+                          {recent.length === 0 ? (
+                            <EmptyState
+                              variant="plain"
+                              icon={Activity}
+                              title="Sin actividad todavía"
+                              description={
+                                hubspotActivity.state.status === 'loading'
+                                  ? 'Leyendo la actividad en HubSpot…'
+                                  : 'Los cambios de esta empresa y lo que se registre en HubSpot (notas, llamadas, reuniones, tareas y negocios) aparecerán aquí.'
+                              }
+                            />
+                          ) : (
+                            <Timeline>
+                              {recent.map((row) => {
+                                if (row.type === 'hubspot') {
+                                  return <HubSpotActivityTimelineItem key={`hs-${row.item.kind}-${row.item.id}`} item={row.item} showBody={false} />;
                                 }
-                              />
-                            );
-                          })}
-                        </Timeline>
-                      )}
-                    </DrawerSection>
+                                const entry = row.entry;
+                                const Icon = AUDIT_ICONS[entry.action_type] ?? Activity;
+                                return (
+                                  <TimelineItem
+                                    key={entry.id}
+                                    icon={<Icon />}
+                                    title={AUDIT_ACTION_LABELS[entry.action_type]}
+                                    description={
+                                      <>
+                                        {entry.actor
+                                          ? `${entry.actor.full_name ?? entry.actor.email} · `
+                                          : ''}
+                                        {formatDate(entry.created_at)}
+                                      </>
+                                    }
+                                  />
+                                );
+                              })}
+                            </Timeline>
+                          )}
+                        </DrawerSection>
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* Contactos */}
@@ -477,6 +578,17 @@ export function AccountDetailSheet({
                       onViewContact={openContactDetail}
                       onContactsChanged={() => loadData(data.account.id)}
                     />
+                    {data.account.hubspot_company_id && hubspotContacts.state && (
+                      <div className="mt-4">
+                        <HubSpotContactsSection
+                          state={hubspotContacts.state}
+                          onRetry={hubspotContacts.reload}
+                          onlyMissing
+                          onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
+                          importingId={importingContactId}
+                        />
+                      </div>
+                    )}
                   </TabsContent>
 
                   {/* Primer contacto (Agente 3): la investigación y las preparaciones juntas */}
@@ -527,6 +639,14 @@ export function AccountDetailSheet({
                       )}
                     </DrawerSection>
                     <div className="mt-4">
+                      <HubSpotActivitySection
+                        state={hubspotActivity.state}
+                        onRetry={hubspotActivity.retry}
+                        hubspotUrl={data.account.hubspot_company_id ? hubspotCompanyUrl(data.account.hubspot_company_id, null) : null}
+                        notLinkedHint="Esta empresa todavía no está vinculada a HubSpot: cuando lo esté, su actividad aparecerá aquí."
+                      />
+                    </div>
+                    <div className="mt-4">
                       <FirstCallActivity state={data.firstCall} kind="events" />
                     </div>
                   </TabsContent>
@@ -541,6 +661,13 @@ export function AccountDetailSheet({
                   <TabsContent value="asociaciones">
                     <CandidateCorporateTreeTab key={data.account.id} accountId={data.account.id} />
                   </TabsContent>
+
+                  {/* Comentarios y alertas (168): de la empresa y de sus contactos */}
+                  {comments.available && (
+                    <TabsContent value={COMMENTS_TAB_ID}>
+                      <RecordCommentsPanel target="account" state={comments} preset={commentPreset} />
+                    </TabsContent>
+                  )}
                 </Tabs>
           </div>
         )}
@@ -550,7 +677,11 @@ export function AccountDetailSheet({
       <ContactDetailSheet
         contactId={contactSheetId}
         open={contactSheetOpen}
-        onClose={() => setContactSheetOpen(false)}
+        onClose={() => {
+          setContactSheetOpen(false);
+          // Lo comentado en el contacto también se ve en el hilo de la empresa.
+          void comments.reload();
+        }}
       />
     </>
   );
@@ -560,10 +691,13 @@ function DetailRow({
   icon: Icon,
   label,
   children,
+  marker,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   children: React.ReactNode;
+  /** Marca de comentarios de este dato (168), junto a la etiqueta. */
+  marker?: React.ReactNode;
 }) {
   // Design Refresh v3: label en fila horizontal (label a la izquierda, valor a
   // la derecha) para una lectura más tabular y ordenada; contraste del label
@@ -573,10 +707,28 @@ function DetailRow({
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <dt className="text-xs text-muted-foreground">{label}</dt>
+        {marker}
       </div>
       <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>
   );
+}
+
+type RecentActivityRow =
+  | { type: 'audit'; at: number; entry: AccountAuditEntry }
+  | { type: 'hubspot'; at: number; item: HubSpotActivityEntry };
+
+/** Lo de SellUp y lo de HubSpot en una sola lista, lo más reciente primero. */
+function mergeRecentActivity(
+  audit: readonly AccountAuditEntry[],
+  hubspot: readonly HubSpotActivityEntry[],
+  max: number,
+): RecentActivityRow[] {
+  const rows: RecentActivityRow[] = [
+    ...audit.map((entry) => ({ type: 'audit' as const, at: Date.parse(entry.created_at) || 0, entry })),
+    ...hubspot.map((item) => ({ type: 'hubspot' as const, at: item.occurredAt ? Date.parse(item.occurredAt) || 0 : 0, item })),
+  ];
+  return rows.sort((a, b) => b.at - a.at).slice(0, max);
 }
 
 /** Valor vacío consistente para campos sin dato (— o texto custom). */

@@ -383,7 +383,7 @@ describe('Menú lateral — secciones plegables', () => {
     assert.deepEqual(
       within(group).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')]),
       [
-        ['Empresas', '/accounts?tab=empresas'],
+        ['Lista de empresas', '/accounts?tab=empresas'],
         ['Búsquedas', '/accounts?tab=busquedas'],
         ['Por revisar', '/accounts?tab=prospectos'],
         ['Descartadas', '/accounts?tab=prospectos&view=descartadas'],
@@ -396,7 +396,7 @@ describe('Menú lateral — secciones plegables', () => {
   it('sin parámetro en la URL, la vista actual es la primera del módulo', () => {
     render(sidebar());
     const group = screen.getByRole('group', { name: 'Empresas' });
-    assert.equal(within(group).getByRole('link', { name: 'Empresas' }).getAttribute('aria-current'), 'page');
+    assert.equal(within(group).getByRole('link', { name: 'Lista de empresas' }).getAttribute('aria-current'), 'page');
   });
 
   it('una sección se despliega y se pliega desde su cabecera', async () => {
@@ -437,6 +437,7 @@ describe('Menú lateral — secciones plegables', () => {
         'Flujo de prospección',
         'Empresas',
         'Contactos',
+        'Comentarios y alertas',
         'Uso de IA y costos',
         'Catálogo de fuentes',
         'Calculadora de ROI',
@@ -517,13 +518,13 @@ describe('Menú lateral — contraído', () => {
     assert.deepEqual(
       within(menu).getAllByRole('menuitem').map((item) => [item.textContent, item.getAttribute('href')]),
       [
-        ['Empresas', '/accounts?tab=empresas'],
+        ['Lista de empresas', '/accounts?tab=empresas'],
         ['Búsquedas', '/accounts?tab=busquedas'],
         ['Por revisar', '/accounts?tab=prospectos'],
         ['Descartadas', '/accounts?tab=prospectos&view=descartadas'],
       ],
     );
-    assert.equal(within(menu).getByRole('menuitem', { name: 'Empresas' }).getAttribute('aria-current'), 'page');
+    assert.equal(within(menu).getByRole('menuitem', { name: 'Lista de empresas' }).getAttribute('aria-current'), 'page');
   });
 
   it('el riel tampoco lleva Configuración: la marca es su puerta', async () => {

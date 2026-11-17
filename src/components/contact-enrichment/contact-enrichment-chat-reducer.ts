@@ -14,6 +14,7 @@ import type {
   ExtraCompanyData,
   ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
+import { HUBSPOT_ID_BATCH_MAX_IDS, parseHubSpotIdBatchInput } from '@/modules/contact-enrichment/hubspot-id-batch-core';
 import {
   contactCountLines,
   contactCountsFromSummary,
@@ -182,6 +183,38 @@ export function companyNameWithoutHubSpotId(query: string): string {
   const at = query.indexOf(id);
   const before = query.slice(0, at).replace(/(?:hubspot|\bid\b|#|[\s:·\-–—|,(])+$/gi, '');
   return before.replace(/\s*(?:hubspot|\bid\b)\s*$/i, '').trim();
+}
+
+/** Sólo dígitos y separadores (coma, punto y coma, espacios, saltos de línea). */
+const HUBSPOT_ID_LIST_RE = /^[\d\s,;]+$/;
+
+export type CompanyQueryBatch = { kind: 'batch'; ids: string[] } | { kind: 'too_many'; count: number };
+
+/**
+ * Bryan 17-11 — ¿lo escrito en «Por empresa» es una LISTA de HubSpot IDs (2 o más)? Entonces no
+ * se busca como una empresa: se ofrece «Buscarlas como lote». Antes «65498491,65498497» se
+ * buscaba entero como NOMBRE de empresa. Un solo ID (o un ID con nombre o enlace) sigue el flujo
+ * de una empresa como siempre.
+ */
+export function companyQueryBatch(query: string): CompanyQueryBatch | null {
+  const q = query.trim();
+  if (!HUBSPOT_ID_LIST_RE.test(q)) return null;
+  const parsed = parseHubSpotIdBatchInput(q);
+  if (parsed.ok) return parsed.ids.length >= 2 ? { kind: 'batch', ids: parsed.ids } : null;
+  if (parsed.reason === 'too_many') return { kind: 'too_many', count: parsed.count };
+  return null;
+}
+
+export function batchOfferMessage(count: number): string {
+  return `Eso parece una lista de ${count} HubSpot IDs de empresa. Aquí busco una empresa a la vez, pero puedo buscarlas todas como lote, una por una.\n\nSi preferías otra cosa, escribe la empresa abajo.`;
+}
+
+export function batchTooManyMessage(count: number): string {
+  return `Pegaste ${count} HubSpot IDs distintos. Como lote puedo buscar hasta ${HUBSPOT_ID_BATCH_MAX_IDS} empresas a la vez: divide la lista y pega hasta ${HUBSPOT_ID_BATCH_MAX_IDS}.`;
+}
+
+export function batchOfferButtonLabel(count: number): string {
+  return `Buscarlas como lote (${count})`;
 }
 
 export function classifyCompanyQuery(query: string): CompanyQueryKind {
@@ -543,6 +576,8 @@ export function buildAutomaticRoutingMessage(
 export function isComposerUnlocked(state: Pick<ContactEnrichmentChatState, 'step' | 'automaticResult'>): boolean {
   if (state.step === 'await_company') return true;
   if (state.step === 'error') return true;
+  // Bryan 17-11: con la oferta de lote a la vista se puede escribir otra empresa.
+  if (state.step === 'offer_batch') return true;
   return state.step === 'done' && state.automaticResult !== null;
 }
 
@@ -622,6 +657,36 @@ export function contactEnrichmentChatReducer(
         selectedCandidate: null,
         skippedHubSpot: action.skippedHubSpot,
         ...appendMessages(state, drafts),
+      };
+    }
+
+    case 'OFFER_BATCH': {
+      const query = action.query.trim();
+      return {
+        ...state,
+        step: 'offer_batch',
+        query,
+        errorMessage: null,
+        batchOffer: { raw: action.query, ids: action.ids },
+        ...appendMessages(state, [
+          { role: 'user', content: query },
+          { role: 'assistant', content: batchOfferMessage(action.ids.length) },
+        ]),
+      };
+    }
+
+    case 'BATCH_TOO_MANY': {
+      const query = action.query.trim();
+      return {
+        ...state,
+        step: 'offer_batch',
+        query,
+        errorMessage: null,
+        batchOffer: null,
+        ...appendMessages(state, [
+          { role: 'user', content: query },
+          { role: 'assistant', content: batchTooManyMessage(action.count), tone: 'warning' },
+        ]),
       };
     }
 

@@ -15,10 +15,13 @@ import { getSearchPendingCandidatesAction } from "@/modules/prospect-batches/sea
  */
 export function SearchAssignButton({
   searchId,
+  searchIds,
   searchName,
   users,
 }: {
   searchId: string;
+  /** Los lotes de la búsqueda (una masiva tiene uno por ronda); por defecto, `searchId`. */
+  searchIds?: string[];
   searchName: string;
   users: AssignableUser[];
 }) {
@@ -34,7 +37,7 @@ export function SearchAssignButton({
         <BulkSearchAssignDrawer
           open
           onOpenChange={setOpen}
-          loadCandidates={() => getSearchPendingCandidatesAction([searchId])}
+          loadCandidates={() => getSearchPendingCandidatesAction(searchIds ?? [searchId])}
           label={searchName}
           users={users}
           onAssigned={() => {

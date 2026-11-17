@@ -50,6 +50,7 @@ import {
 } from './contact-candidate-identity-display';
 import { readCandidateCompanyReassignment } from '@/modules/contact-enrichment/candidate-company-reassignment-core';
 import { resolveCandidateCountry } from '@/modules/contact-enrichment/candidate-scope';
+import { resolveTitleProvenance } from './contact-candidate-title-provenance';
 
 /**
  * Un par etiqueta/valor de la ficha: el `DetailItem` del sistema, con el vacío
@@ -130,8 +131,11 @@ export function CandidateMainInfoSection({
   candidate,
   companyAction,
   companyConsistency = null,
+  titleAction,
 }: {
   candidate: PendingContactCandidate;
+  /** CONTACT-CURRENT-EMPLOYMENT-AI-1: el botón «Verificar con IA» bajo el cargo. */
+  titleAction?: React.ReactNode;
   /** Hito 17A.9G: la consistencia del correo con la empresa. Sólo avisa, no bloquea. */
   companyConsistency?: ContactCandidateCompanyConsistency | null;
   /**
@@ -141,6 +145,7 @@ export function CandidateMainInfoSection({
   companyAction?: React.ReactNode;
 }) {
   const reassignment = readCandidateCompanyReassignment(candidate.enrichment_metadata);
+  const titleProvenance = resolveTitleProvenance(candidate);
   const withoutCompany = !candidate.account_id && !candidate.hubspot_company_id;
 
   return (
@@ -159,12 +164,36 @@ export function CandidateMainInfoSection({
         showReassignHint={Boolean(companyAction)}
         className="mb-3"
       />
+      {titleProvenance.leftNotice && (
+        <Alert variant="warning" role="note" className="mb-3">
+          <AlertTitle className="text-sm">{titleProvenance.leftNotice.title}</AlertTitle>
+          <AlertDescription className="text-xs leading-relaxed">
+            {titleProvenance.leftNotice.description}
+          </AlertDescription>
+        </Alert>
+      )}
       <DetailList>
         <CandidateDetailItem icon={User} label="Nombre completo">
           {candidate.full_name || null}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Briefcase} label="Cargo">
-          {candidate.title || null}
+          {candidate.title || titleAction ? (
+            <span className="flex flex-col gap-0.5">
+              {candidate.title && <span>{candidate.title}</span>}
+              <span
+                className={
+                  titleProvenance.tone === 'left'
+                    ? 'text-xs text-warning'
+                    : titleProvenance.tone === 'verified' || titleProvenance.tone === 'updated'
+                      ? 'text-xs text-success'
+                      : 'text-xs text-muted-foreground'
+                }
+              >
+                {titleProvenance.caption}
+              </span>
+              {titleAction}
+            </span>
+          ) : null}
         </CandidateDetailItem>
         <CandidateDetailItem icon={Building2} label="Empresa">
           {candidate.company_name || reassignment ? (

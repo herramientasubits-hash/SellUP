@@ -266,6 +266,8 @@ export function buildFreePoolSearchSegments(
 /** Etapas de ciclo de vida que nunca son libres (cliente / pronóstico). */
 const CUSTOMER_LIFECYCLE_VALUES = [...HUBSPOT_CUSTOMER_LIFECYCLE_VALUES];
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** «Fecha de última actividad» de HubSpot: la que se mueve con lo que registra el vendedor. */
+const SEARCH_LAST_ACTIVITY_PROPERTY = 'notes_last_updated';
 
 /**
  * AUDIT-A1-WS7 — la regla de «libre» empujada a la búsqueda de HubSpot, dentro de
@@ -274,12 +276,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *
  *   · `lifecyclestage NOT_IN` cliente/pronóstico (NOT_IN también devuelve las fichas
  *     sin etapa);
- *   · sin actividad de ventas en 30 días: `hs_last_sales_activity_timestamp LT
- *     hace-30-días` O `NOT_HAS_PROPERTY` ⇒ DOS grupos, idénticos salvo ese filtro.
+ *   · sin actividad en 30 días: `notes_last_updated` («Fecha de última actividad»:
+ *     llamadas, correos, reuniones, notas y tareas del vendedor) `LT hace-30-días` O
+ *     `NOT_HAS_PROPERTY` ⇒ DOS grupos, idénticos salvo ese filtro. FEEDBACK 17-11:
+ *     antes era `hs_last_sales_activity_timestamp`, que es la interacción del
+ *     CONTACTO; casi ninguna ficha la tiene y pasaban empresas que un vendedor
+ *     llamaba esa semana.
  *
  * Cada grupo = país, industria, dominio, bolsa, etapa, actividad = 6 filtros; 2
- * grupos = 12. `hs_num_open_deals` y los estados de lead «Customer»/«Open Deal» NO
- * caben (serían 7 por grupo) y siguen sólo del lado cliente: la regla completa
+ * grupos = 12. `hs_num_open_deals`, los estados de lead «Customer»/«Open Deal», la
+ * interacción del contacto y la actividad agendada a futuro NO caben (serían 7 por
+ * grupo) y siguen sólo del lado cliente: la regla completa
  * (`classifyHubSpotCompanyAvailability`) sigue siendo la autoridad final.
  */
 export function buildFreePoolFilterGroups(
@@ -294,8 +301,8 @@ export function buildFreePoolFilterGroups(
   ];
   const cutoff = String(now.getTime() - RECENT_SALES_ACTIVITY_DAYS * DAY_MS);
   return [
-    { filters: [...base, { propertyName: 'hs_last_sales_activity_timestamp', operator: 'LT', value: cutoff }] },
-    { filters: [...base, { propertyName: 'hs_last_sales_activity_timestamp', operator: 'NOT_HAS_PROPERTY' }] },
+    { filters: [...base, { propertyName: SEARCH_LAST_ACTIVITY_PROPERTY, operator: 'LT', value: cutoff }] },
+    { filters: [...base, { propertyName: SEARCH_LAST_ACTIVITY_PROPERTY, operator: 'NOT_HAS_PROPERTY' }] },
   ];
 }
 
