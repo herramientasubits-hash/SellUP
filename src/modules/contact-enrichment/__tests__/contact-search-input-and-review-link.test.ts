@@ -24,6 +24,25 @@ describe('detectContactSearchInput', () => {
     assert.equal(detectContactSearchInput('linkedin.com/company/x').kind, 'linkedin');
   });
 
+  it('Bryan 17-11 — un número o el enlace de un contacto de HubSpot es su ID', () => {
+    assert.deepEqual(detectContactSearchInput(' 987654321 '), { kind: 'hubspot_contact_id', id: '987654321' });
+    assert.deepEqual(detectContactSearchInput('#987654321'), { kind: 'hubspot_contact_id', id: '987654321' });
+    assert.deepEqual(
+      detectContactSearchInput('https://app.hubspot.com/contacts/123456/contact/987654321/'),
+      { kind: 'hubspot_contact_id', id: '987654321' },
+    );
+    assert.deepEqual(
+      detectContactSearchInput('https://app.hubspot.com/contacts/123456/record/0-1/987654321'),
+      { kind: 'hubspot_contact_id', id: '987654321' },
+    );
+    // El enlace de una EMPRESA no es un contacto.
+    assert.equal(detectContactSearchInput('https://app.hubspot.com/contacts/123456/company/22069687728').kind, 'hubspot_company_link');
+    assert.equal(detectContactSearchInput('https://app.hubspot.com/contacts/123456/record/0-2/22069687728').kind, 'hubspot_company_link');
+    // Un número corto, o con letras, no es un ID.
+    assert.equal(detectContactSearchInput('12').kind, 'unknown');
+    assert.equal(detectContactSearchInput('98765abc').kind, 'unknown');
+  });
+
   it('vacío o cualquier otra cosa no se busca', () => {
     assert.equal(detectContactSearchInput('   ').kind, 'empty');
     assert.equal(detectContactSearchInput(undefined).kind, 'empty');

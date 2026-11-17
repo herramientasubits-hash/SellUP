@@ -2,6 +2,8 @@
  * AGENT2A-LINKEDIN-CONTACT-SEARCH (F2) — modo «Buscar contacto por LinkedIn» en el panel.
  * AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — también por correo, y el candidato se crea al
  * encontrar a la persona: «Revisar ahora» abre su ficha en «Por revisar».
+ * Bryan 17-11 — se entra con la opción «Un contacto por LinkedIn, correo o ID de HubSpot» y
+ * también acepta el ID del contacto en HubSpot: si ya está aprobado o fue rechazado, sólo avisa.
  *
  * Contrato RUNTIME:
  *   - el chat nunca repite lo pegado (URL o correo) como mensaje del usuario;
@@ -134,9 +136,12 @@ afterEach(() => {
 
 async function openModeAndSend(value = FAKE_URL) {
   rtl.render(<Shell />);
-  rtl.fireEvent.click(await rtl.screen.findByTestId('chat-panel-linkedin-search'));
+  const options = await rtl.screen.findByTestId('search-mode-options');
+  rtl.fireEvent.click(
+    await rtl.within(options).findByRole('button', { name: /Un contacto por LinkedIn, correo o ID de HubSpot/ }),
+  );
   const panel = await rtl.screen.findByTestId('linkedin-contact-search');
-  await rtl.within(panel).findByText(/Pega el enlace del perfil de LinkedIn .* o el correo de la persona/);
+  await rtl.within(panel).findByText(/Pega el enlace del perfil de LinkedIn .*, el correo o el ID de HubSpot del contacto/);
   const box = rtl.within(panel).getByRole('textbox') as HTMLTextAreaElement;
   await rtl.waitFor(() => assert.equal(box.disabled, false));
   rtl.fireEvent.change(box, { target: { value } });
@@ -144,7 +149,7 @@ async function openModeAndSend(value = FAKE_URL) {
   return panel;
 }
 
-describe('Panel del agente · Buscar contacto por LinkedIn o correo', () => {
+describe('Panel del agente · Un contacto por LinkedIn, correo o ID de HubSpot', () => {
   it('LinkedIn: no repite la URL, crea el candidato y muestra lo encontrado con la empresa asignada', async () => {
     const panel = await openModeAndSend();
     await rtl.within(panel).findByText('Perfil de LinkedIn enviado.');
@@ -232,5 +237,58 @@ describe('Panel del agente · Buscar contacto por LinkedIn o correo', () => {
     assert.equal(rtl.screen.queryByTestId('linkedin-review-now'), null);
     const box = rtl.within(panel).getByRole('textbox') as HTMLTextAreaElement;
     await rtl.waitFor(() => assert.equal(box.disabled, false));
+  });
+  it('ID de HubSpot: el chat dice «ID de HubSpot enviado.», trae el contacto y lo deja en «Por revisar»', async () => {
+    searchResponses = [
+      { ...CREATED, entryMode: 'hubspot_id_single', preview: { ...PREVIEW, provider: 'hubspot', hasPhone: true } },
+    ];
+    const panel = await openModeAndSend('987654321');
+    await rtl.within(panel).findByText('ID de HubSpot enviado.');
+    const preview = await rtl.screen.findByTestId('linkedin-preview', undefined, { timeout: 5000 });
+    assert.deepEqual(mockSearch.mock.calls.map((c) => c.arguments[0]), ['987654321']);
+    const text = preview.textContent ?? '';
+    assert.ok(text.includes('Datos encontrados en HubSpot'));
+    assert.ok(text.includes('LinkedIn'), 'como con el correo, dice si hay LinkedIn');
+    await rtl.within(panel).findByText(/en HubSpot \(sin gastar créditos\) y lo dejé en «Por revisar»/);
+    assert.ok(rtl.screen.getByTestId('linkedin-review-now'));
+  });
+
+  for (const [where, message] of [
+    ['sellup_contact', 'Este contacto ya está aprobado: ya es contacto de SellUp. No se gastaron créditos.'],
+    ['sellup_approved_candidate', 'Este contacto ya fue aprobado. No se gastaron créditos.'],
+    [
+      'sellup_discarded_candidate',
+      'Este contacto ya fue rechazado en una revisión anterior, así que no lo vuelvo a dejar en «Por revisar». No se gastaron créditos.',
+    ],
+  ] as const) {
+    it(`ID de HubSpot ya conocido (${where}): sólo avisa, sin tarjeta ni «Abrir candidato»`, async () => {
+      searchResponses = [
+        {
+          status: 'already_known',
+          where,
+          matchedBy: 'hubspot_id',
+          match: { fullName: 'Ana Ficticia', companyName: 'Empresa Ficticia SAS' },
+          creditsSpent: false,
+          message,
+          candidateId: null,
+        },
+      ];
+      const panel = await openModeAndSend('987654321');
+      await rtl.within(panel).findByText(new RegExp(message.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), undefined, {
+        timeout: 5000,
+      });
+      assert.equal(rtl.screen.queryByTestId('linkedin-preview'), null);
+      assert.equal(rtl.screen.queryByTestId('linkedin-open-candidate'), null);
+      assert.equal(rtl.screen.queryByTestId('linkedin-review-now'), null);
+    });
+  }
+
+  it('al terminar vuelven a salir las otras formas de buscar (sin la actual)', async () => {
+    await openModeAndSend();
+    await rtl.screen.findByTestId('linkedin-preview', undefined, { timeout: 5000 });
+    const options = await rtl.screen.findByTestId('search-mode-options', undefined, { timeout: 5000 });
+    assert.ok(rtl.within(options).getByRole('button', { name: /Contactos de una empresa/ }));
+    assert.ok(rtl.within(options).getByRole('button', { name: /Varias empresas por HubSpot ID/ }));
+    assert.equal(rtl.within(options).queryByRole('button', { name: /Un contacto por LinkedIn/ }), null);
   });
 });

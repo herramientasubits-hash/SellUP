@@ -365,6 +365,45 @@ export async function findHubSpotContactProfileByEmail(email: string): Promise<H
 }
 
 /**
+ * Bryan 17-11 — contacto de HubSpot por su ID, con el mismo perfil que la búsqueda por correo
+ * (nombre, cargo, teléfonos, LinkedIn, dueño y empresa principal). Lo usa «Un contacto por
+ * LinkedIn, correo o ID de HubSpot». `null` sólo si HubSpot dice que no existe (404); sin
+ * conexión o con cualquier otro fallo LANZA: «no se pudo consultar» no es «no existe».
+ * Devuelve el `id` que responde HubSpot (un ID fusionado lleva al contacto vigente).
+ */
+export async function findHubSpotContactProfileById(hubspotContactId: string): Promise<HubSpotContactProfile | null> {
+  const token = await getHubSpotToken();
+  if (!token) throw new Error('hubspot_not_connected');
+
+  const params = new URLSearchParams({ properties: HUBSPOT_CONTACT_PROFILE_PROPERTIES.join(',') });
+  const response = await fetch(
+    `${HUBSPOT_BASE}/crm/v3/objects/contacts/${encodeURIComponent(hubspotContactId)}?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`HubSpot contact read error: HTTP ${response.status}`);
+
+  const data = (await response.json()) as { id?: string | number; properties?: Record<string, unknown> };
+  const props = data.properties ?? {};
+  const read = (name: string): string | null => {
+    const value = props[name];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  };
+  return {
+    id: data.id !== undefined && data.id !== null && String(data.id) ? String(data.id) : hubspotContactId,
+    email: read('email'),
+    firstName: read('firstname'),
+    lastName: read('lastname'),
+    jobTitle: read('jobtitle'),
+    phone: read('phone'),
+    mobilePhone: read('mobilephone'),
+    linkedinUrl: read('hs_linkedin_url'),
+    ownerId: read('hubspot_owner_id'),
+    associatedCompanyId: read('associatedcompanyid'),
+  };
+}
+
+/**
  * Lee un contacto de HubSpot por su id con las propiedades que SellUp puede completar
  * (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION). Lo usa el sync cuando el contacto ya llegó
  * VINCULADO —los candidatos de «Primero HubSpot» se vinculan al aprobar, antes del sync— para
