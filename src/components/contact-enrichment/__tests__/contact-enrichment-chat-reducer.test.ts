@@ -23,6 +23,8 @@ import {
   extraDataPrefill,
   planExtraDataResolution,
   planResolution,
+  companyQueryBatch,
+  isComposerUnlocked,
 } from '../contact-enrichment-chat-reducer';
 import type { ContactEnrichmentChatState } from '../contact-enrichment-chat-types';
 import type {
@@ -593,5 +595,51 @@ describe('E — message integrity', () => {
 
     const ids = state.messages.map((m) => m.id);
     assert.equal(new Set(ids).size, ids.length, 'message ids must be unique');
+  });
+});
+
+describe('E — varios HubSpot IDs en «Por empresa» (Bryan 17-11)', () => {
+  it('E1 una lista de 2 o más IDs se ofrece como lote (coma, punto y coma, espacios o filas)', () => {
+    assert.deepEqual(companyQueryBatch('65498491,65498497'), { kind: 'batch', ids: ['65498491', '65498497'] });
+    assert.deepEqual(companyQueryBatch(' 111\n222 ; 333 '), { kind: 'batch', ids: ['111', '222', '333'] });
+    assert.deepEqual(companyQueryBatch('111 111 222'), { kind: 'batch', ids: ['111', '222'] });
+  });
+
+  it('E2 un solo ID, un nombre o un ID con nombre siguen el flujo de una empresa', () => {
+    assert.equal(companyQueryBatch('65498491'), null);
+    assert.equal(companyQueryBatch('111, 111'), null);
+    assert.equal(companyQueryBatch('Acme'), null);
+    assert.equal(companyQueryBatch('citibank - id hubspot:22069687728'), null);
+    assert.equal(companyQueryBatch('acme.com, 111'), null);
+  });
+
+  it('E3 más de 10 IDs: avisa el tope', () => {
+    const many = Array.from({ length: 11 }, (_, i) => `${100 + i}`).join(',');
+    assert.deepEqual(companyQueryBatch(many), { kind: 'too_many', count: 11 });
+  });
+
+  it('E4 OFFER_BATCH deja la oferta con la caja activa; escribir otra empresa la quita', () => {
+    const start = createInitialContactEnrichmentChatState();
+    const offered = contactEnrichmentChatReducer(start, { type: 'OFFER_BATCH', query: '111,222', ids: ['111', '222'] });
+    assert.equal(offered.step, 'offer_batch');
+    assert.deepEqual(offered.batchOffer, { raw: '111,222', ids: ['111', '222'] });
+    assert.equal(offered.messages.at(-2)?.role, 'user');
+    assert.match(offered.messages.at(-1)?.content ?? '', /lista de 2 HubSpot IDs/);
+    assert.equal(isComposerUnlocked(offered), true);
+    const next = contactEnrichmentChatReducer(offered, { type: 'NEXT_COMPANY' });
+    assert.equal(next.step, 'await_company');
+    assert.equal(next.batchOffer ?? null, null);
+    assert.equal(next.messages.length, offered.messages.length);
+  });
+
+  it('E5 BATCH_TOO_MANY avisa sin oferta', () => {
+    const next = contactEnrichmentChatReducer(createInitialContactEnrichmentChatState(), {
+      type: 'BATCH_TOO_MANY',
+      query: '1,2',
+      count: 11,
+    });
+    assert.equal(next.step, 'offer_batch');
+    assert.equal(next.batchOffer, null);
+    assert.equal(next.messages.at(-1)?.tone, 'warning');
   });
 });

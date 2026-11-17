@@ -43,6 +43,18 @@ describe('ChatQuestionPanel — una respuesta', () => {
     assert.deepEqual(onAnswer.mock.calls[0].arguments, ['Perú']);
   });
 
+  it('sin atajos (Agente 2): los números no eligen nada ni se muestran', () => {
+    const onAnswer = mock.fn();
+    const { container } = rtl.render(
+      <ChatQuestionPanel title="¿País?" options={['Colombia', 'Perú']} onAnswer={onAnswer} keyboardShortcuts={false} />,
+    );
+    pressKey('2');
+    assert.equal(onAnswer.mock.callCount(), 0);
+    assert.equal(container.querySelector('kbd'), null);
+    rtl.fireEvent.click(rtl.screen.getByRole('button', { name: /Perú/ }));
+    assert.deepEqual(onAnswer.mock.calls[0].arguments, ['Perú']);
+  });
+
   it('marca lo elegido antes (al volver a editar)', () => {
     rtl.render(<ChatQuestionPanel title="¿País?" options={['Colombia', 'Perú']} selected={['Perú']} onAnswer={() => {}} />);
     assert.equal(rtl.screen.getByRole('button', { name: /Perú/ }).getAttribute('aria-pressed'), 'true');

@@ -1,8 +1,9 @@
 'use client';
 
-// Agente 2A — Modo «Buscar contacto por LinkedIn o correo» del panel del agente.
+// Agente 2A — Modo «Un contacto por LinkedIn, correo o ID de HubSpot» del panel del agente.
 // F1 abre el modo, F2 lo llena; AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE suma el correo y el
-// candidato inmediato.
+// candidato inmediato; Bryan 17-11 suma el ID de contacto de HubSpot (cero créditos: sólo lee
+// SellUp y HubSpot) y el modo se elige con una opción bajo la conversación.
 //
 // Detrás de CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED (apagada por defecto). Flujo:
 //   1. el usuario pega el enlace del perfil o el correo; el chat NO lo repite (dato personal);
@@ -39,11 +40,12 @@ import type { ContactEnrichmentChatWizardHandle } from './contact-enrichment-cha
 // ── Copy ──────────────────────────────────────────────────────────────────────
 
 export const LINKEDIN_SEARCH_GREETING =
-  'Pega el enlace del perfil de LinkedIn (linkedin.com/in/nombre-apellido) o el correo de la persona que buscas. Antes de gastar créditos reviso si ya la tenemos.';
+  'Pega el enlace del perfil de LinkedIn (linkedin.com/in/nombre-apellido), el correo o el ID de HubSpot del contacto que buscas. Antes de gastar créditos reviso si ya lo tenemos.';
 
 /** Lo que muestra el chat en lugar de lo pegado. */
 export const LINKEDIN_USER_MESSAGE = 'Perfil de LinkedIn enviado.';
 export const EMAIL_USER_MESSAGE = 'Correo enviado.';
+export const HUBSPOT_ID_USER_MESSAGE = 'ID de HubSpot enviado.';
 const OTHER_USER_MESSAGE = 'Búsqueda enviada.';
 
 export const LINKEDIN_SEARCHING_LABEL = 'Buscando a la persona…';
@@ -62,6 +64,7 @@ export function userMessageFor(raw: string): string {
   const input = detectContactSearchInput(raw);
   if (input.kind === 'email') return EMAIL_USER_MESSAGE;
   if (input.kind === 'linkedin') return LINKEDIN_USER_MESSAGE;
+  if (input.kind === 'hubspot_contact_id') return HUBSPOT_ID_USER_MESSAGE;
   return OTHER_USER_MESSAGE;
 }
 
@@ -91,7 +94,7 @@ export function buildLinkedinPreviewRows(
     });
   }
   rows.push({ key: 'email', label: 'Correo', value: preview.email ?? 'No encontrado' });
-  if (options.entryMode === 'email_single') {
+  if (options.entryMode === 'email_single' || options.entryMode === 'hubspot_id_single') {
     rows.push({ key: 'linkedin', label: 'LinkedIn', value: preview.hasLinkedin ? 'Encontrado' : 'No encontrado' });
   }
   rows.push({
@@ -183,6 +186,8 @@ interface ContactEnrichmentLinkedinSearchProps {
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
   onBusyChange?: (busy: boolean) => void;
   placeholder: string;
+  /** Las otras formas de buscar, encima de la caja cuando no hay una búsqueda en curso. */
+  modeOptions?: React.ReactNode;
 }
 
 export function ContactEnrichmentLinkedinSearch({
@@ -190,6 +195,7 @@ export function ContactEnrichmentLinkedinSearch({
   ref,
   onBusyChange,
   placeholder,
+  modeOptions,
 }: ContactEnrichmentLinkedinSearchProps) {
   const router = useRouter();
   const [messages, setMessages] = React.useState<AgentChatMessage[]>(() => [
@@ -358,6 +364,7 @@ export function ContactEnrichmentLinkedinSearch({
       </div>
 
       <div className={cn(isPanel ? 'shrink-0 px-4 pb-4 pt-2' : 'sticky bottom-0 mt-auto bg-background pb-2 pt-3')}>
+        {modeOptions && step === 'await_input' && !isRevealing && <div className="mb-3">{modeOptions}</div>}
         <ChatComposer
           compact
           value={composerUnlocked ? composerText : ''}

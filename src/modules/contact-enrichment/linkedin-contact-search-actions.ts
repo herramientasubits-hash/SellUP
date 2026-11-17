@@ -1,10 +1,12 @@
 'use server';
 
-// Agente 2A — Búsqueda puntual de un contacto (LinkedIn o correo): acción del servidor.
-// F2 · AGENT2A-LINKEDIN-CONTACT-SEARCH, ampliada en AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE.
+// Agente 2A — Búsqueda puntual de un contacto (LinkedIn, correo o ID de HubSpot): acción del
+// servidor. F2 · AGENT2A-LINKEDIN-CONTACT-SEARCH, ampliada en AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE
+// y con el ID de contacto de HubSpot (Bryan 17-11).
 //
-// Una sola acción: detecta si llegó un LinkedIn o un correo, busca (núcleos puros
-// `linkedin-contact-search-core.ts` y `email-contact-search-core.ts`), y si encontró a la
+// Una sola acción: detecta si llegó un LinkedIn, un correo o un ID de HubSpot, busca (núcleos
+// puros `linkedin-contact-search-core.ts`, `email-contact-search-core.ts` y
+// `hubspot-contact-id-search-core.ts`), y si encontró a la
 // persona resuelve la empresa (HubSpot primero, luego SellUp; sólo coincidencia única) y CREA
 // el candidato `pending_review` en el mismo momento. El usuario lo revisa desde el chat
 // («Revisar ahora») o después en «Por revisar».
@@ -20,6 +22,7 @@ import { logProviderUsage, updateAgentRun } from '@/modules/usage-tracking/loggi
 import {
   findHubSpotContactByEmail,
   findHubSpotContactProfileByEmail,
+  findHubSpotContactProfileById,
 } from '@/server/integrations/hubspot-contact-sync';
 import { createContactEnrichmentAttempt } from '@/server/agents/contact-enrichment-toolkit/contact-enrichment-attempt-creator';
 import {
@@ -41,6 +44,13 @@ import {
   detectContactSearchInput,
 } from './contact-search-input';
 import { searchContactByEmail, type EmailSearchResult } from './email-contact-search-core';
+import {
+  searchContactByHubSpotId,
+  type HubSpotIdKnownWhere,
+  type HubSpotIdSearchResult,
+  type KnownCandidateMatch,
+  type KnownCandidateStatus,
+} from './hubspot-contact-id-search-core';
 import {
   searchContactByLinkedin,
   type ContactSearchEntryMode,
@@ -150,6 +160,51 @@ async function findSellUpContactByEmail(admin: SupabaseClient, email: string): P
   return { fullName: (row.full_name as string | null) ?? null, companyName: account?.name ?? null };
 }
 
+/** Contacto de SellUp vinculado a ese contacto de HubSpot (Bryan 17-11). */
+async function findSellUpContactByHubSpotId(admin: SupabaseClient, hubspotContactId: string): Promise<KnownContactMatch | null> {
+  const { data, error } = await admin
+    .from('contacts')
+    .select('full_name, account:account_id ( name )')
+    .is('archived_at', null)
+    .eq('hubspot_contact_id', hubspotContactId)
+    .limit(1);
+  if (error) throw new Error('quick_search_sellup_hubspot_id_failed');
+  const row = data?.[0];
+  if (!row) return null;
+  const account = one(row.account as Embedded<{ name: string | null }>);
+  return { fullName: (row.full_name as string | null) ?? null, companyName: account?.name ?? null };
+}
+
+const KNOWN_CANDIDATE_STATUSES: readonly KnownCandidateStatus[] = ['pending_review', 'approved', 'discarded'];
+
+/**
+ * El candidato que ya salió de ese contacto de HubSpot (Bryan 17-11): vinculado a él
+ * (`matched_hubspot_contact_id`) o sacado de él (`source = 'hubspot'`). Uno por revisar manda;
+ * si no, el más reciente (aprobado o rechazado).
+ */
+async function findCandidateByHubSpotId(admin: SupabaseClient, hubspotContactId: string): Promise<KnownCandidateMatch | null> {
+  // El ID ya viene validado como sólo dígitos: es seguro dentro del filtro `or`.
+  if (!/^\d+$/.test(hubspotContactId)) return null;
+  const { data, error } = await admin
+    .from('contact_enrichment_candidates')
+    .select('id, status, full_name, created_at, run:enrichment_run_id ( company_name )')
+    .or(`matched_hubspot_contact_id.eq.${hubspotContactId},and(source.eq.hubspot,source_contact_id.eq.${hubspotContactId})`)
+    .in('status', [...KNOWN_CANDIDATE_STATUSES])
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw new Error('quick_search_candidate_hubspot_id_failed');
+  const rows = data ?? [];
+  const row = rows.find((r) => r.status === 'pending_review') ?? rows[0];
+  if (!row) return null;
+  const run = one(row.run as Embedded<{ company_name: string | null }>);
+  return {
+    fullName: (row.full_name as string | null) ?? null,
+    companyName: run?.company_name ?? null,
+    candidateId: (row.id as string | null) ?? null,
+    status: row.status as KnownCandidateStatus,
+  };
+}
+
 async function findHubSpotContactMatchByEmail(email: string): Promise<KnownContactMatch | null> {
   const match = await findHubSpotContactByEmail(email);
   if (!match) return null;
@@ -165,8 +220,8 @@ export type ContactQuickSearchResult =
   | { status: 'invalid_input'; message: string }
   | {
       status: 'already_known';
-      where: 'sellup_contact' | 'sellup_pending_candidate' | 'hubspot_contact';
-      matchedBy: 'linkedin' | 'email';
+      where: HubSpotIdKnownWhere;
+      matchedBy: 'linkedin' | 'email' | 'hubspot_id';
       match: { fullName: string | null; companyName: string | null };
       creditsSpent: boolean;
       message: string;
@@ -218,6 +273,16 @@ function usageLogger(internalUserId: string, entryMode: ContactSearchEntryMode) 
   };
 }
 
+/**
+ * Misma regla de dueño que «Primero HubSpot»: un contacto de otro vendedor activo no se ofrece.
+ * Sin dueño ⇒ se ofrece sin preguntar a nadie.
+ */
+async function isOfferableForUser(internalUserId: string, ownerId: string | null): Promise<boolean> {
+  if (!ownerId) return true;
+  const ownership = await resolveHubSpotFirstOwnership(internalUserId, null);
+  return isOfferableHubSpotContact(ownerId, ownership);
+}
+
 /** ¿El candidato que ya está en «Por revisar» lo puede abrir este usuario? Si no, sin id. */
 async function visibleCandidateId(candidateId: string | null | undefined): Promise<string | null> {
   if (!candidateId) return null;
@@ -238,13 +303,16 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
   const input = detectContactSearchInput(rawInput);
   if (input.kind === 'empty') return { status: 'invalid_input', message: CONTACT_SEARCH_INPUT_COPY.empty };
   if (input.kind === 'unknown') return { status: 'invalid_input', message: CONTACT_SEARCH_INPUT_COPY.unknown };
+  if (input.kind === 'hubspot_company_link') {
+    return { status: 'invalid_input', message: CONTACT_SEARCH_INPUT_COPY.hubspotCompanyLink };
+  }
 
   const { internalUserId } = await requireActiveUserForEnrichment();
   const admin = getServiceRoleClient();
   const nowIso = () => new Date().toISOString();
 
   // 1. Buscar.
-  let found: LinkedinSearchResult | EmailSearchResult;
+  let found: LinkedinSearchResult | EmailSearchResult | HubSpotIdSearchResult;
   try {
     if (input.kind === 'linkedin') {
       found = await searchContactByLinkedin(input.raw, {
@@ -259,19 +327,27 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
         logUsage: usageLogger(internalUserId, 'linkedin_single'),
         nowIso,
       });
+    } else if (input.kind === 'hubspot_contact_id') {
+      // Bryan 17-11: sólo SellUp y HubSpot, nunca un proveedor (cero créditos).
+      found = await searchContactByHubSpotId(input.id, {
+        isEnabled: isContactEnrichmentLinkedInSearchEnabled,
+        findSellUpContactByHubSpotId: (id) => findSellUpContactByHubSpotId(admin, id),
+        findCandidateByHubSpotId: (id) => findCandidateByHubSpotId(admin, id),
+        findHubSpotContactById: (id) => findHubSpotContactProfileById(id),
+        isHubSpotContactOfferable: (contact) => isOfferableForUser(internalUserId, contact.ownerId),
+        findSellUpContactByEmail: (email) => findSellUpContactByEmail(admin, email),
+        findPendingCandidateByEmail: (email) => findPendingCandidateByEmail(admin, email),
+        findSellUpContactByLinkedin: (slug) => findSellUpContactByLinkedin(admin, slug),
+        findPendingCandidateByLinkedin: (slug) => findPendingCandidateByLinkedin(admin, slug),
+        nowIso,
+      });
     } else {
       found = await searchContactByEmail(input.email, {
         isEnabled: isContactEnrichmentLinkedInSearchEnabled,
         findSellUpContactByEmail: (email) => findSellUpContactByEmail(admin, email),
         findPendingCandidateByEmail: (email) => findPendingCandidateByEmail(admin, email),
         findHubSpotContactByEmail: (email) => findHubSpotContactProfileByEmail(email),
-        async isHubSpotContactOfferable(contact) {
-          // Misma regla de dueño que «Primero HubSpot»: un contacto de otro vendedor activo no
-          // se ofrece. Sin dueño ⇒ se ofrece sin preguntar a nadie.
-          if (!contact.ownerId) return true;
-          const ownership = await resolveHubSpotFirstOwnership(internalUserId, null);
-          return isOfferableHubSpotContact(contact.ownerId, ownership);
-        },
+        isHubSpotContactOfferable: (contact) => isOfferableForUser(internalUserId, contact.ownerId),
         lookupApollo: (email) => lookupApolloByEmail(email),
         lookupLusha: (email) => lookupLushaByEmail(email),
         findSellUpContactByLinkedin: (slug) => findSellUpContactByLinkedin(admin, slug),
@@ -409,7 +485,8 @@ export async function searchContactQuickAction(rawInput: unknown): Promise<Conta
         return {
           status: 'already_known',
           where: 'sellup_pending_candidate',
-          matchedBy: data.entryMode === 'email_single' ? 'email' : 'linkedin',
+          matchedBy:
+            data.entryMode === 'email_single' ? 'email' : data.entryMode === 'hubspot_id_single' ? 'hubspot_id' : 'linkedin',
           match: { fullName: pending?.fullName ?? preview.fullName, companyName: pending?.companyName ?? null },
           creditsSpent: data.providersCalled.length > 0,
           message: created.message,
