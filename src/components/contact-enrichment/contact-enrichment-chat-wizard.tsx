@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, PenLine, Search, Sparkles } from "@/icons";
+import { Check, Layers, PenLine, Search, Sparkles } from "@/icons";
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,9 +25,11 @@ import type { CompanyCandidate } from '@/modules/contact-enrichment/types';
 import {
   contactEnrichmentChatReducer,
   createInitialContactEnrichmentChatState,
+  batchOfferButtonLabel,
   buildExtraDataResolveInput,
   buildResolveInput,
   classifyCompanyQuery,
+  companyQueryBatch,
   extraDataPrefill,
   isComposerUnlocked,
   planExtraDataResolution,
@@ -80,6 +82,8 @@ export function composerPlaceholder(step: ContactEnrichmentChatStep, awaitCompan
       return 'Buscando en Lusha…';
     case 'done':
       return 'Enriquecimiento preparado';
+    case 'offer_batch':
+      return NEXT_COMPANY_PLACEHOLDER;
     case 'error':
       return 'Corrige el problema para continuar';
     default:
@@ -142,6 +146,16 @@ interface ContactEnrichmentChatWizardProps {
   onBusyChange?: (busy: boolean) => void;
   /** F1 — texto de la caja mientras espera la empresa (por defecto, el de «Por empresa»). */
   placeholder?: string;
+  /**
+   * Bryan 17-11 — las otras formas de buscar (lote y contacto puntual), encima de la caja cuando
+   * el asistente espera una empresa. Opcionales: escribir una empresa sigue como siempre.
+   */
+  modeOptions?: React.ReactNode;
+  /**
+   * Bryan 17-11 — «Buscarlas como lote»: se pegaron varios HubSpot IDs en «Por empresa». Sin él
+   * (la pantalla suelta) lo escrito se busca como siempre.
+   */
+  onSearchAsBatch?: (raw: string) => void;
 }
 
 export function ContactEnrichmentChatWizard({
@@ -151,6 +165,8 @@ export function ContactEnrichmentChatWizard({
   ref,
   onBusyChange,
   placeholder,
+  modeOptions,
+  onSearchAsBatch,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
     contactEnrichmentChatReducer,
@@ -214,6 +230,18 @@ export function ContactEnrichmentChatWizard({
       setSearch(null);
       dispatch({ type: 'NEXT_COMPANY' });
     }
+
+    // Bryan 17-11: varios HubSpot IDs no son una empresa: se ofrece buscarlos como lote.
+    const batch = onSearchAsBatch ? companyQueryBatch(query) : null;
+    if (batch) {
+      dispatch(
+        batch.kind === 'batch'
+          ? { type: 'OFFER_BATCH', query, ids: batch.ids }
+          : { type: 'BATCH_TOO_MANY', query, count: batch.count },
+      );
+      return;
+    }
+
     dispatch({ type: 'SUBMIT_QUERY', query });
 
     // Un correo personal (gmail, hotmail…) no dice la empresa: se piden sus datos de una vez.
@@ -511,6 +539,17 @@ export function ContactEnrichmentChatWizard({
               </div>
             )}
 
+            {state.step === 'offer_batch' && state.batchOffer && onSearchAsBatch && (
+              <Button
+                className="w-full"
+                onClick={() => onSearchAsBatch(state.batchOffer!.raw)}
+                data-testid="contact-enrichment-search-as-batch"
+              >
+                <Layers className="h-4 w-4" aria-hidden />
+                {batchOfferButtonLabel(state.batchOffer.ids.length)}
+              </Button>
+            )}
+
             {state.step === 'error' && (
               <Alert variant="destructive">
                 <AlertTitle>No se pudo continuar</AlertTitle>
@@ -531,6 +570,9 @@ export function ContactEnrichmentChatWizard({
       {/* La caja de escribir de Thema. Se enciende cuando el agente espera el nombre de la
           empresa, también después de una búsqueda; el resto del flujo se contesta eligiendo. */}
       <div className={cn(isPanel ? 'shrink-0 px-4 pb-4 pt-2' : 'sticky bottom-0 mt-auto bg-background pb-2 pt-3')}>
+        {modeOptions && composerUnlocked && showActiveRegion && state.step !== 'offer_batch' && (
+          <div className="mb-3">{modeOptions}</div>
+        )}
         <ChatComposer
           compact
           value={composerUnlocked ? composerText : ''}
@@ -542,7 +584,8 @@ export function ContactEnrichmentChatWizard({
               : composerPlaceholder(state.step, placeholder)
           }
           disabled={!composerUnlocked}
-          maxLength={120}
+          // Bryan 17-11: caben 10 HubSpot IDs pegados (para ofrecer el lote).
+          maxLength={400}
           inputRef={composerInputRef}
         />
       </div>

@@ -38,7 +38,7 @@ export type LinkedinSearchProvider = 'apollo' | 'lusha';
 export type ContactSearchSource = LinkedinSearchProvider | 'hubspot';
 
 /** Por dónde entró la búsqueda puntual. */
-export type ContactSearchEntryMode = 'linkedin_single' | 'email_single';
+export type ContactSearchEntryMode = 'linkedin_single' | 'email_single' | 'hubspot_id_single';
 
 /**
  * Lo que se sabe de la persona. Los proveedores nunca traen teléfonos (siguen el flujo de

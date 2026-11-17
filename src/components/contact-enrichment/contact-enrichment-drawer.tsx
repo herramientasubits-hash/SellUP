@@ -3,11 +3,10 @@
 import * as React from 'react';
 import { ChatPanel } from '@/components/chat';
 import { AGENT_RUNS_PROCESS_CENTER_OPEN_EVENT } from '@/components/prospect-batches/agent-runs-tray/agent-runs-tray';
-import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { ContactEnrichmentWizard } from './contact-enrichment-wizard';
-import { ContactEnrichmentHubSpotIdBatch } from './contact-enrichment-hubspot-id-batch';
+import { ContactEnrichmentHubSpotIdBatch, startHubSpotIdBatch } from './contact-enrichment-hubspot-id-batch';
 import { ContactEnrichmentLinkedinSearch } from './contact-enrichment-linkedin-search';
-import { SearchModeBrandIcon } from './search-mode-brand-icon';
+import { SEARCH_MODE_LABEL, SearchModeOptions, type EnrichmentPanelMode } from './search-mode-options';
 import { getContactEnrichmentPanelFlagsAction } from '@/modules/contact-enrichment/panel-flags-actions';
 import type {
   ContactEnrichmentChatWizardHandle,
@@ -15,25 +14,13 @@ import type {
   ManualContactContext,
 } from './contact-enrichment-wizard';
 
-export type { ContactEnrichmentInitialCompany, ManualContactContext };
-
-/** Nombre (tooltip y aria-label) del botón de HubSpot de la cabecera: lote de Company IDs. */
-export const HUBSPOT_ID_BATCH_BUTTON_LABEL = 'Buscar por lote de HubSpot IDs';
-
-/** Nombre (tooltip y aria-label) del botón de LinkedIn de la cabecera (LinkedIn o correo). */
-export const LINKEDIN_SEARCH_BUTTON_LABEL = 'Buscar contacto por LinkedIn o correo';
-
-/**
- * Los modos del panel. «Por empresa» (`single`) es el de siempre; los otros dos se activan con
- * los botones de la cabecera y se apagan volviendo a pulsarlos o con «Nueva conversación».
- */
-export type EnrichmentPanelMode = 'single' | 'hubspot_id_batch' | 'linkedin';
+export type { ContactEnrichmentInitialCompany, ManualContactContext, EnrichmentPanelMode };
 
 /** Lo que dice la caja de texto en cada modo. */
 export const SEARCH_MODE_PLACEHOLDER: Record<EnrichmentPanelMode, string> = {
   single: 'Nombre o dominio de la empresa',
   hubspot_id_batch: 'Company IDs (con coma o uno por fila)',
-  linkedin: 'Pega el LinkedIn o el correo de la persona',
+  linkedin: 'Pega el LinkedIn, el correo o el ID de HubSpot del contacto',
 };
 
 interface ContactEnrichmentDrawerProps {
@@ -50,6 +37,10 @@ interface ContactEnrichmentDrawerProps {
  * quien ya lo monta, pero vive en el panel del agente de Thema (`ChatPanel`): se
  * acopla al lado de la página y la estrecha, sin velo, así que la lista de
  * empresas o de contactos sigue a la vista mientras se conversa.
+ *
+ * Bryan 17-11: las otras formas de buscar (lote de HubSpot IDs y un contacto por LinkedIn,
+ * correo o ID) ya no son botones de la cabecera: son opciones bajo la conversación, como en el
+ * Agente 1. Son opcionales: escribir una empresa sigue con Rumbo como siempre.
  */
 export function ContactEnrichmentDrawer({
   open,
@@ -60,8 +51,6 @@ export function ContactEnrichmentDrawer({
 }: ContactEnrichmentDrawerProps) {
   const wizardRef = React.useRef<ContactEnrichmentChatWizardHandle>(null);
   const [busy, setBusy] = React.useState(false);
-  // D1 + F1 — los botones de HubSpot y LinkedIn cambian el modo del panel; volver a pulsar el
-  // activo regresa a «Por empresa».
   const [mode, setMode] = React.useState<EnrichmentPanelMode>('single');
   // Cambiar la clave remonta el asistente: estado, texto, IDs y URL vuelven a cero.
   const [conversationKey, setConversationKey] = React.useState(0);
@@ -69,9 +58,10 @@ export function ContactEnrichmentDrawer({
   const isBatch = mode === 'hubspot_id_batch';
   const isLinkedin = mode === 'linkedin';
 
-  const backToCompanyMode = React.useCallback(() => {
+  /** Elegir una opción empieza esa conversación limpia (Bryan 17-11). */
+  const switchMode = React.useCallback((target: EnrichmentPanelMode) => {
     setBusy(false);
-    setMode('single');
+    setMode(target);
     setConversationKey((key) => key + 1);
   }, []);
 
@@ -85,26 +75,34 @@ export function ContactEnrichmentDrawer({
   // (antes, dueña 20-10): la conversación sigue con otra empresa. A «Por revisar» se va desde el
   // aviso o el Centro de procesos.
 
-  // F1 — «Nueva conversación» abre SIEMPRE en «Por empresa» con la caja vacía. Si hay un lote
-  // en curso, el primer clic lo cancela y deja a la vista su reporte «Cancelado»; el siguiente
-  // abre la conversación nueva.
+  // «Nueva conversación» abre SIEMPRE en «Por empresa» con la caja vacía y sus opciones. Si hay
+  // un lote en curso, el primer clic lo cancela y deja a la vista su reporte «Cancelado»; el
+  // siguiente abre la conversación nueva.
   const startNewConversation = () => {
     if (wizardRef.current?.cancelInProgress?.()) return;
     // El lote vive fuera del panel (sigue al minimizar): su reinicio limpia esa conversación.
     wizardRef.current?.reset();
     if (mode === 'single') return;
-    backToCompanyMode();
+    switchMode('single');
   };
 
-  const toggleMode = (target: Exclude<EnrichmentPanelMode, 'single'>) => {
-    setBusy(false);
-    setMode((current) => (current === target ? 'single' : target));
-  };
+  /** Varios HubSpot IDs pegados en «Por empresa»: «Buscarlas como lote» los lleva al lote. */
+  const searchAsBatch = React.useCallback(
+    (raw: string) => {
+      startHubSpotIdBatch(raw);
+      switchMode('hubspot_id_batch');
+    },
+    [switchMode],
+  );
+
+  const modeOptions = (
+    <SearchModeOptions current={mode} linkedinEnabled={linkedinSearchEnabled} onSelect={switchMode} />
+  );
 
   const singleSubtitle = preloadedCompany?.name
     ? `Enriquecer contactos · ${preloadedCompany.name}`
     : 'Enriquecer contactos';
-  const subtitle = isBatch ? HUBSPOT_ID_BATCH_BUTTON_LABEL : isLinkedin ? LINKEDIN_SEARCH_BUTTON_LABEL : singleSubtitle;
+  const subtitle = mode === 'single' ? singleSubtitle : SEARCH_MODE_LABEL[mode];
 
   return (
     <ChatPanel
@@ -116,30 +114,6 @@ export function ContactEnrichmentDrawer({
         onOpenChange(next);
       }}
       subtitle={subtitle}
-      headerActions={
-        <>
-          <TooltipIconButton
-            icon={<SearchModeBrandIcon brand="hubspot" />}
-            label={HUBSPOT_ID_BATCH_BUTTON_LABEL}
-            variant={isBatch ? 'secondary' : 'ghost'}
-            aria-pressed={isBatch}
-            disabled={busy}
-            onClick={() => toggleMode('hubspot_id_batch')}
-            data-testid="chat-panel-hubspot-id-batch"
-          />
-          {linkedinSearchEnabled && (
-            <TooltipIconButton
-              icon={<SearchModeBrandIcon brand="linkedin" />}
-              label={LINKEDIN_SEARCH_BUTTON_LABEL}
-              variant={isLinkedin ? 'secondary' : 'ghost'}
-              aria-pressed={isLinkedin}
-              disabled={busy}
-              onClick={() => toggleMode('linkedin')}
-              data-testid="chat-panel-linkedin-search"
-            />
-          )}
-        </>
-      }
       onMinimize={minimize}
       onNewConversation={startNewConversation}
       // El lote se puede cancelar desde «Nueva conversación»; el resto espera a que termine.
@@ -152,6 +126,7 @@ export function ContactEnrichmentDrawer({
           layout="panel"
           onBusyChange={setBusy}
           placeholder={SEARCH_MODE_PLACEHOLDER.hubspot_id_batch}
+          modeOptions={modeOptions}
         />
       ) : isLinkedin ? (
         <ContactEnrichmentLinkedinSearch
@@ -160,6 +135,7 @@ export function ContactEnrichmentDrawer({
           layout="panel"
           onBusyChange={setBusy}
           placeholder={SEARCH_MODE_PLACEHOLDER.linkedin}
+          modeOptions={modeOptions}
         />
       ) : (
         <ContactEnrichmentWizard
@@ -170,6 +146,8 @@ export function ContactEnrichmentDrawer({
           initialCompany={preloadedCompany ?? undefined}
           onCreateManualContact={onCreateManualContact}
           placeholder={SEARCH_MODE_PLACEHOLDER.single}
+          modeOptions={modeOptions}
+          onSearchAsBatch={searchAsBatch}
         />
       )}
     </ChatPanel>
@@ -178,7 +156,7 @@ export function ContactEnrichmentDrawer({
 
 /**
  * La bandera de LinkedIn viene del servidor. Se pide al abrir el panel; mientras no llega (o si
- * falla) el botón no se muestra: apagado es el valor seguro.
+ * falla) la opción no se muestra: apagado es el valor seguro.
  */
 function useLinkedinSearchFlag(open: boolean): boolean {
   const [enabled, setEnabled] = React.useState(false);
