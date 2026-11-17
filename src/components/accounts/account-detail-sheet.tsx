@@ -17,6 +17,7 @@ import {
   GitBranch,
   PhoneCall,
   Rumbo,
+  MessageSquare,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -63,6 +64,14 @@ import { PeruSunatLegalValidationBlock } from '@/components/prospect-batches/per
 import type { PeruSunatEnrichmentBlock } from '@/server/prospect-batches/peru-sunat-post-approval-enrichment';
 import { PeruMigoLegalValidationBlock } from '@/components/prospect-batches/peru-migo-legal-validation-block';
 import type { PeMigoApiEnrichmentBlock } from '@/server/prospect-batches/peru-migo-legal-enrichment';
+// Comentarios y alertas (168): los de la empresa y los de sus contactos, en un solo hilo.
+import { useRecordComments } from '@/components/record-comments/use-record-comments';
+import {
+  RecordCommentsPanel,
+  type CommentComposerPreset,
+} from '@/components/record-comments/record-comments-panel';
+import { FieldCommentMarker } from '@/components/record-comments/field-comment-marker';
+import type { RecordCommentFieldKey } from '@/modules/record-comments/types';
 
 type BadgeVariant = NonNullable<ComponentProps<typeof Badge>['variant']>;
 
@@ -129,6 +138,9 @@ interface SheetData {
   freshBrief: boolean;
 }
 
+/** Pestaña «Comentarios» (sólo existe con la migración 168 aplicada). */
+const COMMENTS_TAB_ID = 'comentarios';
+
 /** Si el Agente 3 no se puede leer (p. ej. migración sin aplicar), el panel sigue sirviendo. */
 const FIRST_CALL_UNAVAILABLE: FirstCallState = { enabled: false, brief: null, packs: [] };
 
@@ -150,6 +162,22 @@ export function AccountDetailSheet({
   const [contactSheetId, setContactSheetId] = React.useState<string | null>(null);
   const [contactSheetOpen, setContactSheetOpen] = React.useState(false);
   const [tab, setTab] = React.useState(normalizeAccountTab(initialTab) ?? 'resumen');
+  // Comentarios: complementarios. Sin la 168 aplicada, `available` es falso y
+  // el panel queda como antes.
+  const comments = useRecordComments('account', open ? accountId : null);
+  const [commentPreset, setCommentPreset] = React.useState<CommentComposerPreset | null>(null);
+  const openComments = React.useCallback(
+    (fieldKey: RecordCommentFieldKey, fieldValue?: string | null) => {
+      setCommentPreset({ fieldKey, fieldValue: fieldValue ?? null, nonce: Date.now() });
+      setTab(COMMENTS_TAB_ID);
+    },
+    [],
+  );
+  const openAlertCount = comments.comments.filter((c) => c.kind === 'alert' && !c.resolvedAt).length;
+  const marker = (fieldKey: RecordCommentFieldKey) =>
+    comments.available ? (
+      <FieldCommentMarker comments={comments.comments} fieldKey={fieldKey} onOpen={openComments} />
+    ) : null;
   // Otra empresa en el mismo panel abierto (p. ej. terminó la preparación de otra): empieza
   // en la pestaña pedida, no en la que tenía la anterior (ajuste durante el render).
   const [shownAccountId, setShownAccountId] = React.useState(accountId);
@@ -321,10 +349,20 @@ export function AccountDetailSheet({
               <SurfaceCard className="p-4">
               <DetailList columns={4}>
                 <DetailItem icon={User} label="Responsable" emptyLabel="Sin asignar">
-                  {data.account.owner?.full_name ?? data.account.owner?.email}
+                  {data.account.owner?.full_name ?? data.account.owner?.email ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {data.account.owner?.full_name ?? data.account.owner?.email}
+                      {marker('owner')}
+                    </span>
+                  ) : null}
                 </DetailItem>
                 <DetailItem icon={MapPin} label="Ubicación" emptyLabel="Sin ubicación">
-                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                  {[data.account.city, data.account.region, data.account.country].filter(Boolean).length > 0 ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      {[data.account.city, data.account.region, data.account.country].filter(Boolean).join(', ')}
+                      {marker('country')}
+                    </span>
+                  ) : null}
                 </DetailItem>
                 <DetailItem icon={Globe} label="Sitio web" emptyLabel="Sin sitio web">
                   {data.account.website ? (
@@ -337,6 +375,7 @@ export function AccountDetailSheet({
                       {data.account.domain ?? data.account.website}
                     </a>
                   ) : null}
+                  {data.account.website ? marker('website') : null}
                 </DetailItem>
                 <DetailItem icon={Users} label="Contactos">
                   <span className="tabular-nums">{data.contacts.length}</span>
@@ -356,6 +395,14 @@ export function AccountDetailSheet({
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                     <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
                     <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
+                    {comments.available && (
+                      <TabsTrigger value={COMMENTS_TAB_ID}>
+                        <MessageSquare className="h-4 w-4" /> Comentarios
+                        {openAlertCount > 0 && (
+                          <Badge variant="warning" className="ml-1 tabular-nums">{openAlertCount}</Badge>
+                        )}
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   {/* Resumen */}
@@ -382,15 +429,16 @@ export function AccountDetailSheet({
                           el resumen de arriba: aquí no se repiten. */}
                       <DrawerSection title="Datos de la empresa" icon={Building2}>
                         <dl className="space-y-3">
-                          <DetailRow icon={Briefcase} label="Industria">
+                          <DetailRow icon={Briefcase} label="Industria" marker={marker('industry')}>
                             {data.account.industry || <EmptyValue />}
                           </DetailRow>
-                          <DetailRow icon={Users} label="Tamaño">
+                          <DetailRow icon={Users} label="Tamaño" marker={marker('employees')}>
                             {data.account.company_size || <EmptyValue />}
                           </DetailRow>
                           <DetailRow
                             icon={Hash}
                             label={data.account.tax_identifier_type ?? 'ID fiscal'}
+                            marker={marker('tax_id')}
                           >
                             {data.account.tax_identifier
                               ? <span className="break-all font-mono text-xs tabular-nums">{data.account.tax_identifier}</span>
@@ -541,6 +589,13 @@ export function AccountDetailSheet({
                   <TabsContent value="asociaciones">
                     <CandidateCorporateTreeTab key={data.account.id} accountId={data.account.id} />
                   </TabsContent>
+
+                  {/* Comentarios y alertas (168): de la empresa y de sus contactos */}
+                  {comments.available && (
+                    <TabsContent value={COMMENTS_TAB_ID}>
+                      <RecordCommentsPanel target="account" state={comments} preset={commentPreset} />
+                    </TabsContent>
+                  )}
                 </Tabs>
           </div>
         )}
@@ -550,7 +605,11 @@ export function AccountDetailSheet({
       <ContactDetailSheet
         contactId={contactSheetId}
         open={contactSheetOpen}
-        onClose={() => setContactSheetOpen(false)}
+        onClose={() => {
+          setContactSheetOpen(false);
+          // Lo comentado en el contacto también se ve en el hilo de la empresa.
+          void comments.reload();
+        }}
       />
     </>
   );
@@ -560,10 +619,13 @@ function DetailRow({
   icon: Icon,
   label,
   children,
+  marker,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   children: React.ReactNode;
+  /** Marca de comentarios de este dato (168), junto a la etiqueta. */
+  marker?: React.ReactNode;
 }) {
   // Design Refresh v3: label en fila horizontal (label a la izquierda, valor a
   // la derecha) para una lectura más tabular y ordenada; contraste del label
@@ -573,6 +635,7 @@ function DetailRow({
       <div className="flex shrink-0 items-center gap-2 min-w-[104px]">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <dt className="text-xs text-muted-foreground">{label}</dt>
+        {marker}
       </div>
       <dd className="min-w-0 flex-1 break-words text-sm text-foreground sm:text-right">{children}</dd>
     </div>

@@ -437,6 +437,7 @@ describe('Menú lateral — secciones plegables', () => {
         'Flujo de prospección',
         'Empresas',
         'Contactos',
+        'Comentarios y alertas',
         'Uso de IA y costos',
         'Catálogo de fuentes',
         'Calculadora de ROI',
