@@ -45,9 +45,12 @@ export type CurrentEmploymentStatus =
   /** Apollo no mandó historial: no se puede saber. */
   | 'unknown';
 
+/** Quién comprobó: el historial de Apollo o la búsqueda web de Claude («Verificar con IA»). */
+export type CurrentEmploymentSource = 'apollo' | 'ai_web';
+
 export interface CurrentEmploymentCheck {
   status: CurrentEmploymentStatus;
-  source: 'apollo';
+  source: CurrentEmploymentSource;
   checked_at: string;
   /** Cargo que teníamos antes de comprobar. */
   previous_title: string | null;
@@ -55,6 +58,10 @@ export interface CurrentEmploymentCheck {
   current_company: string | null;
   /** Desde cuándo tiene el trabajo actual (AAAA-MM-DD o AAAA-MM), si Apollo lo sabe. */
   current_since: string | null;
+  /** Sólo «Verificar con IA»: la fuente, la frase tal cual y su fecha (si el buscador la da). */
+  evidence_url?: string | null;
+  evidence_quote?: string | null;
+  evidence_date?: string | null;
 }
 
 /** Estados que merecen aviso: la persona posiblemente ya no está en la empresa. */
@@ -246,11 +253,19 @@ export function readCurrentEmploymentCheck(value: unknown): CurrentEmploymentChe
   if (typeof status !== 'string' || !valid.includes(status as CurrentEmploymentStatus)) return null;
   return {
     status: status as CurrentEmploymentStatus,
-    source: 'apollo',
+    source: value.source === 'ai_web' ? 'ai_web' : 'apollo',
     checked_at: clean(value.checked_at) ?? '',
     previous_title: clean(value.previous_title),
     current_title: clean(value.current_title),
     current_company: clean(value.current_company),
     current_since: clean(value.current_since),
+    // La fuente sólo existe en lo que verificó la IA; lo de Apollo queda igual que antes.
+    ...(value.source === 'ai_web'
+      ? {
+          evidence_url: clean(value.evidence_url),
+          evidence_quote: clean(value.evidence_quote),
+          evidence_date: clean(value.evidence_date),
+        }
+      : {}),
   };
 }
