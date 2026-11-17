@@ -15,13 +15,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/feedback/spinner';
 import { DrawerSection } from '@/components/shared/drawer-section';
+import { Heading } from '@/components/typography/heading';
 import { formatInAppZone } from '@/lib/format-date';
 import { fetchHubSpotProperties } from '@/modules/hubspot-lookup/client';
 import { filterPropertySections } from '@/server/integrations/hubspot-lookup/hubspot-properties-core';
 import type { HubSpotPropertiesLookupResult, HubSpotPropertyEntry } from '@/modules/hubspot-lookup/types';
 
-/** La pestaña «HubSpot» de las fichas (empresa y contacto, de SellUp o de consulta). */
-export const HUBSPOT_DATA_TAB = 'hubspot';
 
 export type HubSpotPropertiesState = { status: 'idle' } | { status: 'loading' } | HubSpotPropertiesLookupResult;
 
@@ -149,15 +148,21 @@ export function HubSpotPropertiesSection({ kind, state, onRetry, hubspotUrl }: H
       ) : visible.length === 0 ? (
         <EmptyState variant="plain" icon={Search} title="Ningún dato coincide" description="Prueba con otra palabra." />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        // Una sección debajo de otra (dueña 17-11: «en dos columnas se ve muy feo»).
+        // Va dentro del bloque «Todos los datos en HubSpot» del Resumen: cada grupo es un
+        // subtítulo con su lista (no una tarjeta dentro de otra tarjeta).
+        <div className="flex flex-col gap-5">
           {visible.map((section) => (
-            <DrawerSection key={section.name} title={section.label} icon={Database}>
-              <dl className="space-y-3">
+            <section key={section.name} aria-label={section.label} className="space-y-1.5">
+              <Heading level={6} as="h4" weight="semibold" className="text-sm text-foreground">
+                {section.label}
+              </Heading>
+              <dl className="divide-y divide-border/60">
                 {section.entries.map((entry) => (
                   <PropertyRow key={entry.name} entry={entry} />
                 ))}
               </dl>
-            </DrawerSection>
+            </section>
           ))}
         </div>
       )}
@@ -165,11 +170,50 @@ export function HubSpotPropertiesSection({ kind, state, onRetry, hubspotUrl }: H
   );
 }
 
+interface HubSpotPropertiesDisclosureProps {
+  kind: 'company' | 'contact';
+  /** Sin id (no vinculado a HubSpot): el bloque no se muestra. */
+  hubspotId: string | null | undefined;
+  hubspotUrl?: string | null;
+}
+
+const DISCLOSURE_HINT: Record<'company' | 'contact', string> = {
+  company: 'Lo que HubSpot tiene de la empresa: calificación, enriquecimiento, validación de datos, redes, ingresos…',
+  contact: 'Lo que HubSpot tiene del contacto: área, nivel, rol, teléfonos, país, responsable…',
+};
+
+/**
+ * «Todos los datos en HubSpot», plegado al final del Resumen (dueña 17-11: la pestaña
+ * «HubSpot» ya no cabía en la fila de pestañas). HubSpot sólo se lee al abrirlo.
+ */
+export function HubSpotPropertiesDisclosure({ kind, hubspotId, hubspotUrl }: HubSpotPropertiesDisclosureProps) {
+  const [open, setOpen] = React.useState(false);
+  const properties = useHubSpotProperties(kind, hubspotId, open);
+  if (!hubspotId) return null;
+  return (
+    <DrawerSection
+      title="Todos los datos en HubSpot"
+      icon={Database}
+      hint={DISCLOSURE_HINT[kind]}
+      action={
+        <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? 'Ocultar' : 'Ver todos'}
+        </Button>
+      }
+    >
+      {open ? (
+        <HubSpotPropertiesSection kind={kind} state={properties.state} onRetry={properties.retry} hubspotUrl={hubspotUrl} />
+      ) : null}
+    </DrawerSection>
+  );
+}
+
 function PropertyRow({ entry }: { entry: HubSpotPropertyEntry }) {
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
-      <dt className="min-w-[140px] max-w-[45%] shrink-0 break-words text-xs text-muted-foreground">{entry.label}</dt>
-      <dd className="min-w-0 flex-1 whitespace-pre-line break-words text-sm text-foreground sm:text-right">
+    // El dato junto a su nombre (no pegado al borde derecho): se lee de arriba abajo.
+    <div className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[minmax(160px,240px)_1fr] sm:gap-4">
+      <dt className="break-words text-xs leading-5 text-muted-foreground">{entry.label}</dt>
+      <dd className="min-w-0 whitespace-pre-line break-words text-sm text-foreground">
         <PropertyValue entry={entry} />
       </dd>
     </div>

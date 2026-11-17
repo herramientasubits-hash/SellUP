@@ -32,6 +32,7 @@ import {
   type TimelineTone,
 } from '@/components/data-display';
 import { TabsContent } from '@/components/ui/tabs';
+import { ContactHubSpotActivity, ContactHubSpotData } from '@/components/hubspot/hubspot-page-panels';
 import { getContactById, getContactAudit } from '@/modules/contacts/actions';
 import { getAccountById } from '@/modules/accounts/actions';
 import {
@@ -130,6 +131,7 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
     hubspot_contact_id: contact.hubspot_contact_id,
     metadata: contact.metadata as Record<string, unknown> | null,
   };
+  const hubspotContactId = /^\d{1,20}$/.test(contact.hubspot_contact_id ?? '') ? contact.hubspot_contact_id : null;
 
   return (
     <div className="space-y-6">
@@ -297,6 +299,12 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </section>
             </SurfaceCard>
           </div>
+          {/* Todos sus datos de HubSpot, plegados (dueña 17-11) */}
+          {hubspotContactId && (
+            <div className="mt-4">
+              <ContactHubSpotData hubspotContactId={hubspotContactId} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Actividad ────────────────────────────────────────── */}
@@ -338,6 +346,11 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </Timeline>
             )}
           </SurfaceCard>
+          {hubspotContactId && (
+            <div className="mt-4">
+              <ContactHubSpotActivity hubspotContactId={hubspotContactId} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Enriquecimiento ──────────────────────────────────── */}

@@ -448,7 +448,10 @@ export function assessEmploymentAiResponse(params: {
 
   // 3) Sin prueba: «sin verificar», con lo mejor que se encontró sobre la persona.
   const staleAtCompany = atCompany ? null : (allAboutPerson.find((s) => isStaleEvidence(s.pageAge, params.checkedAt) && mentionsOurCompany(s)) ?? null);
-  const found = staleAtCompany ?? aboutPerson[0] ?? allAboutPerson[0] ?? null;
+  // Sólo se muestra lo que sirve para revisar: una fuente vieja de esta empresa o su propio perfil.
+  // Un resultado que sólo trae el nombre («PAOLA CONTRERAS - Google Scholar», «Doctora Marisel
+  // Figueroa») suele ser otra persona y confunde (dueña 17-11).
+  const found = staleAtCompany ?? allAboutPerson.find((s) => s.ownProfile) ?? null;
   const rejection: EmploymentAiRejection = !raw
     ? 'no_submission'
     : staleAtCompany || (aboutPerson.length === 0 && allAboutPerson.length > 0)

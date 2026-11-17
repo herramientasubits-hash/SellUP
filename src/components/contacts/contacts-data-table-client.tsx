@@ -12,6 +12,7 @@ import { firstCallHref } from '@/modules/speech/first-call-links';
 import { FirstContactPanelHost, type FirstContactTarget } from '@/components/first-call/first-contact-panel-host';
 import { HubSpotContactPreviewSheet } from '@/components/hubspot/hubspot-contact-preview-sheet';
 import { onHubSpotOpen, readHubSpotParam } from '@/modules/hubspot-lookup/types';
+import { onOpenRecord, readOpenRecordParam } from '@/modules/global-search/open-record-link';
 import { MAX_CONTACTS_PER_RUN } from '@/server/agents/first-call/types';
 
 import { Badge } from '@/components/ui/badge';
@@ -245,6 +246,19 @@ export function ContactsDataTableClient({
     setDetailContactId(contactId);
     setDetailOpen(true);
   }, []);
+
+  // `/contacts?abrir=<id>` (búsqueda general): abre la ficha lateral del contacto, no su
+  // página; estando ya en Contactos, la búsqueda avisa con un evento.
+  React.useEffect(() => {
+    const { id, rest } = readOpenRecordParam(window.location.search);
+    if (id) {
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest}`);
+      // Rationale: lee la dirección UNA vez al montar (no hay cascada de renders).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      openDetail(id);
+    }
+    return onOpenRecord('contact', (contactId) => openDetail(contactId));
+  }, [openDetail]);
 
   const openEdit = React.useCallback((contact: ContactListItem) => {
     setEditingContact(contact);

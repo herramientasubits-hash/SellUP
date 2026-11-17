@@ -18,7 +18,6 @@ import {
   PhoneCall,
   Rumbo,
   MessageSquare,
-  Database,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import type { ComponentProps } from 'react';
@@ -73,11 +72,7 @@ import {
   useHubSpotActivity,
 } from '@/components/hubspot/hubspot-activity';
 import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
-import {
-  HUBSPOT_DATA_TAB,
-  HubSpotPropertiesSection,
-  useHubSpotProperties,
-} from '@/components/hubspot/hubspot-properties-section';
+import { HubSpotPropertiesDisclosure } from '@/components/hubspot/hubspot-properties-section';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
 import type { HubSpotActivityEntry, HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 // Comentarios y alertas (168): los de la empresa y los de sus contactos, en un solo hilo.
@@ -286,8 +281,6 @@ export function AccountDetailSheet({
     hubspotCompanyId && accountId ? accountId : null,
     tab === 'contactos',
   );
-  // Todos los datos de HubSpot de la empresa: se leen al abrir su pestaña.
-  const hubspotProperties = useHubSpotProperties('company', hubspotCompanyId, tab === HUBSPOT_DATA_TAB);
   const [importingContactId, setImportingContactId] = React.useState<string | null>(null);
 
   async function handleImportHubSpotContact(contact: HubSpotContactHit) {
@@ -442,9 +435,6 @@ export function AccountDetailSheet({
                     <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
                     <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
                     <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
-                    {data.account.hubspot_company_id && (
-                      <TabsTrigger value={HUBSPOT_DATA_TAB}><Database className="h-4 w-4" /> HubSpot</TabsTrigger>
-                    )}
                     {comments.available && (
                       <TabsTrigger value={COMMENTS_TAB_ID}>
                         <MessageSquare className="h-4 w-4" /> Comentarios
@@ -578,6 +568,12 @@ export function AccountDetailSheet({
                         </DrawerSection>
                       );
                     })()}
+                    {/* Todos sus datos de HubSpot, plegados (la pestaña ya no cabía, dueña 17-11) */}
+                    <HubSpotPropertiesDisclosure
+                      kind="company"
+                      hubspotId={hubspotCompanyId}
+                      hubspotUrl={hubspotCompanyId ? hubspotCompanyUrl(hubspotCompanyId, null) : null}
+                    />
                   </TabsContent>
 
                   {/* Contactos */}
@@ -672,18 +668,6 @@ export function AccountDetailSheet({
                   <TabsContent value="asociaciones">
                     <CandidateCorporateTreeTab key={data.account.id} accountId={data.account.id} />
                   </TabsContent>
-
-                  {/* HubSpot (dueña 17-11): todos sus datos, agrupados como en su ficha */}
-                  {data.account.hubspot_company_id && (
-                    <TabsContent value={HUBSPOT_DATA_TAB}>
-                      <HubSpotPropertiesSection
-                        kind="company"
-                        state={hubspotProperties.state}
-                        onRetry={hubspotProperties.retry}
-                        hubspotUrl={hubspotCompanyUrl(data.account.hubspot_company_id, null)}
-                      />
-                    </TabsContent>
-                  )}
 
                   {/* Comentarios y alertas (168): de la empresa y de sus contactos */}
                   {comments.available && (
