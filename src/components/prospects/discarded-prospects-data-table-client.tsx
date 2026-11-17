@@ -296,7 +296,7 @@ export function DiscardedProspectsDataTableClient({
         },
         size: 220,
         minSize: 160,
-        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', filterVariant: 'text' },
       },
       {
         id: 'domain',
@@ -316,7 +316,7 @@ export function DiscardedProspectsDataTableClient({
           ),
         size: 170,
         minSize: 130,
-        meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
+        meta: { label: 'Dominio', popoverTitle: 'Dominio', filterVariant: 'text' },
       },
       {
         id: 'countryCode',
@@ -325,7 +325,6 @@ export function DiscardedProspectsDataTableClient({
         cell: ({ row }) => <CountryCell code={row.original.countryCode} />,
         size: 130,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
           popoverTitle: 'País',
@@ -346,7 +345,6 @@ export function DiscardedProspectsDataTableClient({
           ),
         size: 150,
         minSize: 120,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Industria',
           popoverTitle: 'Industria',
@@ -439,7 +437,7 @@ export function DiscardedProspectsDataTableClient({
         },
         size: 160,
         minSize: 130,
-        meta: { label: 'Descartó', popoverTitle: 'Quién la descartó' },
+        meta: { label: 'Descartó', popoverTitle: 'Quién la descartó', unboundedFacets: true },
       },
       {
         id: 'actions',

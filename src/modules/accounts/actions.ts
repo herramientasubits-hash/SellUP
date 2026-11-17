@@ -41,7 +41,9 @@ import type {
   InternalUserOption,
   AccountAuditAction,
   PipelineStatus,
+  TaxIdentifierType,
 } from './types';
+import { describeAccountOwnerCheck } from './account-owner-hubspot';
 
 // ============================================================
 // Auth helpers
@@ -188,6 +190,13 @@ export async function getAccountsSummary(): Promise<AccountsSummary> {
 // getAccountsList
 // ============================================================
 
+/**
+ * Las empresas activas de quien mira (con su alcance), de la más nueva a la más vieja.
+ *
+ * Tope de 200 (como siempre). Paginar la «Lista de empresas» quedó pendiente
+ * (dueño 17-11): sus filtros, indicadores y búsqueda son del navegador y con
+ * páginas de servidor sólo verían la página abierta.
+ */
 export async function getAccountsList(): Promise<AccountListItem[]> {
   await requireActiveUser();
   const supabase = await createClient();
@@ -199,36 +208,77 @@ export async function getAccountsList(): Promise<AccountListItem[]> {
     .from('accounts')
     .select(
       `id, name, country, country_code, industry, website, domain,
-       pipeline_status, source, created_at, owner_id`,
+       pipeline_status, source, created_at, owner_id,
+       hubspot_company_id, city, company_size, linkedin_url,
+       tax_identifier, tax_identifier_type, created_by,
+       hubspot_owner:metadata->hubspot_owner`,
     )
     .is('archived_at', null)
     .order('created_at', { ascending: false })
     .limit(200);
   if (scopeIds) listQuery = listQuery.or(ownerOrClause(scopeIds));
 
-  const { data, error } = await listQuery;
-
+  const { data: rows, error } = await listQuery;
   if (error) throw new Error(`getAccountsList: ${error.message}`);
+  const data = (rows ?? []) as unknown as AccountListRow[];
 
   // Nombres por el directorio (cliente de servicio): la RLS de `internal_users`
   // no deja a un no-admin leer el nombre de otra persona. Las filas ya vienen
   // filtradas por alcance.
-  const ownerNames = await loadDirectoryNames((data ?? []).map((row) => row.owner_id as string | null));
+  const ownerNames = await loadDirectoryNames(
+    data.flatMap((row) => [row.owner_id, row.created_by]),
+  );
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    country: row.country,
-    country_code: row.country_code,
-    industry: row.industry,
-    website: row.website,
-    domain: row.domain,
-    pipeline_status: row.pipeline_status as PipelineStatus,
-    source: row.source as Account['source'],
-    created_at: row.created_at,
-    owner_id: (row.owner_id as string | null) ?? null,
-    owner_name: row.owner_id ? ownerNames.get(row.owner_id as string) ?? null : null,
-  }));
+  return data.map((row) => {
+    const ownerId = row.owner_id ?? null;
+    const ownerCheck = describeAccountOwnerCheck(ownerId, row.hubspot_owner);
+    return {
+      id: row.id,
+      name: row.name,
+      country: row.country,
+      country_code: row.country_code,
+      industry: row.industry,
+      website: row.website,
+      domain: row.domain,
+      pipeline_status: row.pipeline_status as PipelineStatus,
+      source: row.source as Account['source'],
+      created_at: row.created_at,
+      owner_id: ownerId,
+      owner_name: ownerId ? ownerNames.get(ownerId) ?? null : null,
+      hubspot_company_id: row.hubspot_company_id ?? null,
+      city: row.city ?? null,
+      company_size: row.company_size ?? null,
+      linkedin_url: row.linkedin_url ?? null,
+      tax_identifier: row.tax_identifier ?? null,
+      tax_identifier_type: (row.tax_identifier_type as TaxIdentifierType | null) ?? null,
+      created_by_name: row.created_by ? ownerNames.get(row.created_by) ?? null : null,
+      hubspot_owner_check: ownerCheck.check,
+      hubspot_owner_email: ownerCheck.email,
+    };
+  });
+}
+
+/** Una fila de `accounts` tal como la lee la lista. */
+interface AccountListRow {
+  id: string;
+  name: string;
+  country: string | null;
+  country_code: string | null;
+  industry: string | null;
+  website: string | null;
+  domain: string | null;
+  pipeline_status: string;
+  source: string;
+  created_at: string;
+  owner_id: string | null;
+  hubspot_company_id: string | null;
+  city: string | null;
+  company_size: string | null;
+  linkedin_url: string | null;
+  tax_identifier: string | null;
+  tax_identifier_type: string | null;
+  created_by: string | null;
+  hubspot_owner: unknown;
 }
 
 // ============================================================

@@ -19,3 +19,14 @@ export { DataTableRowReorder, RowDragHandle } from "./data-table-row-reorder";
 export { DataTableToolbar, type DataTableToolbarTakeOver } from "./data-table-toolbar";
 export { multiValueFilter } from "./data-table-utils";
 export { TruncatedCell } from "./data-table-cell-text";
+export { DateFilterSortHeader, TextFilterSortHeader } from "./data-table-filter-headers";
+export {
+  EMPTY_FILTER_LABEL,
+  EMPTY_FILTER_VALUE,
+  compareDateCells,
+  countBucketFilter,
+  presenceFilter,
+  matchesColumnFilter,
+  type DateFilterValue,
+  type TextFilterValue,
+} from "./data-table-filters";

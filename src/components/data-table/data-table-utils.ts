@@ -2,6 +2,7 @@ import type * as React from "react";
 import type { ColumnDef, FilterFn } from "@tanstack/react-table";
 
 import type { DataTableColumnMeta } from "./data-table-column-meta";
+import { matchesColumnFilter } from "./data-table-filters";
 
 export const DEFAULT_PINNED = ["select", "reorder", "actions"];
 export const ROW_MENU_COLUMN_ID = "row-actions";
@@ -13,15 +14,19 @@ export const FIXED_COLUMN_LABELS: Record<string, string> = {
 };
 
 /**
- * Filtro por defecto de las columnas: «el valor de la fila está entre los
- * elegidos en el embudo». Las columnas que declaran su propio `filterFn`
- * (p. ej. `arrIncludesSome`, un rango de fechas) lo conservan.
+ * Filtro por defecto de las columnas. El valor del filtro dice su tipo
+ * (`data-table-filters.ts`): una lista → «el valor de la fila está entre los
+ * elegidos» (con «(Vacío)» y la clave de `meta.filterKey`); `{contains}` →
+ * texto; `{from, to}` → fecha. Las columnas que declaran su propio `filterFn`
+ * lo conservan.
  */
 export const multiValueFilter: FilterFn<unknown> = (row, columnId, filterValue) => {
-  if (!Array.isArray(filterValue) || filterValue.length === 0) return true;
+  if (Array.isArray(filterValue) && filterValue.length === 0) return true;
   const value = row.getValue(columnId);
-  if (Array.isArray(value)) return value.some((item) => filterValue.includes(String(item)));
-  return filterValue.includes(String(value));
+  const meta = row.getAllCells().find((cell) => cell.column.id === columnId)?.column.columnDef.meta as
+    | DataTableColumnMeta
+    | undefined;
+  return matchesColumnFilter(value, filterValue, meta?.filterKey);
 };
 
 /** El id con el que TanStack conoce una columna, antes de montar la tabla. */

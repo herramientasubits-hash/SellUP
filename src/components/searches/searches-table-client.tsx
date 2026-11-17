@@ -7,7 +7,13 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { ClipboardCheck, Eye, Pause, Play, Search, UserPlus, Users, X } from "@/icons";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { DataTable, type DataTableContextMenuItem } from "@/components/data-table";
+import {
+  DataTable,
+  DataTableColumnHeader,
+  compareDateCells,
+  countBucketFilter,
+  type DataTableContextMenuItem,
+} from "@/components/data-table";
 import { MetricStrip } from "@/components/shared/metric-strip";
 import { formatAppDate } from "@/lib/format-date";
 import { TONE_BADGE, type Tone } from "@/lib/tone";
@@ -30,6 +36,9 @@ import {
 
 /** «Por revisar» de una búsqueda; la de una masiva es su página, con todas las rondas. */
 const reviewHrefFor = (row: SearchRow) => (row.bulkGroup ? bulkSearchHref(row.id) : searchReviewHref(row.id));
+
+/** Tramos de empresas de una búsqueda: 0 · 1–9 · 10–49 · 50 o más. */
+const SEARCH_COUNT_FILTER = countBucketFilter([0, 1, 10, 50], 'Ninguna');
 
 export interface SearchesTableClientProps {
   searches: SearchRow[];
@@ -104,7 +113,7 @@ export function SearchesTableClient({
       {
         id: "name",
         accessorKey: "name",
-        header: "Búsqueda",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Búsqueda" />,
         cell: ({ row }) => (
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
@@ -128,12 +137,12 @@ export function SearchesTableClient({
             )}
           </div>
         ),
-        meta: { label: "Búsqueda", disableFilter: true },
+        meta: { label: "Búsqueda", filterVariant: "text" },
       },
       {
         id: "form",
         accessorKey: "formLabel",
-        header: "Forma",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Forma" />,
         enableHiding: true,
         cell: ({ row }) => <span className="text-sm">{row.original.formLabel}</span>,
         meta: {
@@ -144,23 +153,23 @@ export function SearchesTableClient({
       {
         id: "status",
         accessorKey: "statusLabel",
-        header: "Estado",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Estado" />,
         cell: ({ row }) => (
           <Badge variant={TONE_BADGE[row.original.statusTone as Tone]}>{row.original.statusLabel}</Badge>
         ),
-        meta: { label: "Estado" },
+        meta: { label: "Estado", unboundedFacets: true },
       },
       {
         id: "found",
         accessorKey: "found",
-        header: "Encontradas",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Encontradas" />,
         cell: ({ row }) => <span className="tabular-nums">{row.original.found}</span>,
-        meta: { label: "Encontradas", disableFilter: true },
+        meta: { label: "Encontradas", ...SEARCH_COUNT_FILTER },
       },
       {
         id: "needsReview",
         accessorKey: "needsReview",
-        header: "Por revisar",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Por revisar" />,
         cell: ({ row }) =>
           row.original.needsReview > 0 ? (
             <Link href={reviewHrefFor(row.original)} aria-label={`Ver las ${row.original.needsReview} por revisar`}>
@@ -171,26 +180,39 @@ export function SearchesTableClient({
           ) : (
             <span className="tabular-nums text-muted-foreground">0</span>
           ),
-        meta: { label: "Por revisar", disableFilter: true },
+        meta: { label: "Por revisar", ...SEARCH_COUNT_FILTER },
       },
       {
         id: "approved",
         accessorKey: "approved",
-        header: "Aprobadas",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Aprobadas" />,
         cell: ({ row }) => <span className="tabular-nums">{row.original.approved}</span>,
-        meta: { label: "Aprobadas", disableFilter: true },
+        meta: { label: "Aprobadas", ...SEARCH_COUNT_FILTER },
       },
       {
         id: "createdAt",
         accessorKey: "createdAt",
-        header: "Fecha",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Fecha" />,
         cell: ({ row }) => (
           <div className="text-sm">
             <p>{formatAppDate(row.original.createdAt)}</p>
             {row.original.createdBy && <p className="text-xs text-muted-foreground">{row.original.createdBy}</p>}
           </div>
         ),
-        meta: { label: "Fecha", disableFilter: true },
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
+        meta: { label: "Fecha", popoverTitle: "Fecha de la búsqueda", filterVariant: "date" },
+      },
+      {
+        id: "createdBy",
+        accessorFn: (row) => row.createdBy ?? null,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Creada por" />,
+        cell: ({ row }) =>
+          row.original.createdBy ? (
+            <span className="block truncate text-sm">{row.original.createdBy}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">Sin dato</span>
+          ),
+        meta: { label: "Creada por", hiddenByDefault: true, unboundedFacets: true },
       },
     ],
     [rows, hrefFor, focusSearchId],

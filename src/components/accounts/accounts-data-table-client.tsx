@@ -18,6 +18,7 @@ import {
   SendHorizonal,
   UserPlus,
   Users,
+  Link2,
 } from "@/icons";
 import { requestOpenCompetitorsInChat } from '@/modules/prospect-batches/agent-runs/agent-chat-events';
 import { RumboIcon } from '@/components/chat/chat-mark';
@@ -30,6 +31,9 @@ import { useNavAccess } from '@/components/layout/nav-access-context';
 import {
   DataTable,
   DataTableColumnHeader,
+  compareDateCells,
+  countBucketFilter,
+  presenceFilter,
   type DataTableContextMenuItem,
   type DataTableBulkAction,
   type DataTableHandle,
@@ -60,9 +64,24 @@ import {
 import {
   INDUSTRIES,
   LATAM_COUNTRIES,
+  SOURCE_LABELS,
   type AccountListItem,
   type InternalUserOption,
 } from '@/modules/accounts/types';
+import {
+  EMPTY_ACCOUNT_LIST_SIGNALS,
+  HUBSPOT_COMMERCIAL_STATUS_LABELS,
+  HUBSPOT_COMMERCIAL_STATUS_ORDER,
+  HUBSPOT_COMMERCIAL_STATUS_TONE,
+  HUBSPOT_OWNER_CHECK_LABELS,
+  enrichmentRunStatusLabel,
+  lastActivityOf,
+  type AccountListSignals,
+  type HubSpotCommercialStatus,
+  type HubSpotOwnerCheck,
+  type LastActivitySource,
+} from '@/modules/accounts/list-signals';
+import { hubspotCompanyUrl } from '@/components/contact-enrichment/hubspot-company-url';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { archiveAccounts, assignAccountsToUser } from '@/modules/accounts/actions';
 import { AssignOwnerDrawer } from '@/components/assignment/assign-owner-drawer';
@@ -154,6 +173,58 @@ const COUNTRY_FILTER_OPTIONS = LATAM_COUNTRIES.map((c) => ({
   label: c.name,
 }));
 
+const SOURCE_FILTER_OPTIONS = Object.entries(SOURCE_LABELS).map(([value, label]) => ({ value, label }));
+
+const HUBSPOT_STATUS_FILTER_OPTIONS = HUBSPOT_COMMERCIAL_STATUS_ORDER.map((value) => ({
+  value,
+  label: HUBSPOT_COMMERCIAL_STATUS_LABELS[value],
+}));
+
+const HUBSPOT_OWNER_FILTER_OPTIONS = (Object.keys(HUBSPOT_OWNER_CHECK_LABELS) as HubSpotOwnerCheck[]).map((value) => ({
+  value,
+  label: HUBSPOT_OWNER_CHECK_LABELS[value],
+}));
+
+const HUBSPOT_LINK_FILTER = presenceFilter('Está en HubSpot', 'No está en HubSpot');
+const LINKEDIN_FILTER = presenceFilter('Con LinkedIn', 'Sin LinkedIn');
+/** Tramos de contactos: 0 · 1–2 · 3–5 · 6 o más. */
+const CONTACT_COUNT_FILTER = countBucketFilter([0, 1, 3, 6]);
+const COMMENT_COUNT_FILTER = countBucketFilter([0, 1, 3]);
+
+const LAST_ACTIVITY_SOURCE_LABELS: Record<LastActivitySource, string> = {
+  hubspot: 'HubSpot',
+  sellup: 'SellUp',
+};
+
+/** Grupos de «Configurar tabla» para las columnas que arrancan ocultas. */
+const HUBSPOT_GROUP = 'HubSpot';
+const CONTACTS_GROUP = 'Contactos';
+const COMPANY_GROUP = 'Datos de la empresa';
+
+/** Las cifras de la fila (la página las calcula; sin ellas, en cero). */
+function signalsOf(account: AccountListItem): AccountListSignals {
+  return account.signals ?? EMPTY_ACCOUNT_LIST_SIGNALS;
+}
+
+function CountCell({ value }: { value: number }) {
+  return (
+    <span className={`block text-right text-xs tabular-nums ${value > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+      {value}
+    </span>
+  );
+}
+
+function TextCell({ value, empty }: { value: string | null | undefined; empty: string }) {
+  const text = value?.trim();
+  return text ? (
+    <span className="block truncate text-xs text-foreground" title={text}>
+      {text}
+    </span>
+  ) : (
+    <EmptyCell label={empty} />
+  );
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 
 function formatDate(iso: string): string {
@@ -182,6 +253,8 @@ interface AccountsDataTableClientProps {
    * se le explica que los busque empresa por empresa.
    */
   canEnrichBulk?: boolean;
+  /** Portal de HubSpot, para abrir la empresa desde la tabla (sin él, el de la sesión). */
+  hubspotPortalId?: string | null;
 }
 
 export function AccountsDataTableClient({
@@ -190,6 +263,7 @@ export function AccountsDataTableClient({
   scopeFilterOptions,
   firstCallEnabled = false,
   canEnrichBulk = true,
+  hubspotPortalId = null,
 }: AccountsDataTableClientProps) {
   const router = useRouter();
   // Archivar es sólo de admin (decisión 6); respeta «Ver como…». El servidor lo exige igual.
@@ -309,6 +383,9 @@ export function AccountsDataTableClient({
   }, [accounts]);
 
   // ── Column definitions ────────────────────────────────────────
+  // Dueño 17-11: todas las columnas se filtran. Visibles de entrada las de
+  // siempre más «Empresa en HubSpot», «Última actividad» y «Próxima actividad
+  // agendada»; el resto se pide desde «Configurar tabla».
   const columns: ColumnDef<Row, unknown>[] = React.useMemo(
     () => [
       {
@@ -325,8 +402,7 @@ export function AccountsDataTableClient({
         size: 220,
         minSize: 180,
         enableHiding: false,
-        // Texto libre: se ordena y se busca, no se filtra por valores.
-        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', filterVariant: 'text' },
       },
       {
         id: 'country_code',
@@ -337,7 +413,6 @@ export function AccountsDataTableClient({
         cell: ({ row }) => <CountryCell code={row.original.country_code} />,
         size: 130,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
           popoverTitle: 'País',
@@ -363,7 +438,6 @@ export function AccountsDataTableClient({
           ),
         size: 160,
         minSize: 120,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Industria',
           popoverTitle: 'Industria',
@@ -392,7 +466,34 @@ export function AccountsDataTableClient({
         },
         size: 160,
         minSize: 120,
-        meta: { label: 'Dominio', popoverTitle: 'Dominio', disableFilter: true },
+        meta: { label: 'Dominio', popoverTitle: 'Dominio', filterVariant: 'text' },
+      },
+      {
+        id: 'hubspot_company_id',
+        accessorFn: (account) => account.hubspot_company_id?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Empresa en HubSpot" />
+        ),
+        cell: ({ row }) => {
+          const companyId = row.original.hubspot_company_id?.trim();
+          if (!companyId) return <EmptyCell label="No está en HubSpot" />;
+          return (
+            <ExternalLinkCell
+              href={hubspotCompanyUrl(companyId, hubspotPortalId)}
+              label={`Abrir ${row.original.name} en HubSpot`}
+              className="tabular-nums"
+            >
+              {companyId}
+            </ExternalLinkCell>
+          );
+        },
+        size: 150,
+        minSize: 120,
+        meta: {
+          label: 'Empresa en HubSpot',
+          popoverTitle: 'Empresa en HubSpot',
+          ...HUBSPOT_LINK_FILTER,
+        },
       },
       {
         id: 'next_step',
@@ -405,7 +506,6 @@ export function AccountsDataTableClient({
           ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(a.original)) - ACCOUNT_NEXT_STEP_ORDER.indexOf(nextStepOf(b.original)),
         size: 220,
         minSize: 180,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Siguiente paso',
           popoverTitle: 'Siguiente paso',
@@ -428,12 +528,7 @@ export function AccountsDataTableClient({
           ),
         size: 140,
         minSize: 100,
-        filterFn: (row, _columnId, filterValue: string[]) => {
-          if (!filterValue || filterValue.length === 0) return true;
-          const val = row.original.owner_id;
-          if (!val) return false;
-          return filterValue.includes(val);
-        },
+        // El filtro por defecto: con «(Vacío)» salen las empresas sin responsable.
         meta: {
           label: 'Responsable',
           popoverTitle: 'Responsable',
@@ -450,6 +545,55 @@ export function AccountsDataTableClient({
         },
       },
       {
+        id: 'last_activity',
+        accessorFn: (account) => lastActivityOf(signalsOf(account))?.at ?? null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Última actividad" />
+        ),
+        cell: ({ row }) => {
+          const last = lastActivityOf(signalsOf(row.original));
+          if (!last) return <EmptyCell label="Sin actividad" />;
+          return (
+            <span className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-xs">
+              <span className="text-foreground">{formatDate(last.at)}</span>
+              <span className="truncate text-muted-foreground">{LAST_ACTIVITY_SOURCE_LABELS[last.source]}</span>
+            </span>
+          );
+        },
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
+        size: 150,
+        minSize: 130,
+        meta: {
+          label: 'Última actividad',
+          popoverTitle: 'Última actividad (HubSpot o SellUp)',
+          filterVariant: 'date',
+        },
+      },
+      {
+        id: 'next_activity',
+        accessorFn: (account) => signalsOf(account).hubspotNextActivityAt,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Próxima actividad agendada" />
+        ),
+        cell: ({ row }) => {
+          const next = signalsOf(row.original).hubspotNextActivityAt;
+          return next ? (
+            <span className="whitespace-nowrap text-xs text-foreground">{formatDate(next)}</span>
+          ) : (
+            <EmptyCell label="Sin agendar" />
+          );
+        },
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
+        size: 170,
+        minSize: 130,
+        meta: {
+          label: 'Próxima actividad agendada',
+          popoverTitle: 'Próxima actividad agendada (HubSpot)',
+          filterVariant: 'date',
+          datePresets: 'future',
+        },
+      },
+      {
         id: 'created_at',
         accessorKey: 'created_at',
         header: ({ column }) => (
@@ -460,13 +604,253 @@ export function AccountsDataTableClient({
             {formatDate(row.original.created_at)}
           </span>
         ),
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
         size: 110,
         minSize: 90,
-        enableColumnFilter: false,
-        meta: { label: 'Creación', popoverTitle: 'Creación', disableFilter: true },
+        meta: { label: 'Creación', popoverTitle: 'Fecha de creación', filterVariant: 'date' },
+      },
+      // ── HubSpot (ocultas) ──
+      {
+        id: 'hubspot_status',
+        accessorFn: (account) => signalsOf(account).hubspotStatus,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Estado comercial" />
+        ),
+        cell: ({ row }) => {
+          const status = signalsOf(row.original).hubspotStatus;
+          return (
+            <Badge variant={HUBSPOT_COMMERCIAL_STATUS_TONE[status] as BadgeVariant}>
+              {HUBSPOT_COMMERCIAL_STATUS_LABELS[status]}
+            </Badge>
+          );
+        },
+        sortingFn: (a, b, id) =>
+          HUBSPOT_COMMERCIAL_STATUS_ORDER.indexOf(a.getValue(id) as HubSpotCommercialStatus) -
+          HUBSPOT_COMMERCIAL_STATUS_ORDER.indexOf(b.getValue(id) as HubSpotCommercialStatus),
+        size: 170,
+        minSize: 130,
+        meta: {
+          label: 'Estado comercial',
+          popoverTitle: 'Estado comercial en HubSpot',
+          group: HUBSPOT_GROUP,
+          hiddenByDefault: true,
+          filterOptions: HUBSPOT_STATUS_FILTER_OPTIONS,
+        },
+      },
+      {
+        id: 'hubspot_owner_check',
+        accessorFn: (account) => account.hubspot_owner_check ?? 'unknown',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Dueño en HubSpot" />
+        ),
+        cell: ({ row }) => {
+          const check = row.original.hubspot_owner_check ?? 'unknown';
+          const email = row.original.hubspot_owner_email;
+          if (check === 'unknown') return <EmptyCell label="Sin dato" />;
+          return (
+            <span
+              className={`block truncate text-xs ${check === 'match' ? 'text-muted-foreground' : 'text-warning-foreground dark:text-warning'}`}
+              title={email ?? undefined}
+            >
+              {HUBSPOT_OWNER_CHECK_LABELS[check]}
+              {check !== 'match' && email ? ` · ${email}` : ''}
+            </span>
+          );
+        },
+        size: 190,
+        minSize: 130,
+        meta: {
+          label: 'Dueño en HubSpot',
+          popoverTitle: '¿El responsable es el dueño en HubSpot?',
+          group: HUBSPOT_GROUP,
+          hiddenByDefault: true,
+          filterOptions: HUBSPOT_OWNER_FILTER_OPTIONS,
+        },
+      },
+      // ── Contactos (ocultas) ──
+      {
+        id: 'contacts_approved',
+        accessorFn: (account) => signalsOf(account).contactsApproved,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contactos aprobados" align="right" />
+        ),
+        cell: ({ row }) => <CountCell value={signalsOf(row.original).contactsApproved} />,
+        size: 150,
+        minSize: 110,
+        meta: { label: 'Contactos aprobados', popoverTitle: 'Contactos aprobados', group: CONTACTS_GROUP, hiddenByDefault: true, ...CONTACT_COUNT_FILTER },
+      },
+      {
+        id: 'contacts_pending',
+        accessorFn: (account) => signalsOf(account).contactsPending,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contactos por revisar" align="right" />
+        ),
+        cell: ({ row }) => <CountCell value={signalsOf(row.original).contactsPending} />,
+        size: 150,
+        minSize: 110,
+        meta: { label: 'Contactos por revisar', popoverTitle: 'Contactos por revisar', group: CONTACTS_GROUP, hiddenByDefault: true, ...CONTACT_COUNT_FILTER },
+      },
+      {
+        id: 'contacts_rejected',
+        accessorFn: (account) => signalsOf(account).contactsRejected,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Contactos rechazados" align="right" />
+        ),
+        cell: ({ row }) => <CountCell value={signalsOf(row.original).contactsRejected} />,
+        size: 150,
+        minSize: 110,
+        meta: { label: 'Contactos rechazados', popoverTitle: 'Contactos rechazados', group: CONTACTS_GROUP, hiddenByDefault: true, ...CONTACT_COUNT_FILTER },
+      },
+      {
+        id: 'last_enrichment',
+        accessorFn: (account) => signalsOf(account).lastEnrichmentAt,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Última búsqueda de contactos" />
+        ),
+        cell: ({ row }) => {
+          const signals = signalsOf(row.original);
+          if (!signals.lastEnrichmentAt) return <EmptyCell label="Nunca" />;
+          const status = enrichmentRunStatusLabel(signals.lastEnrichmentStatus);
+          return (
+            <span className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-xs">
+              <span className="text-foreground">{formatDate(signals.lastEnrichmentAt)}</span>
+              {status && <span className="truncate text-muted-foreground">{status}</span>}
+            </span>
+          );
+        },
+        sortingFn: (a, b, id) => compareDateCells(a.getValue(id), b.getValue(id)),
+        size: 200,
+        minSize: 150,
+        meta: {
+          label: 'Última búsqueda de contactos',
+          popoverTitle: 'Última búsqueda de contactos (Agente 2)',
+          group: CONTACTS_GROUP,
+          hiddenByDefault: true,
+          filterVariant: 'date',
+        },
+      },
+      // ── Datos de la empresa (ocultas) ──
+      {
+        id: 'source',
+        accessorKey: 'source',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Origen" />
+        ),
+        cell: ({ row }) => (
+          <span className="block truncate text-xs text-muted-foreground">
+            {SOURCE_LABELS[row.original.source] ?? row.original.source}
+          </span>
+        ),
+        size: 120,
+        minSize: 100,
+        meta: { label: 'Origen', popoverTitle: 'Origen', group: COMPANY_GROUP, hiddenByDefault: true, filterOptions: SOURCE_FILTER_OPTIONS },
+      },
+      {
+        id: 'city',
+        accessorFn: (account) => account.city?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Ciudad" />
+        ),
+        cell: ({ row }) => <TextCell value={row.original.city} empty="Sin ciudad" />,
+        size: 130,
+        minSize: 100,
+        meta: { label: 'Ciudad', popoverTitle: 'Ciudad', group: COMPANY_GROUP, hiddenByDefault: true, unboundedFacets: true },
+      },
+      {
+        id: 'company_size',
+        accessorFn: (account) => account.company_size?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Tamaño" />
+        ),
+        cell: ({ row }) => <TextCell value={row.original.company_size} empty="Sin tamaño" />,
+        size: 120,
+        minSize: 100,
+        meta: { label: 'Tamaño', popoverTitle: 'Tamaño', group: COMPANY_GROUP, hiddenByDefault: true, unboundedFacets: true },
+      },
+      {
+        id: 'linkedin_url',
+        accessorFn: (account) => account.linkedin_url?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="LinkedIn" />
+        ),
+        cell: ({ row }) => {
+          const url = row.original.linkedin_url?.trim();
+          return url ? (
+            <ExternalLinkCell href={url} icon={Link2} label={`Abrir el LinkedIn de ${row.original.name}`}>
+              LinkedIn
+            </ExternalLinkCell>
+          ) : (
+            <EmptyCell label="Sin LinkedIn" />
+          );
+        },
+        size: 120,
+        minSize: 100,
+        meta: { label: 'LinkedIn', popoverTitle: 'LinkedIn de la empresa', group: COMPANY_GROUP, hiddenByDefault: true, ...LINKEDIN_FILTER },
+      },
+      {
+        id: 'website',
+        accessorFn: (account) => account.website?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Página web" />
+        ),
+        cell: ({ row }) => {
+          const website = row.original.website?.trim();
+          return website ? (
+            <ExternalLinkCell href={website} icon={Globe} label={`Abrir la página web de ${row.original.name}`}>
+              {website}
+            </ExternalLinkCell>
+          ) : (
+            <EmptyCell label="Sin página web" />
+          );
+        },
+        size: 170,
+        minSize: 120,
+        meta: { label: 'Página web', popoverTitle: 'Página web', group: COMPANY_GROUP, hiddenByDefault: true, filterVariant: 'text' },
+      },
+      {
+        id: 'tax_identifier',
+        accessorFn: (account) => account.tax_identifier?.trim() || null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Identificación fiscal" />
+        ),
+        cell: ({ row }) => {
+          const tax = row.original.tax_identifier?.trim();
+          if (!tax) return <EmptyCell label="Sin identificación" />;
+          const type = row.original.tax_identifier_type;
+          return (
+            <span className="block truncate text-xs tabular-nums text-foreground" title={type ? `${type} ${tax}` : tax}>
+              {type ? `${type} ${tax}` : tax}
+            </span>
+          );
+        },
+        size: 160,
+        minSize: 120,
+        meta: { label: 'Identificación fiscal', popoverTitle: 'Identificación fiscal (NIT, RFC…)', group: COMPANY_GROUP, hiddenByDefault: true, filterVariant: 'text' },
+      },
+      {
+        id: 'created_by',
+        accessorFn: (account) => account.created_by_name ?? null,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Creada por" />
+        ),
+        cell: ({ row }) => <TextCell value={row.original.created_by_name} empty="Sin dato" />,
+        size: 140,
+        minSize: 100,
+        meta: { label: 'Creada por', popoverTitle: 'Creada por', group: COMPANY_GROUP, hiddenByDefault: true, unboundedFacets: true },
+      },
+      {
+        id: 'comments',
+        accessorFn: (account) => signalsOf(account).comments,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Comentarios" align="right" />
+        ),
+        cell: ({ row }) => <CountCell value={signalsOf(row.original).comments} />,
+        size: 120,
+        minSize: 100,
+        meta: { label: 'Comentarios', popoverTitle: 'Comentarios', group: COMPANY_GROUP, hiddenByDefault: true, ...COMMENT_COUNT_FILTER },
       },
     ],
-    [openDetail, scopeFilterOptions, ownerFilterOptions],
+    [openDetail, scopeFilterOptions, ownerFilterOptions, hubspotPortalId],
   );
 
   // ── Context menu ──────────────────────────────────────────────
