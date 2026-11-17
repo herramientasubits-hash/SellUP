@@ -299,6 +299,12 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </section>
             </SurfaceCard>
           </div>
+          {/* Todos sus datos de HubSpot, plegados (dueña 17-11) */}
+          {hubspotContactId && (
+            <div className="mt-4">
+              <ContactHubSpotData hubspotContactId={hubspotContactId} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Actividad ────────────────────────────────────────── */}
@@ -404,12 +410,6 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
               </p>
             </section>
           </SurfaceCard>
-          {/* Todos sus datos de HubSpot (dueña 17-11) */}
-          {hubspotContactId && (
-            <div className="mt-4">
-              <ContactHubSpotData hubspotContactId={hubspotContactId} />
-            </div>
-          )}
         </TabsContent>
       </UrlTabs>
     </div>

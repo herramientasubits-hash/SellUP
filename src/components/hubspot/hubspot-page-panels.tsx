@@ -9,7 +9,7 @@
  *
  *  - Actividad: notas, llamadas, reuniones, tareas, negocios y «Creado en HubSpot».
  *  - Contactos: los de HubSpot que aún no están en SellUp, con «Traer».
- *  - HubSpot: todos sus datos, agrupados como en su ficha de HubSpot.
+ *  - Resumen: todos sus datos, plegados («Todos los datos en HubSpot»).
  *
  * Sólo lectura en HubSpot; «Traer» crea el contacto en SellUp (sin teléfono).
  */
@@ -22,7 +22,7 @@ import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
 import type { HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 import { HubSpotActivitySection, useHubSpotActivity } from './hubspot-activity';
 import { HubSpotContactsSection, useHubSpotAccountContacts } from './hubspot-contacts-section';
-import { HubSpotPropertiesSection, useHubSpotProperties } from './hubspot-properties-section';
+import { HubSpotPropertiesDisclosure } from './hubspot-properties-section';
 
 interface AccountHubSpotProps {
   accountId: string;
@@ -76,14 +76,12 @@ export function AccountHubSpotContacts({ accountId, hubspotCompanyId, archived }
   );
 }
 
-/** Todos los datos de HubSpot de la empresa (pestaña HubSpot). */
+/** Todos los datos de HubSpot de la empresa, plegados al final del Resumen. */
 export function AccountHubSpotData({ hubspotCompanyId }: Pick<AccountHubSpotProps, 'hubspotCompanyId'>) {
-  const properties = useHubSpotProperties('company', hubspotCompanyId, true);
   return (
-    <HubSpotPropertiesSection
+    <HubSpotPropertiesDisclosure
       kind="company"
-      state={properties.state}
-      onRetry={properties.retry}
+      hubspotId={hubspotCompanyId}
       hubspotUrl={hubspotCompanyUrl(hubspotCompanyId, null)}
     />
   );
@@ -101,14 +99,12 @@ export function ContactHubSpotActivity({ hubspotContactId }: { hubspotContactId:
   );
 }
 
-/** Todos los datos de HubSpot de un contacto (pestaña HubSpot de su página). */
+/** Todos los datos de HubSpot de un contacto, plegados al final del Resumen de su página. */
 export function ContactHubSpotData({ hubspotContactId }: { hubspotContactId: string }) {
-  const properties = useHubSpotProperties('contact', hubspotContactId, true);
   return (
-    <HubSpotPropertiesSection
+    <HubSpotPropertiesDisclosure
       kind="contact"
-      state={properties.state}
-      onRetry={properties.retry}
+      hubspotId={hubspotContactId}
       hubspotUrl={hubspotContactUrl(hubspotContactId, null)}
     />
   );

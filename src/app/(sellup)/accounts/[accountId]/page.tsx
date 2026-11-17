@@ -60,7 +60,6 @@ import { currentPacks } from '@/modules/speech/first-contact-tab-view';
 import { FIRST_CALL_TAB_ID, normalizeAccountTab } from '@/modules/speech/first-call-links';
 import { FirstCallActivity } from '@/components/first-call/first-call-activity';
 import { buildFirstCallEvents } from '@/modules/speech/first-call-activity';
-import { HUBSPOT_DATA_TAB } from '@/modules/hubspot-lookup/types';
 import {
   AccountHubSpotActivity,
   AccountHubSpotContacts,
@@ -171,8 +170,6 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
     { id: FIRST_CALL_TAB_ID, label: 'Primer contacto', count: activePacks },
     { id: 'actividad', label: 'Actividad' },
     { id: 'agentes', label: 'Rumbo', count: contactEnrichmentRuns.length + agent3RunsCount },
-    // Todos sus datos de HubSpot (dueña 17-11), sólo si está vinculada.
-    ...(hubspotCompanyId ? [{ id: HUBSPOT_DATA_TAB, label: 'HubSpot' }] : []),
   ];
 
   return (
@@ -359,6 +356,12 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
               </section>
             </SurfaceCard>
           </div>
+          {/* Todos sus datos de HubSpot, plegados (la pestaña ya no cabía, dueña 17-11) */}
+          {hubspotCompanyId && (
+            <div className="mt-4">
+              <AccountHubSpotData hubspotCompanyId={hubspotCompanyId} />
+            </div>
+          )}
         </TabsContent>
 
         {/* ── Contactos ────────────────────────────────────────── */}
@@ -442,12 +445,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
           <FirstCallActivity state={firstCall} kind="runs" />
         </TabsContent>
 
-        {/* ── HubSpot: todos sus datos ─────────────────────────── */}
-        {hubspotCompanyId && (
-          <TabsContent value={HUBSPOT_DATA_TAB}>
-            <AccountHubSpotData hubspotCompanyId={hubspotCompanyId} />
-          </TabsContent>
-        )}
+
       </UrlTabs>
     </div>
   );
