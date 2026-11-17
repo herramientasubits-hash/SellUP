@@ -237,7 +237,7 @@ export function buildLookupSearchBody(query: string, properties: readonly string
 
 // ── Actividad ───────────────────────────────────────────────────────────────
 
-export type HubSpotActivityKind = 'note' | 'call' | 'meeting' | 'task' | 'email' | 'deal';
+export type HubSpotActivityKind = 'note' | 'call' | 'meeting' | 'task' | 'email' | 'deal' | 'created';
 
 /** Objetos de HubSpot que se leen como actividad, y sus propiedades. */
 export const HUBSPOT_ACTIVITY_OBJECTS: ReadonlyArray<{
@@ -412,6 +412,8 @@ export function mapHubSpotActivity(
         occurredAt: clean(p.hs_timestamp),
         ownerId,
       };
+    case 'created':
+      return { id, kind, title: 'Creado en HubSpot', body: null, details: [], occurredAt: clean(p.createdate), ownerId: null };
     case 'deal': {
       const stageId = clean(p.dealstage);
       const stage = stageId ? dealStages.get(stageId) ?? stageId : null;
@@ -453,6 +455,20 @@ export function sortAndTrimActivity(items: readonly HubSpotActivityItem[], max =
     unique.push({ ...item, occurredAt: activityIsoDate(item) });
   }
   return unique.sort((a, b) => timeOf(b) - timeOf(a)).slice(0, max);
+}
+
+/**
+ * «Creado en HubSpot» como una línea más de la actividad (como el «Created» de la ficha de
+ * HubSpot). `createdByName`: quién lo creó, si se sabe.
+ */
+export function createdActivityItem(
+  objectId: string,
+  createdate: string | null | undefined,
+  createdByName: string | null,
+): (HubSpotActivityItem & { ownerName: string | null }) | null {
+  const item = mapHubSpotActivity('created', `created-${objectId}`, { createdate });
+  const iso = activityIsoDate(item);
+  return iso ? { ...item, occurredAt: iso, ownerName: createdByName } : null;
 }
 
 /** Ids de una respuesta de asociaciones (v4: `toObjectId`; v3: `id`). */

@@ -39,3 +39,10 @@ export function stripCandidateReviewParam(href: string): string {
   const query = url.searchParams.toString();
   return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`;
 }
+
+/**
+ * Lo mismo para «Empresas › Por revisar» (búsqueda general, dueña 17-11): la tabla de
+ * prospectos abre la ficha del candidato de empresa que llega con `?candidate=<id>` o con
+ * este evento (si ya estaba montada).
+ */
+export const PROSPECT_CANDIDATE_OPEN_EVENT = 'sellup:prospect-candidate:open';

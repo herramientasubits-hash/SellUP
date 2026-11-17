@@ -37,6 +37,20 @@ export interface SearchObjectItem {
   actionLabel?: string;
 }
 
+/**
+ * Lo que devuelve la búsqueda fuera: los registros y, si una parte no respondió, un aviso
+ * corto para quien busca (lo demás se muestra igual).
+ */
+export type SearchRemoteResult =
+  | readonly SearchObjectItem[]
+  | { items: readonly SearchObjectItem[]; notice?: string | null };
+
+function normalizeRemote(result: SearchRemoteResult): { items: readonly SearchObjectItem[]; notice: string | null } {
+  if (Array.isArray(result)) return { items: result as readonly SearchObjectItem[], notice: null };
+  const shaped = result as { items: readonly SearchObjectItem[]; notice?: string | null };
+  return { items: shaped.items, notice: shaped.notice ?? null };
+}
+
 /** Un destino de la navegación. */
 export interface SearchNavigateItem {
   id: string;
@@ -70,7 +84,7 @@ export interface GlobalSearchProps {
    * pausa tras dejar de teclear y desde `MIN_QUERY_FOR_REMOTE` letras. Un registro con
    * el mismo `id` que uno ya encontrado aquí no se repite.
    */
-  searchRemote?: (query: string, signal: AbortSignal) => Promise<readonly SearchObjectItem[]>;
+  searchRemote?: (query: string, signal: AbortSignal) => Promise<SearchRemoteResult>;
   /** Cómo se llama lo que busca `searchRemote` («HubSpot»), para los avisos. */
   remoteLabel?: string;
   /** Habilita preguntar con lo escrito; sin esto, no hay grupo de preguntas. */
@@ -248,6 +262,7 @@ export function GlobalSearch({
     query: string;
     status: "loading" | "ready" | "error";
     items: readonly SearchObjectItem[];
+    notice?: string | null;
   } | null>(null);
   React.useEffect(() => {
     if (!searchRemote || !wantsRemote) return;
@@ -256,8 +271,8 @@ export function GlobalSearch({
     const timer = window.setTimeout(() => {
       setRemote({ query: trimmed, status: "loading", items: [] });
       searchRemote(trimmed, controller.signal)
-        .then((items) => {
-          if (!controller.signal.aborted) setRemote({ query: trimmed, status: "ready", items });
+        .then((result) => {
+          if (!controller.signal.aborted) setRemote({ query: trimmed, status: "ready", ...normalizeRemote(result) });
         })
         .catch(() => {
           if (!controller.signal.aborted) setRemote({ query: trimmed, status: "error", items: [] });
@@ -272,6 +287,7 @@ export function GlobalSearch({
   // Entre la tecla y la respuesta: «buscando», no «sin resultados».
   const isLoadingRemote = wantsRemote && remoteForQuery?.status !== "ready" && remoteForQuery?.status !== "error";
   const hasRemoteError = wantsRemote && remoteForQuery?.status === "error";
+  const remoteNotice = wantsRemote && remoteForQuery?.status === "ready" ? remoteForQuery.notice ?? null : null;
 
   const allObjects = React.useMemo(
     () => [...(objects ?? []), ...loadedObjects],
@@ -510,7 +526,13 @@ export function GlobalSearch({
 
               {hasRemoteError && (
                 <p role="alert" data-slot="search-remote-error" className="px-4 py-3 text-xs text-muted-foreground">
-                  {remoteLabel} no respondió: sólo se muestra lo que hay en SellUp.
+                  No pudimos buscar en {remoteLabel}: sólo se muestra lo ya cargado.
+                </p>
+              )}
+
+              {remoteNotice && (
+                <p role="status" data-slot="search-remote-notice" className="px-4 py-3 text-xs text-muted-foreground">
+                  {remoteNotice}
                 </p>
               )}
 

@@ -18,6 +18,8 @@ const read = (rel: string) => readFileSync(path.join(root, rel), 'utf8').replace
 const LOOKUP_FILES = [
   'src/server/integrations/hubspot-lookup/hubspot-lookup-core.ts',
   'src/server/integrations/hubspot-lookup/hubspot-lookup.server.ts',
+  'src/server/integrations/hubspot-lookup/hubspot-properties-core.ts',
+  'src/components/hubspot/hubspot-properties-section.tsx',
   'src/modules/hubspot-lookup/actions.ts',
   'src/modules/hubspot-lookup/lookup.server.ts',
   'src/modules/hubspot-lookup/presence.server.ts',
@@ -59,6 +61,17 @@ describe('consulta de HubSpot: 0 escrituras en HubSpot', () => {
     assert.match(deps, /skipProfileCompletion\s*=\s*createdFrom\s*===\s*'hubspot_lookup_import'/);
     assert.match(deps, /if\s*\(!skipProfileCompletion\)\s*scheduleAccountProfileCompletion\(/);
     assert.match(read('src/modules/hubspot-lookup/actions.ts'), /'hubspot_lookup_import'/);
+  });
+
+  it('la búsqueda en todo SellUp sólo lee: reutiliza las lecturas de cada lista y va por su ruta', () => {
+    const records = read('src/modules/global-search/records.server.ts');
+    // No consulta tablas por su cuenta: todo pasa por las lecturas de cada lista.
+    assert.doesNotMatch(records, /\.from\(|\.(insert|update|upsert)\(|\.rpc\(/);
+    for (const reader of ['getGlobalCandidatesList', 'getDiscardedProspectsList', 'getSearchesForViewer', 'searchContactCandidatesForGlobalSearch']) {
+      assert.match(records, new RegExp(reader), `records.server debe reutilizar ${reader}`);
+    }
+    assert.match(read('src/modules/global-search/client.ts'), /\/api\/search\/records/);
+    assert.match(read('src/app/api/search/records/route.ts'), /resolveActiveInternalUserId/);
   });
 
   it('las lecturas del navegador van por la ruta, no por acciones del servidor', () => {

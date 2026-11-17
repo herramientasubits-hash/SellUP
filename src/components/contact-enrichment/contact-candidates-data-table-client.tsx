@@ -566,9 +566,10 @@ export function ContactCandidatesDataTableClient({
 
   // AGENT2A-LINKEDIN-EMAIL-REVIEW-INLINE — «Revisar ahora» del chat de búsqueda puntual: llega
   // con `?candidate=<id>` (o con el evento, si esta tabla ya estaba montada) y abre su ficha.
-  // Sólo en «Por revisar»: ahí está la ficha con sus acciones de aprobar, rechazar y teléfono.
+  // En «Por revisar» y en «Duplicados» (la búsqueda general también lleva aquí): ahí está la
+  // ficha con sus acciones. En «Rechazados» no: un rechazado no se abre como revisable.
   React.useEffect(() => {
-    if (queue !== 'pending' || typeof window === 'undefined') return;
+    if (queue === 'rejected' || typeof window === 'undefined') return;
     const openById = (candidateId: string) => {
       setDetailId(candidateId);
       setDetailOpen(true);
@@ -580,8 +581,11 @@ export function ContactCandidatesDataTableClient({
     const fromUrl = readCandidateReviewParam(window.location.search);
     if (fromUrl) openById(fromUrl);
     const onOpen = (event: Event) => {
-      const candidateId = (event as CustomEvent<{ candidateId?: unknown }>).detail?.candidateId;
-      if (isCandidateReviewId(candidateId)) openById(candidateId);
+      const detail = (event as CustomEvent<{ candidateId?: unknown; queue?: unknown }>).detail;
+      // Sin cola (chat de búsqueda puntual) es de «Por revisar»; la búsqueda general dice cuál.
+      const target = detail?.queue === 'duplicate' ? 'duplicates' : 'pending';
+      if (target !== queue) return;
+      if (isCandidateReviewId(detail?.candidateId)) openById(detail.candidateId);
     };
     window.addEventListener(CANDIDATE_REVIEW_OPEN_EVENT, onOpen);
     return () => window.removeEventListener(CANDIDATE_REVIEW_OPEN_EVENT, onOpen);

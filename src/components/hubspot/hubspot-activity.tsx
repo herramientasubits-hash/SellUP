@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Mail,
   PhoneCall,
+  Plus,
   RefreshCw,
   StickyNote,
 } from '@/icons';
@@ -63,6 +64,7 @@ const KIND_ICON: Record<HubSpotActivityKind, React.ComponentType<{ className?: s
   task: ClipboardCheck,
   email: Mail,
   deal: Briefcase,
+  created: Plus,
 };
 
 const KIND_LABEL: Record<HubSpotActivityKind, string> = {
@@ -72,6 +74,7 @@ const KIND_LABEL: Record<HubSpotActivityKind, string> = {
   task: 'Tarea',
   email: 'Correo',
   deal: 'Negocio',
+  created: 'Alta',
 };
 
 const KIND_TONE: Record<HubSpotActivityKind, TimelineTone> = {
@@ -81,6 +84,7 @@ const KIND_TONE: Record<HubSpotActivityKind, TimelineTone> = {
   task: 'warning',
   email: 'default',
   deal: 'positive',
+  created: 'default',
 };
 
 export function formatActivityDate(iso: string | null): string {

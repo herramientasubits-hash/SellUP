@@ -18,6 +18,8 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  Clock,
+  Database,
   Download,
   ExternalLink,
   GitBranch,
@@ -55,6 +57,8 @@ import type { HubSpotCompanyLookupResult, HubSpotContactHit } from '@/modules/hu
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { HubSpotActivitySection, HubSpotActivityTimelineItem, useHubSpotActivity } from './hubspot-activity';
 import { HubSpotContactsSection } from './hubspot-contacts-section';
+import { HUBSPOT_DATA_TAB, HubSpotPropertiesSection, useHubSpotProperties } from './hubspot-properties-section';
+
 
 type PendingAction = 'import' | 'enrich' | 'first-contact' | null;
 
@@ -103,6 +107,8 @@ export function HubSpotCompanyPreviewSheet({
   const result = key && loaded?.key === key ? loaded.result : null;
   const data = result?.status === 'ok' ? result : null;
   const activity = useHubSpotActivity('company', open ? hubspotCompanyId : null);
+  // Todos los datos (cientos de propiedades): se leen al abrir su pestaña.
+  const properties = useHubSpotProperties('company', open ? hubspotCompanyId : null, tab === HUBSPOT_DATA_TAB);
 
   // Otra empresa: empieza en «Resumen» (ajuste durante el render).
   const [shownId, setShownId] = React.useState(hubspotCompanyId);
@@ -296,6 +302,7 @@ export function HubSpotCompanyPreviewSheet({
               <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
               <TabsTrigger value="agentes"><Rumbo className="h-4 w-4" /> Agentes</TabsTrigger>
               <TabsTrigger value="asociaciones"><GitBranch className="h-4 w-4" /> Árbol</TabsTrigger>
+              <TabsTrigger value={HUBSPOT_DATA_TAB}><Database className="h-4 w-4" /> HubSpot</TabsTrigger>
             </TabsList>
 
             <TabsContent value="resumen" className="space-y-4">
@@ -313,7 +320,22 @@ export function HubSpotCompanyPreviewSheet({
                       <span className="break-all font-mono text-xs tabular-nums">{company.id}</span>
                     </HubSpotDetailRow>
                     <HubSpotDetailRow icon={Calendar} label="Creada en HubSpot">{formatHubSpotShortDate(company.createdAt)}</HubSpotDetailRow>
+                    <HubSpotDetailRow icon={Clock} label="Última actividad">{formatHubSpotShortDate(company.lastActivityAt)}</HubSpotDetailRow>
+                    <HubSpotDetailRow icon={Globe} label="LinkedIn">
+                      {company.linkedinUrl ? (
+                        <a href={company.linkedinUrl} target="_blank" rel="noopener noreferrer" className="break-all rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
+                          Ver página
+                        </a>
+                      ) : null}
+                    </HubSpotDetailRow>
                   </dl>
+                  <button
+                    type="button"
+                    onClick={() => setTab(HUBSPOT_DATA_TAB)}
+                    className="mt-3 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                  >
+                    Ver todos los datos de HubSpot
+                  </button>
                 </DrawerSection>
                 <DrawerSection title="Descripción" icon={Tag}>
                   {company.description ? (
@@ -369,6 +391,10 @@ export function HubSpotCompanyPreviewSheet({
 
             <TabsContent value="agentes">
               <NeedsSellUp icon={Rumbo} what="ver lo que hicieron los agentes" actionLabel={RUMBO_ACTION_LABELS.findContacts} onAction={canWork ? handleEnrich : undefined} busy={busy} />
+            </TabsContent>
+
+            <TabsContent value={HUBSPOT_DATA_TAB}>
+              <HubSpotPropertiesSection kind="company" state={properties.state} onRetry={properties.retry} hubspotUrl={hubspotUrl} />
             </TabsContent>
 
             <TabsContent value="asociaciones">

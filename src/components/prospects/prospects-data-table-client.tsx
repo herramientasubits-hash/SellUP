@@ -97,10 +97,19 @@ import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { TeamFilterUrlButton } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { applyAssignedNow, markAssigned, type AssignedNow } from './assigned-now';
+import {
+  PROSPECT_CANDIDATE_OPEN_EVENT,
+  isCandidateReviewId,
+  readCandidateReviewParam,
+  stripCandidateReviewParam,
+} from '@/modules/contact-enrichment/candidate-review-link';
 
 // ── Derived types ──────────────────────────────────────────────
 
 type Row = ProspectRow;
+
+/** Cuánto espera la tabla a que llegue la fila pedida por la búsqueda general. */
+const PENDING_OPEN_TTL_MS = 15_000;
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -302,6 +311,43 @@ export function ProspectsDataTableClient({
     },
     [],
   );
+
+  // Búsqueda general (dueña 17-11): llega con `?candidate=<id>` (o con el evento, si la
+  // tabla ya estaba montada) y abre esa ficha en cuanto la fila está en la lista.
+  const [pendingOpenId, setPendingOpenId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const request = (candidateId: string) => setPendingOpenId(candidateId);
+    const { pathname, search, hash } = window.location;
+    const fromUrl = readCandidateReviewParam(search);
+    if (fromUrl) {
+      request(fromUrl);
+      window.history.replaceState(null, '', stripCandidateReviewParam(`${pathname}${search}${hash}`));
+    }
+    const onOpen = (event: Event) => {
+      const candidateId = (event as CustomEvent<{ candidateId?: unknown }>).detail?.candidateId;
+      if (isCandidateReviewId(candidateId)) request(candidateId);
+    };
+    window.addEventListener(PROSPECT_CANDIDATE_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(PROSPECT_CANDIDATE_OPEN_EVENT, onOpen);
+  }, []);
+  // Si la fila no llega (ya la aprobaron o descartaron, u otro filtro), el pedido caduca:
+  // no debe abrirse sola mucho después, al cambiar un filtro.
+  React.useEffect(() => {
+    if (!pendingOpenId) return;
+    const timer = window.setTimeout(() => setPendingOpenId(null), PENDING_OPEN_TTL_MS);
+    return () => window.clearTimeout(timer);
+  }, [pendingOpenId]);
+  // Ajuste durante el render (no en un efecto): en cuanto la fila pedida está, se abre.
+  const pendingRow = pendingOpenId ? rows.find((r) => r.id === pendingOpenId) ?? null : null;
+  if (pendingRow) {
+    setPendingOpenId(null);
+    setDetailCandidate(pendingRow);
+    setApproveIntent(false);
+    setDiscardIntent(false);
+    setDuplicateIntent(false);
+    setDetailOpen(true);
+  }
 
   // ── Orchestrator polling (sourceId batch enrichment) ──────────
   const [batchStats, setBatchStats] = React.useState<{

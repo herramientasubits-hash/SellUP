@@ -8,6 +8,7 @@ import type {
   HubSpotActivityLookupResult,
   HubSpotCompanyLookupResult,
   HubSpotContactLookupResult,
+  HubSpotPropertiesLookupResult,
   HubSpotSearchResult,
 } from './types';
 
@@ -45,4 +46,8 @@ export function fetchHubSpotActivity(kind: 'company' | 'contact', id: string, si
 
 export function fetchHubSpotAccountContacts(accountId: string, signal?: AbortSignal) {
   return getLookup<HubSpotAccountContactsResult>({ op: 'account-contacts', accountId }, signal);
+}
+
+export function fetchHubSpotProperties(kind: 'company' | 'contact', id: string, signal?: AbortSignal) {
+  return getLookup<HubSpotPropertiesLookupResult>({ op: 'properties', kind, id }, signal);
 }
