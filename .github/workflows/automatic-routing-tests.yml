@@ -1031,6 +1031,19 @@ jobs:
         env:
           SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
 
+      # La 168 (comentarios y alertas sobre empresas y contactos) aplicada de verdad: el
+      # comentario de un contacto va con su empresa, el texto no se edita, sólo una alerta
+      # se resuelve, y sólo service_role la lee o la escribe.
+      - name: Run record comments migration tests against real PostgreSQL
+        run: npm run test:record-comments:postgres
+        env:
+          SELLUP_REQUIRE_POSTGRES_HARNESS: '1'
+
+      # Comentarios y alertas: reglas puras y lo que el corte NO hace (alcance antes de leer o
+      # escribir, autor desde la sesión, sin HubSpot, proveedores ni teléfonos).
+      - name: Run record comments tests
+        run: npm run test:record-comments
+
       # APOLLO-SAVED-CONTACT-PHONES-1 — la 155 aplicada de verdad: nunca pisa un teléfono,
       # re-chequea la supresión de la persona bajo lock, respeta tombstones, sólo service_role
       # la ejecuta, y una DSAR de Apollo (115) SÍ borra el número importado.

@@ -565,6 +565,9 @@
     "test:agent2a:hubspot-candidate-identity": "node --experimental-test-module-mocks --import tsx --test src/modules/contact-enrichment/__tests__/candidate-identity-completion-core.test.ts src/modules/contact-enrichment/__tests__/candidate-identity-completion-providers.test.ts src/modules/contacts/__tests__/contact-hubspot-fill-empty-on-linked-first-sync.test.ts src/components/contact-enrichment/__tests__/contact-candidate-detail-phone-identity-eligibility-ui.test.tsx",
     "test:agent2a:hubspot-reveal-push": "node --import tsx --test src/modules/contact-enrichment/__tests__/candidate-reveal-hubspot-push-core.test.ts src/modules/contacts/__tests__/contact-hubspot-autosync-hubspot-first-approval.test.ts src/modules/contacts/__tests__/contact-hubspot-autosync-cut3b.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-webhook-core.test.ts src/modules/contact-enrichment/__tests__/phone-reveal-action-3d3.test.ts src/modules/contacts/__tests__/revealed-phone-slots-plan.test.ts src/server/integrations/__tests__/hubspot-phone-slots-writer-static.test.ts src/modules/contacts/__tests__/contact-hubspot-reveal-pending-slots.test.ts src/modules/contact-enrichment/__tests__/approved-candidate-reveal-contact-sync-core.test.ts src/modules/contacts/__tests__/contact-hubspot-all-phones-create-link.test.ts",
     "test:claude-rescue-lease:postgres": "node --import tsx --test src/server/agents/prospecting-toolkit/claude-classifier/rescue/__tests__/rescue-batch-lease-postgres.test.ts"
+,
+    "test:record-comments": "node --import tsx --test src/modules/record-comments/__tests__/record-comments-core.test.ts src/modules/record-comments/__tests__/record-comments-safety-static.test.ts",
+    "test:record-comments:postgres": "node --import tsx --test src/modules/record-comments/__tests__/record-comments-postgres.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
