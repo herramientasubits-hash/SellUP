@@ -5,6 +5,7 @@ import {
   decideEnrichmentOwnership,
   isEnrichmentRequestInFlight,
   missingEnrichmentFields,
+  parseHubSpotCompanyReference,
   summarizeEnrichmentRequest,
   type EnrichmentSnapshot,
 } from '../hubspot-enrichment-request';
@@ -132,5 +133,30 @@ describe('enriquecer empresa de HubSpot — resumen', () => {
     const summary = summarizeEnrichmentRequest({ before: FULL, after: FULL, requesterId: REQUESTER });
     assert.equal(summary.status, 'completed');
     assert.equal(summary.message, 'La empresa ya tenía todos sus datos. Ya estaba a tu nombre.');
+  });
+});
+
+describe('enriquecer empresa de HubSpot — lo que se pega', () => {
+  it('el ID solo, con espacios alrededor', () => {
+    assert.deepEqual(parseHubSpotCompanyReference(' 55403069082 '), { ok: true, hubspotCompanyId: '55403069082' });
+  });
+
+  it('el enlace de la ficha de empresa (record/0-2 y company)', () => {
+    assert.deepEqual(
+      parseHubSpotCompanyReference('https://app.hubspot.com/contacts/4325874/record/0-2/55403069082/view/1'),
+      { ok: true, hubspotCompanyId: '55403069082' },
+    );
+    assert.deepEqual(parseHubSpotCompanyReference('https://app.hubspot.com/contacts/4325874/company/55403069082'), {
+      ok: true,
+      hubspotCompanyId: '55403069082',
+    });
+  });
+
+  it('enlace de contacto, texto suelto o vacío: dice qué pegar', () => {
+    const contact = parseHubSpotCompanyReference('https://app.hubspot.com/contacts/4325874/record/0-1/987');
+    assert.equal(contact.ok, false);
+    if (!contact.ok) assert.match(contact.error, /contacto/);
+    assert.equal(parseHubSpotCompanyReference('LVP Real Estate').ok, false);
+    assert.equal(parseHubSpotCompanyReference('   ').ok, false);
   });
 });

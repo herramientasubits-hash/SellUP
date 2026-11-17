@@ -9,8 +9,9 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { importHubSpotCompany } from '@/modules/hubspot-lookup/actions';
 import { runHubSpotEnrichmentRequest } from './hubspot-enrichment-request.server';
-import type { EnrichmentRequestSummary } from './hubspot-enrichment-request';
+import { parseHubSpotCompanyReference, type EnrichmentRequestSummary } from './hubspot-enrichment-request';
 
 export type RequestHubSpotEnrichmentResult =
   | { success: true; accountId: string; accountName: string; summary: EnrichmentRequestSummary }
@@ -62,4 +63,25 @@ export async function requestHubSpotCompanyEnrichment(accountId: string): Promis
     });
     return { success: false, error: 'No pude enriquecer la empresa. Intenta de nuevo en unos minutos.' };
   }
+}
+
+export type EnrichHubSpotCompanyFromReferenceResult =
+  | (Extract<RequestHubSpotEnrichmentResult, { success: true }> & { broughtToSellUp: boolean })
+  | { success: false; error: string };
+
+/**
+ * La opción del Agente 1: se pega el enlace (o el ID) de la empresa en HubSpot. Si no está
+ * en SellUp, se trae con «Traer a SellUp» (mismas reglas: no duplica ni le quita la empresa
+ * a quien la lleva); luego se enriquece. Nada se escribe en HubSpot.
+ */
+export async function enrichHubSpotCompanyFromReference(raw: string): Promise<EnrichHubSpotCompanyFromReferenceResult> {
+  const parsed = parseHubSpotCompanyReference(typeof raw === 'string' ? raw : '');
+  if (!parsed.ok) return { success: false, error: parsed.error };
+
+  const imported = await importHubSpotCompany(parsed.hubspotCompanyId);
+  if (!imported.success) return { success: false, error: imported.error };
+
+  const enriched = await requestHubSpotCompanyEnrichment(imported.accountId);
+  if (!enriched.success) return enriched;
+  return { ...enriched, broughtToSellUp: imported.created };
 }

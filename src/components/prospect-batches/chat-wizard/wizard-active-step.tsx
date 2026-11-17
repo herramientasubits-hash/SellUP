@@ -20,6 +20,7 @@ import { getActiveAccountsForPicker } from '@/modules/accounts/actions';
 import { resolveCompetitorReferenceAction } from '@/modules/prospect-batches/competitor-search/actions';
 import { useCorporateTreeEnabled } from '@/modules/prospect-batches/agent-runs/agent-runs-client';
 import { SupplierReferenceSuggestions, useSupplierReferenceSuggestions } from './supplier-reference-suggestions';
+import { HUBSPOT_ENRICHMENT_OPTION, HubSpotEnrichmentPanel } from './wizard-hubspot-enrichment';
 import { FREQUENT_PUBLIC_SUPPLIER_COUNTRY_CODES } from '@/server/prospect-batches/supplier-search/countries/codes';
 
 /** AGENT1-SUPPLIER-FREQUENT-PUBLIC-1 — la opción «sin empresa de referencia» de «Proveedores». */
@@ -218,6 +219,8 @@ function buildSearchTypeOptions(state: ProspectWizardState, corporateTreeEnabled
       description: BULK_SEARCH_OPTION.description,
     });
   }
+  // HUBSPOT-ENRICHMENT-REQUEST-1 — la última: no busca empresas nuevas, completa una de HubSpot.
+  options.push({ ...HUBSPOT_ENRICHMENT_OPTION });
   return options;
 }
 
@@ -234,6 +237,11 @@ function SearchTypeStep({
   const [treeUnavailable, setTreeUnavailable] = React.useState(false);
   const comingSoonWarning = state.warnings.find((w) => w.code === 'MODE_COMING_SOON') ?? (treeUnavailable ? true : undefined);
   const definitions = resolveSearchModeDefinitions(state);
+  const [enrichingFromHubSpot, setEnrichingFromHubSpot] = React.useState(false);
+
+  if (enrichingFromHubSpot) {
+    return <HubSpotEnrichmentPanel titleRef={titleRef} onBack={() => setEnrichingFromHubSpot(false)} />;
+  }
 
   // Una opción «Próximamente» se puede tocar: el reductor responde con el aviso
   // de abajo en vez de avanzar, que es como explica por qué no sirve.
@@ -245,6 +253,11 @@ function SearchTypeStep({
       options={buildSearchTypeOptions(state, corporateTreeEnabled)}
       selected={state.bulkIntent === true ? [BULK_SEARCH_OPTION.value] : state.searchMode ? [state.searchMode] : []}
       onAnswer={(mode) => {
+        if (mode === HUBSPOT_ENRICHMENT_OPTION.value) {
+          setTreeUnavailable(false);
+          setEnrichingFromHubSpot(true);
+          return;
+        }
         if (mode === BULK_SEARCH_OPTION.value) {
           setTreeUnavailable(false);
           dispatch({ type: 'SELECT_BULK_SEARCH' });

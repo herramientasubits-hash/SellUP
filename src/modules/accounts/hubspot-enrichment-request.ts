@@ -128,3 +128,29 @@ export function summarizeEnrichmentRequest(input: {
     message: `${headline} ${ownershipSentence(ownership, input.ownerName ?? null)}`,
   };
 }
+
+// ── Lo que se pega en el Agente 1 ─────────────────────────────────────────────
+
+export type HubSpotCompanyReferenceParse =
+  | { ok: true; hubspotCompanyId: string }
+  | { ok: false; error: string };
+
+const HUBSPOT_ID = /^\d{1,20}$/;
+/** `…/record/0-2/123`, `…/company/123` (enlaces de la ficha de empresa en HubSpot). */
+const HUBSPOT_COMPANY_URL = /\/(?:record\/0-2|company|companies)\/(\d{1,20})(?:[/?#]|$)/i;
+
+/**
+ * El enlace de la empresa en HubSpot o su Company ID. Un enlace de contacto o de
+ * negocio no vale: se pide el de la empresa.
+ */
+export function parseHubSpotCompanyReference(raw: string): HubSpotCompanyReferenceParse {
+  const text = (raw ?? '').trim();
+  if (text.length === 0) return { ok: false, error: 'Pega el enlace de la empresa en HubSpot o su ID.' };
+  if (HUBSPOT_ID.test(text)) return { ok: true, hubspotCompanyId: text };
+  const match = HUBSPOT_COMPANY_URL.exec(text);
+  if (match) return { ok: true, hubspotCompanyId: match[1] };
+  if (/\/record\/0-1\/|\/contact\//i.test(text)) {
+    return { ok: false, error: 'Ese enlace es de un contacto. Pega el de la empresa.' };
+  }
+  return { ok: false, error: 'No reconozco ese enlace. Pega el de la ficha de la empresa en HubSpot o su ID (sólo números).' };
+}
