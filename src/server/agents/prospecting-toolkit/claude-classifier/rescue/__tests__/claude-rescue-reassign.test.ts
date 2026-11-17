@@ -520,6 +520,71 @@ describe('H. otra industria en una búsqueda con tope de 10', () => {
   });
 });
 
+// ─── H2. Dueña 17-11 — la candidata YA en revisión que resulta de otra industria ──
+// Prod 16/17-11: 31 de 240 empresas de búsquedas por industria quedaban en «Por revisar»
+// con OTRA industria (Bancoppel en Manufactura, WOM en Retail). Con tope, salen al banco.
+
+describe('H2. candidata en revisión de otra industria en una búsqueda con tope', () => {
+  const inReview = () => ({ ...discardedCandidate(), status: 'needs_review', metadata: REVIEW_METADATA });
+  const noStored = async () => ({ candidates: [], dispositions: [] });
+
+  it('sale de revisión y va al banco con la macro de SU industria', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const patches: Array<Record<string, unknown>> = [];
+    let marked: Record<string, unknown> | null = null;
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [inReview()],
+      loadSectorMismatchDiscards: noStored,
+      deliverySlots: async () => 5,
+      patchCandidate: async (_id, build) => {
+        const patch = build(REVIEW_METADATA);
+        if (patch) patches.push(patch as Record<string, unknown>);
+        return !!patch;
+      },
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+      patchDiscardedCandidate: async (_id, build) => {
+        marked = build({}) as Record<string, unknown> | null;
+        return !!marked;
+      },
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok, true);
+    if (!s.ok) return;
+    assert.equal(s.reassigned, 0);
+    assert.equal(s.dispositionsBanked, 1);
+    const final = patches.at(-1) as { status?: string; review_notes?: string };
+    assert.equal(final.status, 'discarded');
+    assert.match(final.review_notes ?? '', /Salud & Farmacéuticos/);
+    assert.equal(banked[0]?.macroIndustryKey, resolveMacroIndustryKey({ slug: null, displayName: SALUD }));
+    const rescue = (marked as { metadata?: { claude_rescue?: Record<string, unknown> } } | null)?.metadata?.claude_rescue;
+    assert.equal(rescue?.banked_industry_name, SALUD);
+  });
+
+  it('con tope pero sin banco conectado no se pierde: sigue en revisión con la industria corregida', async () => {
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [inReview()],
+      loadSectorMismatchDiscards: noStored,
+      deliverySlots: async () => 5,
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.reassigned, 1);
+    assert.equal(s.ok && s.candidatesDiscarded, 0);
+  });
+
+  it('sin tope (Árbol, Competidores, Proveedores) sigue en revisión con la industria corregida', async () => {
+    const banked: CompanyBankDepositItem[] = [];
+    const f = fakeDeps({
+      loadReviewCandidates: async () => [inReview()],
+      loadSectorMismatchDiscards: noStored,
+      deliverySlots: async () => null,
+      depositToBank: async (item) => (banked.push(item), 'deposited'),
+    });
+    const s = await rescueBatchWithClaude({ batchId: 'b1', triggeredBy: 'u1' }, f.deps);
+    assert.equal(s.ok && s.reassigned, 1);
+    assert.equal(banked.length, 0);
+  });
+});
+
 describe('I. Revisión 16-11 — en una búsqueda con tope no se reabren las guardadas de otra industria', () => {
   it('con tope de entrega, las guardadas no vuelven a revisión', async () => {
     const f = fakeDeps({ deliverySlots: async () => 5 });

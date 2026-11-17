@@ -50,6 +50,7 @@ import {
   decideRescue,
   DEFAULT_ICP_MIN_EMPLOYEES,
   storedSmallSizeDiscard,
+  reassignAsSectorDiscard,
   viableInOtherIndustry,
   type RescueDecision,
 } from './rescue-decision';
@@ -578,12 +579,19 @@ async function rescueCandidate(
     sizeUnfiltered: isSizeUnfiltered(row.metadata),
   });
   const minEmployees = official.measured ? official.minEmployees : readIcpThreshold(row.metadata);
-  const decision = decideRescue(result, {
+  const decided = decideRescue(result, {
     icpMinEmployees: minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
     sizeAlreadyConfirmed: official.measured || sizeAlreadyConfirmed(row.metadata),
     sizePassedIcpGate: icpGatePassed(row.metadata),
   });
+  // Dueña 17-11 — con tope, la de otra industria sale de revisión y va al banco de SU
+  // industria (Prod 16/17-11: Bancoppel en Manufactura, WOM en Retail). Sin tope (Árbol,
+  // Competidores, Proveedores) sigue en revisión con la industria corregida.
+  // Sin banco conectado no se saca de revisión (se perdería en Descartadas).
+  const canBank = !!deps.depositToBank && !!deps.patchDiscardedCandidate;
+  const bankElsewhere = decided.kind === 'reassign' && ctx.deliveryCapped && canBank ? decided : null;
+  const decision = bankElsewhere ? reassignAsSectorDiscard(bankElsewhere) : decided;
   const decidedAt = deps.nowIso();
   const identity =
     decision.kind === 'admit'
@@ -604,7 +612,7 @@ async function rescueCandidate(
   if (decision.kind === 'admit' && identity) ctx.fiscalIdentityCandidateIds?.push(row.id);
   if (decision.kind === 'discard') {
     // Dueña 14-11 — de otra industria y viable: además de salir de revisión, al banco.
-    const elsewhere = viableInOtherIndustry(result, decision, {
+    const elsewhere = bankElsewhere ?? viableInOtherIndustry(result, decision, {
       icpMinEmployees: minEmployees,
       requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
       sizeAlreadyConfirmed: official.measured || sizeAlreadyConfirmed(row.metadata),
