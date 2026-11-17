@@ -85,6 +85,18 @@ describe('valores legibles', () => {
     assert.deepEqual(formatPropertyValue(def({ name: 'email' }), 'Stephanie.Lopez@FNL.cl'), { value: 'stephanie.lopez@fnl.cl', kind: 'email' });
   });
 
+  it('un id va tal cual (sin puntos de miles); una cantidad, como número', () => {
+    assert.deepEqual(formatPropertyValue(def({ name: 'hs_created_by_user_id', label: 'Created by user ID', type: 'number' }), '101471957'), {
+      value: '101471957',
+      kind: 'text',
+    });
+    assert.deepEqual(formatPropertyValue(def({ name: 'hs_object_id', label: 'Record ID', type: 'number' }), '61081648756')?.kind, 'text');
+    assert.deepEqual(formatPropertyValue(def({ name: 'numberofemployees', label: 'Number of Employees', type: 'number' }), '350'), {
+      value: '350',
+      kind: 'number',
+    });
+  });
+
   it('vacío no se muestra y un texto enorme se recorta', () => {
     assert.equal(formatPropertyValue(def({ name: 'x' }), '   '), null);
     assert.equal(formatPropertyValue(def({ name: 'x' }), null), null);

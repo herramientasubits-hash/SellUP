@@ -148,10 +148,11 @@ export function HubSpotPropertiesSection({ kind, state, onRetry, hubspotUrl }: H
       ) : visible.length === 0 ? (
         <EmptyState variant="plain" icon={Search} title="Ningún dato coincide" description="Prueba con otra palabra." />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        // Una sección debajo de otra (dueña 17-11: «en dos columnas se ve muy feo»).
+        <div className="flex flex-col gap-4">
           {visible.map((section) => (
             <DrawerSection key={section.name} title={section.label} icon={Database}>
-              <dl className="space-y-3">
+              <dl className="divide-y divide-border/60">
                 {section.entries.map((entry) => (
                   <PropertyRow key={entry.name} entry={entry} />
                 ))}
@@ -166,9 +167,10 @@ export function HubSpotPropertiesSection({ kind, state, onRetry, hubspotUrl }: H
 
 function PropertyRow({ entry }: { entry: HubSpotPropertyEntry }) {
   return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
-      <dt className="min-w-[140px] max-w-[45%] shrink-0 break-words text-xs text-muted-foreground">{entry.label}</dt>
-      <dd className="min-w-0 flex-1 whitespace-pre-line break-words text-sm text-foreground sm:text-right">
+    // El dato junto a su nombre (no pegado al borde derecho): se lee de arriba abajo.
+    <div className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[minmax(160px,240px)_1fr] sm:gap-4">
+      <dt className="break-words text-xs leading-5 text-muted-foreground">{entry.label}</dt>
+      <dd className="min-w-0 whitespace-pre-line break-words text-sm text-foreground">
         <PropertyValue entry={entry} />
       </dd>
     </div>
