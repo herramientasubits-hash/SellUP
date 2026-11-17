@@ -64,7 +64,8 @@ type AccountRow = {
 export interface CompleteAccountProfileResult {
   status: 'complete' | 'updated' | 'nothing_found' | 'account_unavailable';
   filled: Array<'country' | 'industry'>;
-  hubspot: { status: 'not_linked' | 'nothing_to_write' | 'written' | 'failed'; written: string[] };
+  /** `skipped`: quien llamó pidió no escribir en HubSpot (`writeHubSpot: false`). */
+  hubspot: { status: 'not_linked' | 'nothing_to_write' | 'written' | 'failed' | 'skipped'; written: string[] };
   /** Lo que sigue vacío después del intento. */
   stillMissing: Array<'country' | 'industry'>;
 }
@@ -153,7 +154,17 @@ async function loadHubSpotClues(
 
 export async function completeAccountProfile(
   admin: SupabaseClient,
-  input: { accountId: string; actorUserId: string | null; nowIso: string; useClaude?: boolean },
+  input: {
+    accountId: string;
+    actorUserId: string | null;
+    nowIso: string;
+    useClaude?: boolean;
+    /**
+     * HUBSPOT-ENRICHMENT-REQUEST-1 — `false` completa sólo en SellUp: el Agente 1 no escribe
+     * en HubSpot. Por defecto se mantiene el comportamiento de siempre (escribe lo vacío).
+     */
+    writeHubSpot?: boolean;
+  },
 ): Promise<CompleteAccountProfileResult> {
   const unavailable: CompleteAccountProfileResult = {
     status: 'account_unavailable',
@@ -242,12 +253,15 @@ export async function completeAccountProfile(
     return unavailable;
   }
 
-  const hubspot = await writeBackToHubSpot(
-    account,
-    patch.country ?? null,
-    hubSpotPaisForCountryCode(patch.country_code),
-    patch.industry ?? null,
-  );
+  const hubspot: CompleteAccountProfileResult['hubspot'] =
+    input.writeHubSpot === false
+      ? { status: 'skipped', written: [] }
+      : await writeBackToHubSpot(
+          account,
+          patch.country ?? null,
+          hubSpotPaisForCountryCode(patch.country_code),
+          patch.industry ?? null,
+        );
   return {
     status: filled.length > 0 ? 'updated' : 'nothing_found',
     filled,
