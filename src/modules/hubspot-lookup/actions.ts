@@ -19,7 +19,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { canActOnAccount, canActOnContact } from '@/modules/access/record-scope.server';
 import { resolveAccountForEnrichmentRequest } from '@/modules/contact-enrichment/request-account-resolution-core';
-import { logContactAudit } from '@/modules/contacts/contact-audit.server';
+import { createOrLinkContactFromHubSpot } from '@/modules/contacts/actions';
 import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { mapCountryToCode } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import {
@@ -130,31 +130,6 @@ async function existingContact(
   return { success: true, accountId, contactId: already.id, created: false };
 }
 
-/** Un contacto con ese correo en la empresa: se le pone el vínculo en vez de duplicarlo. */
-async function linkByEmail(userId: string, accountId: string, contact: HubSpotContactView): Promise<string | null> {
-  if (!contact.email) return null;
-  const admin = createSupabaseAdminClient();
-  // Sin comodines: «ana_p@x.com» no debe encontrar a «anaxp@x.com».
-  const exactEmail = contact.email.replace(/[\\%_]/g, (ch) => `\\${ch}`);
-  const { data } = await admin
-    .from('contacts')
-    .select('id, hubspot_contact_id')
-    .eq('account_id', accountId)
-    .ilike('email', exactEmail)
-    .is('archived_at', null)
-    .limit(1);
-  const match = (data ?? [])[0] as { id: string; hubspot_contact_id: string | null } | undefined;
-  if (!match) return null;
-  if (!match.hubspot_contact_id) {
-    await admin
-      .from('contacts')
-      .update({ hubspot_contact_id: contact.id, updated_by: userId })
-      .eq('id', match.id)
-      .is('hubspot_contact_id', null);
-  }
-  return match.id;
-}
-
 /**
  * Trae el contacto de HubSpot a SellUp, con su empresa. Si el contacto ya está (por su
  * Contact ID o por su correo en esa empresa), se usa el que estaba y se le pone el vínculo.
@@ -197,46 +172,19 @@ export async function importHubSpotContact(
     accountId = company.accountId;
   }
 
-  const linkedId = await linkByEmail(userId, accountId, contact);
-  if (linkedId) return { success: true, accountId, contactId: linkedId, created: false };
-
-  const supabase = await createClient();
-  const { data: inserted, error } = await supabase
-    .from('contacts')
-    .insert({
-      account_id: accountId,
-      first_name: contact.firstName,
-      last_name: contact.lastName,
-      full_name: contact.fullName,
-      email: contact.email,
-      // El de HubSpot, sin procedencia de proveedor (como al aprobar un candidato de
-      // HubSpot): así la regla 164 lo protege de que Apollo / Lusha lo reemplacen.
-      phone: contact.phone ?? contact.mobilePhone,
-      mobile_phone: contact.phone && contact.mobilePhone ? contact.mobilePhone : null,
-      linkedin_url: contact.linkedinUrl,
-      job_title: contact.jobTitle,
-      contact_status: 'active',
-      source: 'hubspot',
-      hubspot_contact_id: hubspotContactId,
-      is_primary: false,
-      created_by: userId,
-      updated_by: userId,
-      metadata: { created_from: 'hubspot_lookup_import', source_hubspot_contact_id: hubspotContactId },
-    })
-    .select('id')
-    .single();
-  if (error || !inserted) {
-    console.error('[hubspot-lookup] crear contacto falló:', error?.message);
+  const saved = await createOrLinkContactFromHubSpot({
+    account_id: accountId,
+    hubspot_contact_id: hubspotContactId,
+    first_name: contact.firstName,
+    last_name: contact.lastName,
+    full_name: contact.fullName,
+    email: contact.email,
+    linkedin_url: contact.linkedinUrl,
+    job_title: contact.jobTitle,
+  });
+  if (!saved.success) {
+    console.error('[hubspot-lookup] crear contacto falló:', saved.error);
     return { success: false, error: 'Trajimos la empresa, pero no pudimos crear el contacto. Vuelve a intentarlo.' };
   }
-
-  await logContactAudit({
-    contactId: inserted.id as string,
-    accountId,
-    actorUserId: userId,
-    actionType: 'contact_created',
-    details: { full_name: contact.fullName, source: 'hubspot', hubspot_contact_id: hubspotContactId },
-  });
-
-  return { success: true, accountId, contactId: inserted.id as string, created: true };
+  return { success: true, accountId, contactId: saved.id, created: saved.created };
 }

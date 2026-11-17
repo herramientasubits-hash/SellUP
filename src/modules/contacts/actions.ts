@@ -401,6 +401,112 @@ export async function createContact(
 }
 
 // ============================================================
+// createOrLinkContactFromHubSpot — «Traer a SellUp» desde la consulta de HubSpot
+// ============================================================
+
+export interface HubSpotContactImportInput {
+  account_id: string;
+  hubspot_contact_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string;
+  email: string | null;
+  linkedin_url: string | null;
+  job_title: string | null;
+}
+
+/**
+ * Consulta de HubSpot (dueña 17-11): trae a SellUp un contacto que sólo estaba en HubSpot.
+ *
+ * Escribe SÓLO identidad y el vínculo con HubSpot: nunca teléfono (ni `phone_source` ni el
+ * móvil). Un número de HubSpot no tiene procedencia de proveedor en SellUp y las auditorías
+ * de escritores de teléfono (R1 / 4O-E4.1) no admiten escritores nuevos; el teléfono se sigue
+ * viendo en la ficha de HubSpot.
+ *
+ * Si ya hay en la empresa un contacto con ese correo, se le pone el vínculo (si no lo tenía)
+ * en vez de duplicarlo.
+ */
+export async function createOrLinkContactFromHubSpot(
+  input: HubSpotContactImportInput,
+): Promise<{ success: true; id: string; created: boolean } | { success: false; error: string }> {
+  const { internalUserId } = await requireActiveUser();
+  const supabase = await createClient();
+
+  if (!input.account_id) return { success: false, error: 'account_id es requerido' };
+  if (!/^\d{1,20}$/.test(input.hubspot_contact_id ?? '')) {
+    return { success: false, error: 'Ese contacto de HubSpot no es válido.' };
+  }
+  if (!(await canActOnAccount(input.account_id))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
+
+  const { data: account } = await supabase
+    .from('accounts')
+    .select('id, archived_at, pipeline_status')
+    .eq('id', input.account_id)
+    .single();
+  const accountCheck = checkAccountActiveForContact(
+    account as { archived_at: string | null; pipeline_status: string } | null,
+  );
+  if (!accountCheck.ok) return { success: false, error: accountCheck.error };
+
+  const fullName = input.full_name.trim();
+  if (!fullName) return { success: false, error: 'El nombre completo es requerido' };
+  const email = sanitizeEmail(input.email ?? undefined);
+
+  if (email) {
+    const { data: sameEmail } = await supabase
+      .from('contacts')
+      .select('id, email, hubspot_contact_id')
+      .eq('account_id', input.account_id)
+      .is('archived_at', null);
+    const match = ((sameEmail ?? []) as Array<{ id: string; email: string | null; hubspot_contact_id: string | null }>).find(
+      (c) => c.email?.trim().toLowerCase() === email,
+    );
+    if (match) {
+      if (!match.hubspot_contact_id) {
+        await supabase
+          .from('contacts')
+          .update({ hubspot_contact_id: input.hubspot_contact_id, updated_by: internalUserId })
+          .eq('id', match.id)
+          .is('hubspot_contact_id', null);
+      }
+      return { success: true, id: match.id, created: false };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert({
+      account_id: input.account_id,
+      first_name: input.first_name?.trim() || null,
+      last_name: input.last_name?.trim() || null,
+      full_name: fullName,
+      email,
+      linkedin_url: input.linkedin_url?.trim() || null,
+      job_title: input.job_title?.trim() || null,
+      contact_status: 'active' as ContactStatus,
+      source: 'hubspot' as const,
+      hubspot_contact_id: input.hubspot_contact_id,
+      is_primary: false,
+      created_by: internalUserId,
+      updated_by: internalUserId,
+      metadata: { created_from: 'hubspot_lookup_import', source_hubspot_contact_id: input.hubspot_contact_id },
+    })
+    .select('id')
+    .single();
+  if (error || !data) return { success: false, error: error?.message ?? 'No se pudo crear el contacto' };
+
+  await logContactAudit({
+    contactId: data.id,
+    accountId: input.account_id,
+    actorUserId: internalUserId,
+    actionType: 'contact_created',
+    details: { full_name: fullName, source: 'hubspot', hubspot_contact_id: input.hubspot_contact_id },
+  });
+
+  return { success: true, id: data.id, created: true };
+}
+
+// ============================================================
 // updateContact
 // ============================================================
 
