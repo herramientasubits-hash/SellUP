@@ -54,6 +54,12 @@ const CREDITS_SPENT_NOTE = 'La consulta al proveedor quedó registrada en el uso
 
 export const REVIEW_NOW_LABEL = 'Revisar ahora';
 export const OPEN_CANDIDATE_LABEL = 'Abrir candidato';
+export const OPEN_CONTACT_LABEL = 'Abrir contacto';
+
+/** Ficha del contacto de SellUp con el que coincidió la búsqueda. */
+export function contactDetailHref(contactId: string): string {
+  return `/contacts/${encodeURIComponent(contactId)}`;
+}
 
 function sourceLabel(provider: LinkedinSearchPreview['provider']): string {
   if (provider === 'hubspot') return 'HubSpot';
@@ -179,6 +185,7 @@ function message(role: AgentChatRole, content: string, tone?: AgentChatTone): Ag
 type LastOutcome =
   | { kind: 'created'; result: CreatedResult }
   | { kind: 'pending'; candidateId: string }
+  | { kind: 'contact'; contactId: string }
   | null;
 
 interface ContactEnrichmentLinkedinSearchProps {
@@ -257,6 +264,9 @@ export function ContactEnrichmentLinkedinSearch({
     setMessages((prev) => [...prev, message('assistant', reply.content, reply.tone)]);
     if (result.status === 'already_known' && result.candidateId) {
       setOutcome({ kind: 'pending', candidateId: result.candidateId });
+    } else if (result.status === 'already_known' && result.contactId) {
+      // AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING: el contacto aprobado con el que coincidió.
+      setOutcome({ kind: 'contact', contactId: result.contactId });
     }
     if (result.status === 'provider_error') {
       setStep('retry');
@@ -358,6 +368,18 @@ export function ContactEnrichmentLinkedinSearch({
             >
               <UserSearch className="h-4 w-4" aria-hidden />
               {OPEN_CANDIDATE_LABEL}
+            </Button>
+          )}
+
+          {outcome?.kind === 'contact' && !isRevealing && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push(contactDetailHref(outcome.contactId))}
+              data-testid="linkedin-open-contact"
+            >
+              <UserSearch className="h-4 w-4" aria-hidden />
+              {OPEN_CONTACT_LABEL}
             </Button>
           )}
         </div>

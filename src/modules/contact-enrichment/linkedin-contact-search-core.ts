@@ -20,6 +20,12 @@
 //   - el duplicado por correo contra HubSpot se queda como estaba (decisión de Bryan, 29-10):
 //     si el correo encontrado ya existe en HubSpot, no se crea candidato.
 //
+// AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING (Bryan 17-11): el correo encontrado se compara
+// también con los candidatos «Por revisar», ANTES que con HubSpot (un candidato traído de HubSpot
+// existe en los dos: debe ganar el candidato, para ofrecer «Abrir candidato»). Cuando la persona
+// ya existe por correo (candidato o contacto de SellUp), el resultado lleva el LinkedIn buscado
+// (`searchedLinkedinUrl`) para que la acción se lo guarde (`quick-search-linkedin-attach-core.ts`).
+//
 // Pendiente (BACKLOG F2-b): buscar en HubSpot por la URL (`hs_linkedin_url`) antes de gastar,
 // con la URL normalizada en los dos lados; y la decisión 2 (asociar un contacto existente a
 // otra empresa). Hoy ninguno de los dos ocurre aquí.
@@ -89,6 +95,8 @@ export interface KnownContactMatch {
   companyName: string | null;
   /** Sólo candidatos por revisar: su id, para ofrecer «Abrir candidato» si el usuario lo puede ver. */
   candidateId?: string | null;
+  /** Sólo contactos de SellUp: su id, para ofrecer «Abrir contacto» y completar su LinkedIn. */
+  contactId?: string | null;
 }
 
 export type HubSpotEmailCheck = 'clear' | 'unavailable' | 'skipped_no_email';
@@ -136,6 +144,12 @@ export type LinkedinSearchResult =
       /** true si se gastó enriqueciendo antes de descubrirlo (coincidencia por email). */
       creditsSpent: boolean;
       message: string;
+      /**
+       * Sólo coincidencia por correo con un candidato o contacto de SellUp: el LinkedIn canónico
+       * que se buscó, para guardárselo (AGENT2A-LINKEDIN-SEARCH-ATTACH-EXISTING). Nunca va al
+       * navegador.
+       */
+      searchedLinkedinUrl?: string;
     }
   | { status: 'not_found'; message: string; creditsSpent: boolean }
   | { status: 'provider_error'; message: string }
@@ -154,6 +168,8 @@ export const LINKEDIN_SEARCH_COPY = {
   knownPendingCandidate: 'Esta persona ya está en «Por revisar». No se gastaron créditos.',
   knownSellUpContactByEmail:
     'El correo que encontramos ya pertenece a un contacto de SellUp. No se creó un candidato nuevo.',
+  knownPendingCandidateByEmail:
+    'El correo que encontramos ya pertenece a un candidato en «Por revisar». No se creó un candidato nuevo.',
   knownHubSpotByEmail:
     'El correo que encontramos ya existe en HubSpot. No se creó un candidato nuevo para no duplicarlo.',
 } as const;
@@ -165,6 +181,8 @@ export interface LinkedinSearchDeps {
   lookupApollo: (canonicalUrl: string) => Promise<LinkedinProviderLookup>;
   lookupLusha: (canonicalUrl: string) => Promise<LinkedinProviderLookup>;
   findSellUpContactByEmail: (email: string) => Promise<KnownContactMatch | null>;
+  /** Candidato «Por revisar» con ese correo (sin LinkedIn, o con otro): se mira antes que HubSpot. */
+  findPendingCandidateByEmail: (email: string) => Promise<KnownContactMatch | null>;
   /** Lanza si HubSpot no responde: la búsqueda sigue y la sincronización al aprobar vuelve a mirar. */
   findHubSpotContactByEmail: (email: string) => Promise<KnownContactMatch | null>;
   logUsage: (usage: LinkedinProviderUsage) => Promise<void>;
@@ -274,7 +292,7 @@ export async function searchContactByLinkedin(
     return { status: 'not_found', message: LINKEDIN_SEARCH_COPY.notFound, creditsSpent: spentSomething };
   }
 
-  // 4. ¿El email encontrado ya existe? SellUp primero, luego HubSpot.
+  // 4. ¿El email encontrado ya existe? SellUp (contactos, luego «Por revisar») y después HubSpot.
   let hubspotCheck: HubSpotEmailCheck = 'skipped_no_email';
   const email = chosen.email?.trim().toLowerCase() || null;
   if (email) {
@@ -287,6 +305,19 @@ export async function searchContactByLinkedin(
         match: sellupByEmail,
         creditsSpent: spentSomething,
         message: LINKEDIN_SEARCH_COPY.knownSellUpContactByEmail,
+        searchedLinkedinUrl: normalized.canonicalUrl,
+      };
+    }
+    const pendingByEmail = await deps.findPendingCandidateByEmail(email);
+    if (pendingByEmail) {
+      return {
+        status: 'already_known',
+        where: 'sellup_pending_candidate',
+        matchedBy: 'email',
+        match: pendingByEmail,
+        creditsSpent: spentSomething,
+        message: LINKEDIN_SEARCH_COPY.knownPendingCandidateByEmail,
+        searchedLinkedinUrl: normalized.canonicalUrl,
       };
     }
     try {

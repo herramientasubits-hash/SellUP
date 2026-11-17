@@ -219,6 +219,30 @@ describe('Panel del agente · Un contacto por LinkedIn, correo o ID de HubSpot',
     assert.deepEqual(pushed, [`/contacts?tab=candidates&candidate=${CANDIDATE_ID}`]);
   });
 
+  it('el correo coincide con un contacto aprobado que puede tocar: dice cuál y ofrece «Abrir contacto»', async () => {
+    searchResponses = [
+      {
+        status: 'already_known',
+        where: 'sellup_contact',
+        matchedBy: 'email',
+        match: { fullName: 'Ana Ficticia', companyName: 'Empresa Ficticia SAS' },
+        creditsSpent: true,
+        message: 'El correo que encontramos ya pertenece a un contacto de SellUp. No se creó un candidato nuevo.',
+        candidateId: null,
+        contactId: 'ct-1',
+      },
+    ];
+    const panel = await openModeAndSend();
+    await rtl.within(panel).findByText(/Coincide en SellUp con: Ana Ficticia · Empresa Ficticia SAS/, undefined, {
+      timeout: 5000,
+    });
+    // El LinkedIn se guarda sin avisarlo en el chat (Bryan 17-11).
+    assert.equal(rtl.within(panel).queryByText(/agregamos el LinkedIn/i), null);
+    assert.equal(rtl.screen.queryByTestId('linkedin-open-candidate'), null);
+    rtl.fireEvent.click(await rtl.screen.findByTestId('linkedin-open-contact', undefined, { timeout: 5000 }));
+    assert.deepEqual(pushed, ['/contacts/ct-1']);
+  });
+
   it('error del proveedor: mensaje propio y «Reintentar» vuelve a buscar lo mismo', async () => {
     searchResponses = [{ status: 'provider_error', message: 'No pudimos consultar los proveedores en este momento.' }];
     const panel = await openModeAndSend();
