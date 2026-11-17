@@ -13,6 +13,15 @@ import {
 } from "@/components/search";
 import { getAccountsList } from "@/modules/accounts/actions";
 import { getAllContacts } from "@/modules/contacts/actions";
+import { fetchHubSpotSearch } from "@/modules/hubspot-lookup/client";
+import { hubspotSearchItems, type OpenHubSpotRecord } from "@/components/search/hubspot-search-items";
+import {
+  HUBSPOT_OPEN_EVENT,
+  hubspotCompanyHref,
+  hubspotContactHref,
+  hubspotRecordPath,
+  type HubSpotOpenDetail,
+} from "@/modules/hubspot-lookup/types";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { DrawerShell } from "@/components/shared/drawer-shell";
 import { AppSidebar } from "@/components/layout/app-sidebar";
@@ -60,7 +69,21 @@ const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   [ROI_CALCULATOR_ROUTE]: ["roi", "proyección", "valor", "cotización", "propuesta"],
 };
 
-const SEARCH_OBJECTS_HINT = "Registros: tus 200 empresas y 500 contactos más recientes.";
+const SEARCH_OBJECTS_HINT = "Registros: tus empresas y contactos, y también los de HubSpot.";
+
+/**
+ * Empresas y contactos de HubSpot con lo escrito (dueña 17-11: «que todos puedan
+ * consultar lo que sea desde SellUp en HubSpot»). Sin HubSpot conectado no hay grupo;
+ * si no responde, se avisa y lo de SellUp sigue.
+ */
+async function searchHubSpot(query: string, signal: AbortSignal, open: OpenHubSpotRecord): Promise<SearchObjectItem[]> {
+  const result = await fetchHubSpotSearch(query, signal);
+  if (result.status === "unavailable") {
+    if (result.reason === "not_connected") return [];
+    throw new Error("HubSpot no disponible");
+  }
+  return hubspotSearchItems(result.companies, result.contacts, open);
+}
 
 function compact(values: readonly (string | null | undefined)[]): string[] {
   return values.filter((value): value is string => Boolean(value));
@@ -170,6 +193,22 @@ function HeaderRoute({ current }: { current: NavItem | undefined }) {
 export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCenter }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
+  // Un registro de HubSpot se abre en su pantalla (Empresas / Contactos). Si ya se está
+  // en ella, se avisa a la lista: navegar a la misma ruta no la vuelve a montar.
+  const openHubSpotRecord = React.useCallback<OpenHubSpotRecord>(
+    (kind, id) => {
+      if (pathname === hubspotRecordPath(kind)) {
+        window.dispatchEvent(new CustomEvent<HubSpotOpenDetail>(HUBSPOT_OPEN_EVENT, { detail: { kind, id } }));
+        return;
+      }
+      router.push(kind === "company" ? hubspotCompanyHref(id) : hubspotContactHref(id));
+    },
+    [pathname, router],
+  );
+  const searchRemote = React.useCallback(
+    (query: string, signal: AbortSignal) => searchHubSpot(query, signal, openHubSpotRecord),
+    [openHubSpotRecord],
+  );
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const { collapsed, toggle } = useSidebar();
   // Un solo botón: en escritorio pliega el menú lateral; en el móvil, donde el
@@ -264,6 +303,8 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
         navigate={searchDestinations}
         loadObjects={loadSearchObjects}
         objectsHint={SEARCH_OBJECTS_HINT}
+        searchRemote={searchRemote}
+        remoteLabel="HubSpot"
         placeholder="Buscar en todo…"
         // Cede ancho antes que las acciones: con el panel del Agente IA abierto en
         // una ventana estrecha, un ancho fijo las empujaba debajo del panel.
