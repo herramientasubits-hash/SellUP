@@ -95,11 +95,14 @@ function text(value: string | null | undefined): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-/** El perfil de un contacto de HubSpot, con la forma que comparten todas las fuentes. */
-export function profileFromHubSpotContact(contact: HubSpotEmailContact, email: string): LinkedinProviderProfile {
+/**
+ * El perfil de un contacto de HubSpot, con la forma que comparten todas las fuentes. `email` es
+ * null cuando se buscó por el ID del contacto y HubSpot no tiene correo (Bryan 17-11).
+ */
+export function profileFromHubSpotContact(contact: HubSpotEmailContact, email: string | null): LinkedinProviderProfile {
   const firstName = text(contact.firstName);
   const lastName = text(contact.lastName);
-  const fullName = [firstName, lastName].filter(Boolean).join(' ') || email;
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || email || `Contacto de HubSpot ${contact.id}`;
   return {
     provider: 'hubspot',
     sourceContactId: contact.id,
