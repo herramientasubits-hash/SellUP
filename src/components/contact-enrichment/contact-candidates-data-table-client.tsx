@@ -44,6 +44,8 @@ import { resolveTitleProvenance } from './contact-candidate-title-provenance';
 import { hubspotCompanyUrl } from './hubspot-company-url';
 import { SEND_TO_REVIEW_LABEL, useSendRejectedToReview } from './contact-candidate-rejected-actions';
 import { BAR_REJECTION_REASONS, useRejectCandidates } from './use-reject-candidates';
+import { useVerifyEmploymentWithAi } from './use-verify-employment-with-ai';
+import { EMPLOYMENT_AI_MAX_CONTACTS } from './candidate-employment-ai-copy';
 export { rejectionInfo } from './contact-candidate-rejection-info';
 import {
   EMPTY_SCOPE_FILTER,
@@ -589,6 +591,9 @@ export function ContactCandidatesDataTableClient({
     dataTableRef.current?.clearSelection(),
   );
   const { reject, rejecting } = useRejectCandidates(() => dataTableRef.current?.clearSelection());
+  const { verify: verifyWithAi, verifying: verifyingWithAi } = useVerifyEmploymentWithAi(() =>
+    dataTableRef.current?.clearSelection(),
+  );
 
   const quick = useQuickFilter(filteredCandidates, CANDIDATE_QUICK_FILTERS);
   const toggleQuickFilter = React.useCallback(
@@ -654,6 +659,24 @@ export function ContactCandidatesDataTableClient({
         })),
       },
       {
+        // CONTACT-CURRENT-EMPLOYMENT-AI-1: ¿sigue en la empresa y con ese cargo? Claude lo busca en la web.
+        id: 'verify-employment-ai',
+        label: 'Verificar cargo con IA',
+        icon: Sparkles,
+        variant: 'ai',
+        loading: verifyingWithAi,
+        disabled: (rows) => rows.length === 0 || verifyingWithAi,
+        confirm: {
+          title: 'Verificar cargo con IA',
+          description: (rows) => {
+            const count = Math.min(rows.length, EMPLOYMENT_AI_MAX_CONTACTS);
+            return `Claude buscará en la web si ${count === 1 ? 'esta persona sigue' : `estas ${count} personas siguen`} en la empresa y con qué cargo. Cuesta cerca de US$0,01–0,03 por contacto y queda en «Uso de IA».${rows.length > EMPLOYMENT_AI_MAX_CONTACTS ? ` Se verifican hasta ${EMPLOYMENT_AI_MAX_CONTACTS} por tanda.` : ''}`;
+          },
+          confirmLabel: 'Verificar',
+        },
+        onClick: (rows) => verifyWithAi(rows.map((row) => row.id)),
+      },
+      {
         id: 'open-linkedin',
         label: 'Abrir LinkedIn',
         icon: ExternalLink,
@@ -667,7 +690,7 @@ export function ContactCandidatesDataTableClient({
       },
       ] satisfies DataTableBulkAction<PendingContactCandidate>[]),
     ],
-    [openDetail, isRejectedQueue, queue, sendToReview, reject, rejecting],
+    [openDetail, isRejectedQueue, queue, sendToReview, reject, rejecting, verifyWithAi, verifyingWithAi],
   );
 
   // Mismo gobierno que el detalle: sin flag o sin rol, la columna no ofrece el botón.
