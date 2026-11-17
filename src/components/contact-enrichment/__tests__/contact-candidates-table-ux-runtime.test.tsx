@@ -212,9 +212,30 @@ describe('Candidatos de contacto — abrir la ficha desde la búsqueda puntual',
     assert.equal(detailOpenFor, ID);
   });
 
-  it('en otra cola (duplicados) no se abre', () => {
+  it('en Duplicados se abre desde la dirección (búsqueda general, dueña 17-11)', async () => {
     window.history.replaceState(null, '', `/contacts?tab=duplicates&candidate=${ID}`);
     render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="duplicates" />);
+    const { waitFor } = await import('@testing-library/react');
+    await waitFor(() => assert.equal(detailOpenFor, ID));
+  });
+
+  it('en Duplicados, el aviso sin cola (chat de búsqueda puntual) no la abre; con su cola, sí', async () => {
+    window.history.replaceState(null, '', '/contacts?tab=duplicates');
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="duplicates" />);
+    const { act } = await import('@testing-library/react');
+    act(() => {
+      window.dispatchEvent(new window.CustomEvent('sellup:contact-candidate:open', { detail: { candidateId: ID } }));
+    });
+    assert.equal(detailOpenFor, null);
+    act(() => {
+      window.dispatchEvent(new window.CustomEvent('sellup:contact-candidate:open', { detail: { candidateId: ID, queue: 'duplicate' } }));
+    });
+    assert.equal(detailOpenFor, ID);
+  });
+
+  it('en Rechazados no se abre (un rechazado no es revisable)', () => {
+    window.history.replaceState(null, '', `/contacts?tab=rejected&candidate=${ID}`);
+    render(<ContactCandidatesDataTableClient candidates={CANDIDATES} queue="rejected" />);
     assert.equal(detailOpenFor, null);
   });
 });

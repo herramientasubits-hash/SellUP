@@ -692,6 +692,43 @@ export async function getDuplicateContactCandidates(
   return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
 }
 
+/** Estados de candidato que la búsqueda general encuentra (Por revisar, duplicados, rechazados). */
+const GLOBAL_SEARCH_CANDIDATE_STATUSES = ['pending_review', 'duplicate', 'discarded'] as const;
+
+/**
+ * Búsqueda general (dueña 17-11: «que el buscador busque en todo SellUp… de empresas y
+ * contactos»): candidatos de contacto por nombre o correo, con la MISMA regla de alcance
+ * que sus colas. `term` ya viene limpio (sin comodines) desde quien llama.
+ */
+export async function searchContactCandidatesForGlobalSearch(
+  term: string,
+  limit = 8,
+): Promise<PendingContactCandidate[]> {
+  await requireActiveUserForEnrichment();
+  // Es invocable desde el navegador: el tope no lo decide quien llama.
+  const cappedLimit = Math.max(1, Math.min(Number.isFinite(limit) ? Math.floor(limit) : 8, 20));
+  const safe = typeof term !== 'string' ? '' : term.replace(/[%_\\,()*"]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (safe.length < 2) return [];
+  const scopeIds = await resolveCandidateScopeIds();
+  if (scopeIds?.length === 0) return [];
+  const supabase = await createClient();
+
+  const { data, error } = await readScopedCandidates(
+    supabase,
+    scopeIds,
+    (query) =>
+      query
+        .in('status', [...GLOBAL_SEARCH_CANDIDATE_STATUSES])
+        .or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`)
+        .order('created_at', { ascending: false })
+        .limit(cappedLimit),
+    byIsoDesc((row) => row.created_at),
+    cappedLimit,
+  );
+  if (error) throw new Error(`searchContactCandidatesForGlobalSearch: ${error.message}`);
+  return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
+}
+
 /**
  * AGENT2A-CONTACTOS-RECHAZADOS — candidatos RECHAZADOS en la revisión (`discarded`).
  *

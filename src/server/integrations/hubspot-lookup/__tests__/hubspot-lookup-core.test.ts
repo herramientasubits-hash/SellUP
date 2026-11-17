@@ -219,3 +219,15 @@ describe('enlaces de HubSpot', () => {
     assert.equal(mapHubSpotContact('1', { hs_linkedin_url: 'javascript:alert(1)' }).linkedinUrl, null);
   });
 });
+
+describe('«Creado en HubSpot» en la actividad', () => {
+  it('una línea con la fecha de creación y quién la creó', async () => {
+    const { createdActivityItem } = await import('../hubspot-lookup-core');
+    const item = createdActivityItem('7324164638', '2026-11-17T18:14:00Z', 'Bastian Zambrano');
+    assert.equal(item?.kind, 'created');
+    assert.equal(item?.title, 'Creado en HubSpot');
+    assert.equal(item?.occurredAt, '2026-11-17T18:14:00.000Z');
+    assert.equal(item?.ownerName, 'Bastian Zambrano');
+    assert.equal(createdActivityItem('1', null, null), null);
+  });
+});

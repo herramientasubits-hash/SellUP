@@ -7,6 +7,13 @@ import type {
   HubSpotContactView,
   SellUpPresence,
 } from '@/server/integrations/hubspot-lookup/hubspot-lookup-core';
+import type {
+  HubSpotPropertyEntry,
+  HubSpotPropertySection,
+  HubSpotPropertyValueKind,
+} from '@/server/integrations/hubspot-lookup/hubspot-properties-core';
+
+export type { HubSpotPropertyEntry, HubSpotPropertySection, HubSpotPropertyValueKind };
 
 export type { HubSpotActivityKind, HubSpotCompanyView, HubSpotContactView, SellUpPresence };
 
@@ -46,6 +53,11 @@ export type HubSpotActivityEntry = HubSpotActivityItem & { ownerName: string | n
 
 export type HubSpotActivityLookupResult =
   | { status: 'ok'; items: HubSpotActivityEntry[]; missingKinds: HubSpotActivityKind[] }
+  | HubSpotLookupUnavailable;
+
+export type HubSpotPropertiesLookupResult =
+  | { status: 'ok'; sections: HubSpotPropertySection[] }
+  | { status: 'not_found' }
   | HubSpotLookupUnavailable;
 
 export type ImportHubSpotCompanyResult =

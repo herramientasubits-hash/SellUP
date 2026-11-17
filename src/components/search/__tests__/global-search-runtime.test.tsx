@@ -259,4 +259,21 @@ describe('GlobalSearch — búsqueda fuera (HubSpot)', () => {
     await waitFor(() => assert.ok(document.querySelector('[data-slot="search-remote-error"]')), { timeout: 2000 });
     assert.ok(screen.getByRole('option', { name: /^Acme Logística/ }));
   });
+
+  it('si sólo una parte no respondió, se muestra lo demás con su aviso', async () => {
+    open({
+      loadObjects,
+      searchRemote: async () => ({
+        items: [{ id: 'prospect-p1', title: 'Acme Brasil', group: 'Empresas por revisar', href: '/accounts?tab=prospectos' }],
+        notice: 'HubSpot no respondió: se muestra lo de SellUp.',
+      }),
+      remoteLabel: 'todo SellUp y HubSpot',
+    });
+    type('acme');
+    await waitFor(() => assert.ok(screen.getByRole('option', { name: /Acme Brasil/ })), { timeout: 2000 });
+    assert.ok(headings().includes('Empresas por revisar'));
+    const notice = document.querySelector('[data-slot="search-remote-notice"]');
+    assert.match(notice?.textContent ?? '', /HubSpot no respondió/);
+    assert.equal(document.querySelector('[data-slot="search-remote-error"]'), null);
+  });
 });

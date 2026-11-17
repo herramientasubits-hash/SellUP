@@ -18,6 +18,8 @@ import {
   Briefcase,
   Building2,
   Calendar,
+  Clock,
+  Database,
   Download,
   ExternalLink,
   Globe,
@@ -46,6 +48,8 @@ import { fetchHubSpotContact } from '@/modules/hubspot-lookup/client';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
 import { hubspotCompanyHref, type HubSpotContactLookupResult } from '@/modules/hubspot-lookup/types';
 import { HubSpotActivitySection, useHubSpotActivity } from './hubspot-activity';
+import { HUBSPOT_DATA_TAB, HubSpotPropertiesSection, useHubSpotProperties } from './hubspot-properties-section';
+
 
 type PendingAction = 'import' | 'first-contact' | null;
 
@@ -97,6 +101,7 @@ export function HubSpotContactPreviewSheet({
   const contact = data?.contact ?? null;
   const company = data?.company ?? null;
   const activity = useHubSpotActivity('contact', open ? hubspotContactId : null);
+  const properties = useHubSpotProperties('contact', open ? hubspotContactId : null, tab === HUBSPOT_DATA_TAB);
   const otherOwner = contact?.sellup.status === 'other_owner' ? contact.sellup : null;
   const visibleContactId = contact?.sellup.status === 'visible' ? contact.sellup.id : null;
   const hubspotUrl = contact ? hubspotContactUrl(contact.id, data?.portalId ?? null) : null;
@@ -263,11 +268,13 @@ export function HubSpotContactPreviewSheet({
             <TabsList variant="segmented" className="mb-2 max-w-full overflow-x-auto">
               <TabsTrigger value="resumen"><User className="h-4 w-4" /> Resumen</TabsTrigger>
               <TabsTrigger value="actividad"><Activity className="h-4 w-4" /> Actividad</TabsTrigger>
+              <TabsTrigger value={HUBSPOT_DATA_TAB}><Database className="h-4 w-4" /> HubSpot</TabsTrigger>
             </TabsList>
             <TabsContent value="resumen">
               <DrawerSection title="Datos del contacto" icon={User}>
                 <dl className="space-y-3">
                   <HubSpotDetailRow icon={Briefcase} label="Cargo">{contact.jobTitle}</HubSpotDetailRow>
+                  <HubSpotDetailRow icon={User} label="Responsable en HubSpot">{contact.ownerName}</HubSpotDetailRow>
                   <HubSpotDetailRow icon={Tag} label="Etapa en HubSpot">{contact.lifecycle}</HubSpotDetailRow>
                   <HubSpotDetailRow icon={MapPin} label="Ubicación">{[contact.city, contact.country].filter(Boolean).join(', ') || null}</HubSpotDetailRow>
                   <HubSpotDetailRow icon={Globe} label="LinkedIn">
@@ -281,11 +288,22 @@ export function HubSpotContactPreviewSheet({
                     <span className="break-all font-mono text-xs tabular-nums">{contact.id}</span>
                   </HubSpotDetailRow>
                   <HubSpotDetailRow icon={Calendar} label="Creado en HubSpot">{formatHubSpotShortDate(contact.createdAt)}</HubSpotDetailRow>
+                  <HubSpotDetailRow icon={Clock} label="Última actividad">{formatHubSpotShortDate(contact.lastActivityAt)}</HubSpotDetailRow>
                 </dl>
+                <button
+                  type="button"
+                  onClick={() => setTab(HUBSPOT_DATA_TAB)}
+                  className="mt-3 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
+                >
+                  Ver todos los datos de HubSpot
+                </button>
               </DrawerSection>
             </TabsContent>
             <TabsContent value="actividad">
               <HubSpotActivitySection state={activity.state} onRetry={activity.retry} hubspotUrl={hubspotUrl} />
+            </TabsContent>
+            <TabsContent value={HUBSPOT_DATA_TAB}>
+              <HubSpotPropertiesSection kind="contact" state={properties.state} onRetry={properties.retry} hubspotUrl={hubspotUrl} />
             </TabsContent>
           </Tabs>
         </div>
