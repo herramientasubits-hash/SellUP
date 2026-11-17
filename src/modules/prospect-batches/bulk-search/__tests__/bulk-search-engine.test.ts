@@ -374,6 +374,40 @@ describe('ronda', () => {
     assert.equal(world.wizardCalls.length, 1);
   });
 
+  it('Prod 17-11 — la ronda que espera la continuación de Apollo la conduce (no espera a nadie)', async () => {
+    const world = fakeWorld();
+    const id = await created(world);
+    await runBulkSearchRound(world.deps, id, USER);
+    const batchId = world.rounds[0].batch_id!;
+    world.pendingContinuation.add(batchId);
+    const driven: string[] = [];
+    const deps = {
+      ...world.deps,
+      driveContinuation: async (pending: string) => {
+        driven.push(pending);
+        world.pendingContinuation.delete(pending);
+      },
+    };
+    const waiting = await runBulkSearchRound(deps, id, USER);
+    assert.equal(waiting.ok && waiting.next, 'wait');
+    assert.deepEqual(driven, [batchId]);
+    assert.equal(world.wizardCalls.length, 1, 'mientras conduce la continuación no compra otra ronda');
+    // Terminada la continuación, el paso siguiente sí lanza la ronda.
+    await runBulkSearchRound(deps, id, USER);
+    assert.equal(world.wizardCalls.length, 2);
+  });
+
+  it('si conducir la continuación falla, la ronda sigue esperando sin romperse', async () => {
+    const world = fakeWorld();
+    const id = await created(world);
+    await runBulkSearchRound(world.deps, id, USER);
+    world.pendingContinuation.add(world.rounds[0].batch_id!);
+    const deps = { ...world.deps, driveContinuation: async () => { throw new Error('boom'); } };
+    const response = await runBulkSearchRound(deps, id, USER);
+    assert.equal(response.ok && response.next, 'wait');
+    assert.equal(world.wizardCalls.length, 1);
+  });
+
   it('una ronda que murió a mitad se cierra con lo que dejó su lote', async () => {
     const world = fakeWorld();
     const id = await created(world);
