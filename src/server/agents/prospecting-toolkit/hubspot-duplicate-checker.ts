@@ -20,11 +20,16 @@ import { isStrongHubSpotIdentityMatch, markFreeHubSpotMatchesPure } from './hubs
 import {
   buildHubSpotSiblingBlockMatch,
   findBlockingHubSpotSibling,
+  hubSpotBrandCore,
   isSameCompanyHubSpotRecord,
+  isSameHubSpotBrand,
   type HubSpotSiblingBlock,
   type HubSpotSiblingVerdict,
 } from './hubspot-free-sibling-guard';
-import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
+import {
+  HUBSPOT_CLIENT_LIFECYCLE_VALUE,
+  type HubSpotAvailability,
+} from '@/server/integrations/hubspot-free-company-policy';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
 /**
@@ -802,6 +807,29 @@ async function markFreeHubSpotMatches(
   return blocks.length > 0 ? [...marked, ...blocks] : marked;
 }
 
+/**
+ * Clientes de HubSpot cuyo nombre contiene la palabra de la marca: etapa «Cliente»
+ * (`1443029400`) o «Current Customer». Para el freno del mismo grupo en otro país.
+ */
+async function searchClientsByBrandWord(token: string, word: string): Promise<HubSpotSearchResult[]> {
+  const nameFilter = { propertyName: 'name', operator: 'CONTAINS_TOKEN', value: word };
+  const res = await fetchHubSpotWithRetry('https://api.hubapi.com/crm/v3/objects/companies/search', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filterGroups: [
+        { filters: [nameFilter, { propertyName: 'lifecyclestage', operator: 'EQ', value: HUBSPOT_CLIENT_LIFECYCLE_VALUE }] },
+        { filters: [nameFilter, { propertyName: 'hs_current_customer', operator: 'EQ', value: 'yes' }] },
+      ],
+      properties: HS_PROPERTIES,
+      limit: SIBLING_NAME_SEARCH_LIMIT,
+    }),
+  }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
+  if (!res.ok) throw new HubSpotDuplicateSearchError('name', res.status);
+  const data = (await res.json()) as HubSpotSearchResponse;
+  return data.results ?? [];
+}
+
 /** Hermanas por nombre: se piden más que en la búsqueda normal para no perder la ficha cliente. */
 const SIBLING_NAME_SEARCH_LIMIT = 20;
 
@@ -843,6 +871,28 @@ async function findHubSpotSiblingBlock(
         seen.add(r.id);
         pending.push({ id: r.id, name: record.name, relation: 'same_company' });
       }
+    }
+    // El mismo grupo en otro país: un cliente con la misma marca bloquea a la filial.
+    const groupHits: HubSpotSiblingVerdict[] = [];
+    for (const name of names) {
+      const brandWord = hubSpotBrandCore(name)?.split(' ')[0];
+      if (!brandWord || brandWord.length < 3) continue;
+      // HubSpot puede no plegar acentos («Itaú» ≠ «itau»): se busca también la palabra original.
+      const original = name
+        .split(/[^\p{L}\p{N}]+/u)
+        .find((w) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() === brandWord);
+      const words = [...new Set([brandWord, original?.toLowerCase()].filter((w): w is string => Boolean(w)))];
+      const results = (await Promise.all(words.map((w) => searchClientsByBrandWord(token, w)))).flat();
+      for (const r of results) {
+        const sameBrand = isSameHubSpotBrand(
+          { name: r.properties.name, domain: r.properties.domain ?? r.properties.website },
+          { name, domain: target.domain },
+        );
+        if (seen.has(r.id) || !sameBrand) continue;
+        seen.add(r.id);
+        groupHits.push({ id: r.id, name: r.properties.name ?? null, relation: 'group_client', availability: { free: false, reason: 'customer' } });
+      }
+      if (groupHits.length > 0) return findBlockingHubSpotSibling(groupHits);
     }
     const parentId = textProp(freeProps.hs_parent_company_id);
     if (parentId && parentId !== freeId) pending.push({ id: parentId, name: null, relation: 'parent' });

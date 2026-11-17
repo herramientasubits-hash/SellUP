@@ -14,7 +14,11 @@
  *     bloquea si esa ficha no está libre (cliente, negocio abierto, actividad
  *     reciente, dueño activo o dueño desconocido);
  *   · la empresa MADRE (`hs_parent_company_id`): bloquea si es cliente o tiene un
- *     negocio abierto.
+ *     negocio abierto;
+ *   · el mismo GRUPO en otro país (FEEDBACK 17-11, decisión de la dueña): si un
+ *     cliente de HubSpot tiene la misma marca (p. ej. «Falabella México» para
+ *     «Falabella Argentina»), la filial no se ofrece. La marca se compara EXACTA
+ *     tras quitar país, forma jurídica y palabras genéricas (`hubSpotBrandCore`).
  * Si no se pudo verificar alguna hermana, la ficha NO se marca libre (queda como
  * «ya existe en HubSpot»): ante la duda, no se ofrece.
  *
@@ -25,7 +29,7 @@ import type { HubSpotAvailability, HubSpotTakenReason } from '@/server/integrati
 import { normalizeCompanyName } from './normalization';
 import type { DuplicateMatch } from './types';
 
-export type HubSpotSiblingRelation = 'same_company' | 'parent';
+export type HubSpotSiblingRelation = 'same_company' | 'parent' | 'group_client';
 
 export type HubSpotSiblingVerdict = {
   id: string;
@@ -41,6 +45,80 @@ export type HubSpotSiblingBlock =
 
 /** Lo que bloquea a una empresa madre: que sea cliente o tenga un negocio abierto. */
 const PARENT_BLOCKING_REASONS: ReadonlySet<HubSpotTakenReason> = new Set(['customer', 'open_deal']);
+/** Del mismo grupo en otro país sólo bloquea que sea cliente. */
+const GROUP_BLOCKING_REASONS: ReadonlySet<HubSpotTakenReason> = new Set(['customer']);
+
+// ─── Marca del grupo ─────────────────────────────────────────────────────────
+
+/** Países y regiones de dos o más palabras: se quitan como frase antes que palabra a palabra. */
+const COUNTRY_PHRASES = ['costa rica', 'el salvador', 'republica dominicana', 'estados unidos', 'puerto rico', 'centro america', 'america latina'];
+/** Países, regiones, formas jurídicas y palabras genéricas de razón social. */
+const BRAND_NOISE_WORDS: ReadonlySet<string> = new Set([
+  // países y regiones
+  'argentina', 'bolivia', 'brasil', 'brazil', 'chile', 'colombia', 'ecuador', 'espana', 'guatemala', 'honduras',
+  'mexico', 'nicaragua', 'panama', 'paraguay', 'peru', 'uruguay', 'venezuela', 'dominicana', 'usa', 'latam',
+  'latinoamerica', 'centroamerica', 'mexicana', 'mexicanas', 'chilena', 'colombiana', 'peruana',
+  // formas jurídicas
+  'sa', 'sas', 'sac', 'saa', 'spa', 'srl', 'ltda', 'ltd', 'limitada', 'cv', 'rl', 'inc', 'llc', 'plc', 'gmbh',
+  'corp', 'corporation', 'corporacion', 'company', 'co', 'cia', 'compania', 'sociedad', 'anonima',
+  // genéricas
+  'grupo', 'group', 'holding', 'holdings', 'retail', 'global', 'business', 'services', 'servicios',
+  'international', 'internacional', 'de', 'del', 'la', 'las', 'los', 'el', 'y', 'the', 'and',
+]);
+
+/**
+ * La marca de una razón social: minúsculas, sin acentos ni signos, sin país, forma
+ * jurídica ni palabras genéricas. «Falabella Retail Colombia» y «Falabella Argentina»
+ * ⇒ «falabella». `null` si no queda una marca de al menos 3 letras.
+ */
+export function hubSpotBrandCore(name: string | null | undefined): string | null {
+  if (typeof name !== 'string') return null;
+  let text = ` ${name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')} `;
+  for (const phrase of COUNTRY_PHRASES) text = text.split(` ${phrase} `).join(' ');
+  const core = text
+    .split(' ')
+    // Las letras sueltas son restos de «S.A. de C.V.» una vez quitados los puntos.
+    .filter((word) => word.length > 1 && !BRAND_NOISE_WORDS.has(word))
+    .join(' ');
+  return core.replace(/\s/g, '').length >= 3 ? core : null;
+}
+
+/** Sufijos de dominio que no son la marca (genéricos y de país). */
+const DOMAIN_SUFFIX_LABELS: ReadonlySet<string> = new Set([
+  'com', 'net', 'org', 'gob', 'gov', 'edu', 'co', 'io', 'biz', 'info',
+  'ar', 'bo', 'br', 'cl', 'cr', 'do', 'ec', 'es', 'gt', 'hn', 'mx', 'ni', 'pa', 'pe', 'py', 'sv', 'us', 'uy', 've',
+]);
+
+/** La raíz de un dominio: «falabella.com.co» ⇒ «falabella». */
+export function hubSpotDomainRoot(domain: string | null | undefined): string | null {
+  const host = cleanHubSpotHost(domain);
+  if (!host) return null;
+  const labels = host.split('.').filter(Boolean);
+  while (labels.length > 1 && DOMAIN_SUFFIX_LABELS.has(labels[labels.length - 1])) labels.pop();
+  const root = labels[labels.length - 1];
+  return root && root.length >= 3 ? root : null;
+}
+
+/**
+ * ¿Las dos razones sociales son la misma marca? La marca se compara EXACTA. Una marca
+ * de UNA sola palabra («Alfa», «Medical») es demasiado común: además exige la misma
+ * raíz de dominio (falabella.com.ar ↔ falabella.com.co). Con dos o más palabras
+ * («Zurich Santander») basta la marca.
+ */
+export function isSameHubSpotBrand(
+  a: { name: string | null | undefined; domain?: string | null },
+  b: { name: string | null | undefined; domain?: string | null },
+): boolean {
+  const coreA = hubSpotBrandCore(a.name);
+  if (coreA === null || coreA !== hubSpotBrandCore(b.name)) return false;
+  if (coreA.includes(' ')) return true;
+  const rootA = hubSpotDomainRoot(a.domain);
+  return rootA !== null && rootA === hubSpotDomainRoot(b.domain);
+}
 
 export function cleanHubSpotHost(value: string | null | undefined): string | null {
   if (typeof value !== 'string' || value.trim() === '') return null;
@@ -82,6 +160,7 @@ export function findBlockingHubSpotSibling(siblings: readonly HubSpotSiblingVerd
     const availability = sibling.availability;
     if (!availability || availability.free) continue;
     if (sibling.relation === 'parent' && !PARENT_BLOCKING_REASONS.has(availability.reason)) continue;
+    if (sibling.relation === 'group_client' && !GROUP_BLOCKING_REASONS.has(availability.reason)) continue;
     return { kind: 'taken', id: sibling.id, name: sibling.name, relation: sibling.relation, reason: availability.reason };
   }
   const unverified = siblings.find((sibling) => sibling.availability === null);
@@ -106,7 +185,9 @@ export function describeHubSpotSiblingBlock(block: HubSpotSiblingBlock): string 
       ? 'La empresa madre en HubSpot'
       : block.relation === 'same_company'
         ? 'Otra ficha de la misma empresa en HubSpot'
-        : 'Una ficha relacionada en HubSpot';
+        : block.relation === 'group_client'
+          ? 'El mismo grupo en HubSpot'
+          : 'Una ficha relacionada en HubSpot';
   const named = block.name ? ` («${block.name}»)` : '';
   if (block.kind === 'unverified') {
     return `${who}${named} no se pudo verificar: no se ofrece como libre`;
