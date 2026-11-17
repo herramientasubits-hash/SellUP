@@ -62,11 +62,14 @@ export function resolveTitleProvenance(input: TitleProvenanceInput): TitleProven
   const common = { evidenceUrl: byAi ? (check?.evidence_url ?? null) : null, checkedWithAi: byAi };
 
   if (!check || check.status === 'unknown') {
+    const found = byAi && check?.evidence_quote ? check.evidence_quote : null;
     return {
       tone: 'unverified',
-      caption: byAi
-        ? `Según ${sourceName} · sin verificar: la IA no encontró información pública confiable${on}`
-        : `Según ${sourceName} · sin verificar, confírmalo en LinkedIn`,
+      caption: found
+        ? `Según ${sourceName} · sin verificar${on}: la IA encontró «${found}», pero no confirma la empresa. Revísalo en la fuente.`
+        : byAi
+          ? `Según ${sourceName} · sin verificar: la IA no encontró información pública confiable${on}`
+          : `Según ${sourceName} · sin verificar, confírmalo en LinkedIn`,
       leftNotice: null,
       ...common,
     };
@@ -93,6 +96,15 @@ export function resolveTitleProvenance(input: TitleProvenanceInput): TitleProven
     return {
       tone: 'updated',
       caption: `Actualizado con ${checker}${on}${check.previous_title ? ` · antes figuraba «${check.previous_title}»` : ''}`,
+      leftNotice: null,
+      ...common,
+    };
+  }
+
+  if (byAi && check.title_confirmed === false) {
+    return {
+      tone: 'verified',
+      caption: `Sigue en ${check.current_company ?? 'la empresa'} según la IA en la web${on} · el cargo no se pudo confirmar`,
       leftNotice: null,
       ...common,
     };
