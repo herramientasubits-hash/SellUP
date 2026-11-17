@@ -18,7 +18,17 @@ import { stripCandidateReviewParam } from "@/modules/contact-enrichment/candidat
 import { getAccountsList } from "@/modules/accounts/actions";
 import { getAllContacts } from "@/modules/contacts/actions";
 import { fetchHubSpotSearch } from "@/modules/hubspot-lookup/client";
-import { hubspotSearchItems, type OpenHubSpotRecord } from "@/components/search/hubspot-search-items";
+import {
+  hubspotSearchItems,
+  type OpenHubSpotRecord,
+  type OpenSellUpDrawer,
+} from "@/components/search/hubspot-search-items";
+import {
+  OPEN_RECORD_EVENT,
+  isOnRecordList,
+  openRecordHref,
+  type OpenRecordDetail,
+} from "@/modules/global-search/open-record-link";
 import {
   HUBSPOT_OPEN_EVENT,
   hubspotCompanyHref,
@@ -94,10 +104,11 @@ async function searchEverywhere(
   signal: AbortSignal,
   openHubSpot: OpenHubSpotRecord,
   openSellUp: OpenSellUpRecord,
+  openDrawer: OpenSellUpDrawer,
 ): Promise<SearchRemoteResult> {
   const [sellup, hubspot] = await Promise.allSettled([
     fetchSellUpRecords(query, signal),
-    searchHubSpot(query, signal, openHubSpot),
+    searchHubSpot(query, signal, openHubSpot, openDrawer),
   ]);
   if (sellup.status === "rejected" && hubspot.status === "rejected") throw new Error("Búsqueda no disponible");
   const notices: string[] = [];
@@ -122,13 +133,18 @@ async function searchEverywhere(
  * consultar lo que sea desde SellUp en HubSpot»). Sin HubSpot conectado no hay grupo;
  * si no responde, se avisa y lo de SellUp sigue.
  */
-async function searchHubSpot(query: string, signal: AbortSignal, open: OpenHubSpotRecord): Promise<SearchObjectItem[]> {
+async function searchHubSpot(
+  query: string,
+  signal: AbortSignal,
+  open: OpenHubSpotRecord,
+  openDrawer: OpenSellUpDrawer,
+): Promise<SearchObjectItem[]> {
   const result = await fetchHubSpotSearch(query, signal);
   if (result.status === "unavailable") {
     if (result.reason === "not_connected") return [];
     throw new Error("HubSpot no disponible");
   }
-  return hubspotSearchItems(result.companies, result.contacts, open);
+  return hubspotSearchItems(result.companies, result.contacts, open, openDrawer);
 }
 
 function compact(values: readonly (string | null | undefined)[]): string[] {
@@ -140,7 +156,7 @@ function compact(values: readonly (string | null | undefined)[]): string[] {
  * lecturas que ya alimentan sus tablas (mismo permiso y mismo alcance
  * comercial); no hay consulta nueva. Si una de las dos falla, la otra sigue.
  */
-async function loadSearchObjects(): Promise<SearchObjectItem[]> {
+async function loadSearchObjects(openDrawer: OpenSellUpDrawer): Promise<SearchObjectItem[]> {
   const [accounts, contacts] = await Promise.allSettled([getAccountsList(), getAllContacts()]);
   if (accounts.status === "rejected" && contacts.status === "rejected") {
     throw new Error("No se pudieron cargar los registros de la búsqueda.");
@@ -155,7 +171,9 @@ async function loadSearchObjects(): Promise<SearchObjectItem[]> {
           keywords: compact([account.domain, account.website, account.owner_name]),
           icon: Building2,
           group: "Empresas",
-          href: `/accounts/${account.id}`,
+          // Abre la ficha lateral, no la página completa (dueña 17-11).
+          href: openRecordHref("account", account.id),
+          onSelect: () => openDrawer("account", account.id),
         }))
       : [];
   const contactItems: SearchObjectItem[] =
@@ -167,7 +185,8 @@ async function loadSearchObjects(): Promise<SearchObjectItem[]> {
           keywords: compact([contact.email]),
           icon: UserIcon,
           group: "Contactos",
-          href: `/contacts/${contact.id}`,
+          href: openRecordHref("contact", contact.id),
+          onSelect: () => openDrawer("contact", contact.id),
         }))
       : [];
 
@@ -267,9 +286,23 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
     },
     [router],
   );
+  // Una empresa o un contacto de SellUp se abre en su ficha lateral (dueña 17-11): si ya
+  // se está en su lista, se le avisa; si no, se va a la lista con `?abrir=<id>`.
+  const openSellUpDrawer = React.useCallback<OpenSellUpDrawer>(
+    (kind, id) => {
+      if (isOnRecordList(window.location.href, kind)) {
+        window.dispatchEvent(new CustomEvent<OpenRecordDetail>(OPEN_RECORD_EVENT, { detail: { kind, id } }));
+        return;
+      }
+      router.push(openRecordHref(kind, id));
+    },
+    [router],
+  );
+  const loadObjects = React.useCallback(() => loadSearchObjects(openSellUpDrawer), [openSellUpDrawer]);
   const searchRemote = React.useCallback(
-    (query: string, signal: AbortSignal) => searchEverywhere(query, signal, openHubSpotRecord, openSellUpRecord),
-    [openHubSpotRecord, openSellUpRecord],
+    (query: string, signal: AbortSignal) =>
+      searchEverywhere(query, signal, openHubSpotRecord, openSellUpRecord, openSellUpDrawer),
+    [openHubSpotRecord, openSellUpRecord, openSellUpDrawer],
   );
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const { collapsed, toggle } = useSidebar();
@@ -363,7 +396,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
           respecto a la franja y no respecto a lo que haya a cada lado. */}
       <GlobalSearch
         navigate={searchDestinations}
-        loadObjects={loadSearchObjects}
+        loadObjects={loadObjects}
         objectsHint={SEARCH_OBJECTS_HINT}
         searchRemote={searchRemote}
         remoteLabel="todo SellUp y HubSpot"

@@ -20,8 +20,7 @@ import { fetchHubSpotProperties } from '@/modules/hubspot-lookup/client';
 import { filterPropertySections } from '@/server/integrations/hubspot-lookup/hubspot-properties-core';
 import type { HubSpotPropertiesLookupResult, HubSpotPropertyEntry } from '@/modules/hubspot-lookup/types';
 
-/** La pestaña «HubSpot» de las fichas (empresa y contacto, de SellUp o de consulta). */
-export const HUBSPOT_DATA_TAB = 'hubspot';
+export { HUBSPOT_DATA_TAB } from '@/modules/hubspot-lookup/types';
 
 export type HubSpotPropertiesState = { status: 'idle' } | { status: 'loading' } | HubSpotPropertiesLookupResult;
 
