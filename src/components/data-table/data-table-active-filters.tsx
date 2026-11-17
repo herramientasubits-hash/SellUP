@@ -6,9 +6,20 @@ import type { Table } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { ActiveFilterChips, type ActiveFilterChip } from "@/components/filters/active-filter-chips";
 import type { DataTableColumnMeta } from "./data-table-column-meta";
+import {
+  EMPTY_FILTER_LABEL,
+  EMPTY_FILTER_VALUE,
+  describeDateFilter,
+  describeTextFilter,
+  isTextFilterValue,
+} from "./data-table-filters";
 
 /** Un filtro que no es una lista de valores, dicho en una línea. */
 function describeFilterValue(value: unknown): string {
+  if (isTextFilterValue(value)) return describeTextFilter(value);
+  if (value && typeof value === "object" && ("empty" in value || "preset" in value)) {
+    return describeDateFilter(value as Parameters<typeof describeDateFilter>[0]);
+  }
   if (value && typeof value === "object" && ("from" in value || "to" in value)) {
     const { from, to } = value as { from?: string; to?: string };
     if (from && to) return `${from} a ${to}`;
@@ -58,7 +69,10 @@ export function DataTableActiveFilters<TData>({
     if (Array.isArray(filter.value)) {
       const values = filter.value.map(String);
       for (const value of values) {
-        const optionLabel = meta.filterOptions?.find((option) => option.value === value)?.label ?? value;
+        const optionLabel =
+          value === EMPTY_FILTER_VALUE
+            ? EMPTY_FILTER_LABEL
+            : (meta.filterOptions?.find((option) => option.value === value)?.label ?? value);
         chips.push({
           key: `${filter.id}:${value}`,
           label: `${columnLabel}: ${optionLabel}`,

@@ -63,6 +63,9 @@ import {
 import {
   ProspectStatusBadge,
   QualityCell,
+  PROSPECT_COMPLETENESS_LABELS,
+  prospectQuality,
+  type ProspectCompleteness,
   StatusCell,
   getDisplayStatusKey,
   getFitEvaluation,
@@ -176,6 +179,10 @@ function isMarkDuplicateEligible(candidate: Row): boolean {
 }
 
 // ── Date range filter ──────────────────────────────────────────
+/** «Calidad»: de lo más completo a lo que no tiene evidencia. */
+const QUALITY_ORDER: readonly ProspectCompleteness[] = ['complete', 'pending', 'no_evidence'];
+const QUALITY_FILTER_OPTIONS = QUALITY_ORDER.map((value) => ({ value, label: PROSPECT_COMPLETENESS_LABELS[value] }));
+
 // AGENT1-DISCARDED-TAB-PARITY-1 — <DateRangeColumnHeader> y su tipo de filtro
 // vivían aquí como privados de este archivo. Se movieron sin cambios a
 // `prospect-date-range-column-header.tsx` para que la tabla de "Descartadas"
@@ -509,8 +516,8 @@ export function ProspectsDataTableClient({
         size: 220,
         minSize: 180,
         enableHiding: false,
-        // Texto libre: se ordena y se busca, no se filtra por valores.
-        meta: { label: 'Empresa', popoverTitle: 'Empresa', disableFilter: true },
+        // Texto libre: «contiene» y «con dato / sin dato».
+        meta: { label: 'Empresa', popoverTitle: 'Empresa', filterVariant: 'text' },
       },
       {
         id: 'country_code',
@@ -521,7 +528,6 @@ export function ProspectsDataTableClient({
         cell: ({ row }) => <CountryCell code={row.original.country_code} />,
         size: 130,
         minSize: 110,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'País',
           popoverTitle: 'País',
@@ -558,7 +564,6 @@ export function ProspectsDataTableClient({
         },
         size: 140,
         minSize: 120,
-        filterFn: 'arrIncludesSome',
         meta: {
           label: 'Sector',
           popoverTitle: 'Sector',
@@ -658,20 +663,20 @@ export function ProspectsDataTableClient({
       },
       {
         id: 'quality',
-        accessorFn: () => 'quality',
+        accessorFn: (row) => prospectQuality(row).completeness,
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Calidad" />
         ),
         cell: ({ row }) => <QualityCell candidate={row.original} />,
         size: 150,
         minSize: 130,
-        enableColumnFilter: false,
+        sortingFn: (a, b, id) =>
+          QUALITY_ORDER.indexOf(a.getValue(id) as ProspectCompleteness) -
+          QUALITY_ORDER.indexOf(b.getValue(id) as ProspectCompleteness),
         meta: {
           label: 'Calidad',
           popoverTitle: 'Calidad',
-          disableFilter: true,
-          // La celda resume varias señales: no hay un valor por el que ordenar.
-          disableSort: true,
+          filterOptions: QUALITY_FILTER_OPTIONS,
         },
       },
       {
