@@ -11,6 +11,7 @@ import {
   type EmailCheckResolution,
 } from './email-change-classifier-core';
 import { IDENTITY_COMPLETION_APOLLO_CREDITS } from './candidate-identity-completion-core';
+import { formatAppDate } from '@/lib/format-date';
 
 export interface OfficialContactEmploymentView {
   status: 'confirmed' | 'title_changed' | 'other_company' | 'no_current_role';
@@ -90,10 +91,9 @@ export const VERIFY_EMAIL_BUTTON_LABEL = 'Verificar correo';
 export const VERIFY_EMAIL_HELPER = `Pregunta a Apollo por su LinkedIn dónde trabaja hoy y cuál es su correo (${IDENTITY_COMPLETION_APOLLO_CREDITS} crédito) y, si Apollo no trae correo, a Lusha. No revela teléfonos.`;
 
 function shortDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
+  // Zona fija (Bogotá): servidor y navegador escriben el mismo día.
+  const label = formatAppDate(iso, '');
+  return label || null;
 }
 
 export function lastVerificationLabel(state: OfficialContactEmailState): string | null {
