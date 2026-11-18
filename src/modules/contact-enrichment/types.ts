@@ -111,6 +111,12 @@ export interface ExistingContactSnapshot {
   title?: string | null;
   /** Dueño del contacto en HubSpot (`hubspot_owner_id`). Sólo en contactos de HubSpot. */
   ownerId?: string | null;
+  /**
+   * Contacto de SellUp: su vínculo con HubSpot (`contacts.hubspot_contact_id`). «Primero HubSpot»
+   * no vuelve a ofrecer a revisión a quien ya está en SellUp con ese ID (AGENT2A-HUBSPOT-IMPORT-
+   * APPROVED-CANDIDATE: un contacto traído sin correo ni LinkedIn volvía a salir en «Por revisar»).
+   */
+  hubspotContactId?: string | null;
   completeness: {
     hasEmail: boolean;
     hasPhone: boolean;

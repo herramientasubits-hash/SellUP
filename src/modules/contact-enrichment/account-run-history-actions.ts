@@ -14,6 +14,7 @@ import { getAccountById } from '@/modules/accounts/actions';
 import { requireActiveUserForEnrichment } from './actions';
 import { loadContactEnrichmentRunsByAccountId } from './account-run-history-read-model-core';
 import type { AccountContactEnrichmentRun } from './account-run-history-types';
+import { withoutHubSpotLookupImportRuns } from './hubspot-contact-import-core';
 
 const RUN_SELECT =
   `id, status, company_name, company_domain, company_country_code, hubspot_company_id,
@@ -51,7 +52,8 @@ export async function getContactEnrichmentRunsByAccountId(
         .eq('account_id', id)
         .order('created_at', { ascending: false });
       if (error) throw new Error(`getContactEnrichmentRunsByAccountId: ${error.message}`);
-      return data ?? [];
+      // «Traer» de HubSpot deja una corrida interna: no es una búsqueda (Bryan 17-11).
+      return withoutHubSpotLookupImportRuns(data ?? []);
     },
     fetchCandidateCountRows: async (runIds) => {
       const { data, error } = await supabase

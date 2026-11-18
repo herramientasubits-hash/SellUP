@@ -332,8 +332,14 @@ describe('post-approval reveal — ninguna vía propia a un proveedor', () => {
 
   it('la ÚNICA delegación es el pipeline del candidato, y está escrita', () => {
     const actions = stripTsComments(read(ACTIONS));
-    assert.match(actions, /from '\.\/phone-reveal-actions'/);
-    assert.match(actions, /revealCandidatePhoneAction\(/);
+    // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE: la delegación pasa por la identificación previa
+    // de los candidatos de HubSpot, que a su vez delega en `revealCandidatePhoneAction` sin tocar
+    // su gobierno. No hay una segunda vía al proveedor.
+    assert.match(actions, /from '\.\/candidate-identity-completion-runner\.server'/);
+    assert.match(actions, /revealCandidatePhoneWithIdentity\(/);
+    const runner = stripTsComments(read('src/modules/contact-enrichment/candidate-identity-completion-runner.server.ts'));
+    assert.match(runner, /from '\.\/phone-reveal-actions'/);
+    assert.match(runner, /revealCandidatePhoneAction\(/);
     assert.match(actions, /from '\.\/phone-reveal-waterfall-actions'/);
     assert.match(actions, /getPhoneRevealWaterfallAuthorizationPreviewAction\(/);
   });

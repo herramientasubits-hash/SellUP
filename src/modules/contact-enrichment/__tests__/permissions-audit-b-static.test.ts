@@ -30,6 +30,8 @@ const CE = 'src/modules/contact-enrichment';
 const ACTOR_FILES = [
   `${CE}/phone-reveal-actions.ts`,
   `${CE}/candidate-identity-completion-actions.ts`,
+  `${CE}/candidate-identity-completion-runner.server.ts`,
+  `${CE}/official-contact-identity-completion-actions.ts`,
   `${CE}/candidate-stored-phones-actions.ts`,
   `${CE}/lusha-phone-fallback-actions.ts`,
   `${CE}/phone-cache-suppression-actions.ts`,

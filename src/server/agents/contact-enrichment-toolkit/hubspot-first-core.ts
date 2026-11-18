@@ -5,7 +5,7 @@
 // para no gastar proveedores. Sin red ni Supabase.
 //
 // Qué entra: contactos de HubSpot con nombre, que no existan ya como contacto de SellUp
-// (por correo o LinkedIn) y que el clasificador de relevancia considere del perfil que busca
+// (por su ID de HubSpot, correo o LinkedIn) y que el clasificador de relevancia considere del perfil que busca
 // UBITS (RR. HH. / People / Learning). Qué NO hace: crear contactos finales ni escribir en
 // HubSpot — el candidato queda en `pending_review` y lo aprueba una persona.
 
@@ -147,6 +147,10 @@ export function selectHubSpotFirstCandidates(input: {
   const knownLinkedin = new Set(
     input.sellupContacts.map((c) => linkedinKey(c.linkedinUrl)).filter((k): k is string => k !== null),
   );
+  // Ya está en SellUp con ese ID de HubSpot (p. ej. traído con «Traer»): no se aprueba dos veces.
+  const knownHubspotIds = new Set(
+    input.sellupContacts.map((c) => c.hubspotContactId?.trim() || null).filter((k): k is string => k !== null),
+  );
 
   const result: HubSpotFirstSelection = {
     rows: [],
@@ -189,7 +193,7 @@ export function selectHubSpotFirstCandidates(input: {
     }
     const email = emailKey(contact.email);
     const linkedin = linkedinKey(contact.linkedinUrl);
-    if ((email && knownEmails.has(email)) || (linkedin && knownLinkedin.has(linkedin))) {
+    if (knownHubspotIds.has(hubspotId) || (email && knownEmails.has(email)) || (linkedin && knownLinkedin.has(linkedin))) {
       result.skippedKnownInSellUp += 1;
       continue;
     }

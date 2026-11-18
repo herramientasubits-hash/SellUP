@@ -10,6 +10,7 @@
 // reciben ids que esas funciones devolvieron; nunca amplían el alcance.
 
 import { redirect } from 'next/navigation';
+import { withoutHubSpotLookupImportRuns } from '@/modules/contact-enrichment/hubspot-contact-import-core';
 import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { loadDirectoryUser } from '@/modules/access/user-directory.server';
@@ -282,7 +283,7 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
             .in('account_id', batchIds),
           supabase
             .from('contact_enrichment_runs')
-            .select('account_id, status, created_at')
+            .select('account_id, status, created_at, summary')
             .in('account_id', batchIds)
             .order('created_at', { ascending: false }),
           // Solo las columnas de HubSpot, y solo para ids que `getAccountsList`
@@ -316,7 +317,8 @@ export async function getPipelineOverview(): Promise<PipelineOverview> {
         }
         // Las corridas vienen de la más reciente a la más antigua: la primera por cuenta manda.
         const seenRun = new Set<string>();
-        for (const row of runs.data ?? []) {
+        // La corrida interna de «Traer» de HubSpot no es una búsqueda de contactos.
+        for (const row of withoutHubSpotLookupImportRuns(runs.data ?? [])) {
           if (seenRun.has(row.account_id)) continue;
           seenRun.add(row.account_id);
           const current = facts.get(row.account_id);

@@ -67,8 +67,14 @@ describe('fillHubSpotContactLinkedin', () => {
     assert.equal(await fillHubSpotContactLinkedin('hs-77', SEARCHED, deps), 'filled');
     assert.deepEqual(writes, [{ id: 'hs-77', properties: { hs_linkedin_url: SEARCHED } }]);
   });
-  it('HubSpot ya tiene un LinkedIn (aunque sea otro) ⇒ nunca se pisa', async () => {
+  // Bryan 17-11: el LinkedIn buscado (encontrado) reemplaza en HubSpot uno DISTINTO.
+  it('HubSpot tiene OTRO LinkedIn ⇒ se reemplaza por el buscado', async () => {
     const { deps, writes } = hubspotDeps(hubspotContact(OTHER));
+    assert.equal(await fillHubSpotContactLinkedin('hs-77', SEARCHED, deps), 'filled');
+    assert.deepEqual(writes, [{ id: 'hs-77', properties: { hs_linkedin_url: SEARCHED } }]);
+  });
+  it('HubSpot ya tiene ESE LinkedIn ⇒ no se reescribe', async () => {
+    const { deps, writes } = hubspotDeps(hubspotContact(SEARCHED));
     assert.equal(await fillHubSpotContactLinkedin('hs-77', SEARCHED, deps), 'nothing_to_fill');
     assert.equal(writes.length, 0);
   });

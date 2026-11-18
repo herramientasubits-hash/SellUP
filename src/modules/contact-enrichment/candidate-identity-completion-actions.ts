@@ -3,156 +3,26 @@
 // Agente 2A — Completar un candidato que ya existe en HubSpot: acciones del servidor
 // (AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION).
 //
-// Cablea el núcleo puro (`candidate-identity-completion-core.ts`) con Supabase, Apollo y Lusha:
-//
 //   * `revealCandidateLinkedinAction` — «Revelar LinkedIn»: identifica por correo y guarda el
 //     LinkedIn (y, de paso, la identidad de Apollo).
 //   * `revealCandidateEmailAction` — «Revelar correo»: identifica por LinkedIn y guarda el
 //     correo (y, de paso, la identidad de Apollo).
 //   * `revealCandidatePhoneWithIdentityAction` — «Revelar teléfono» para un candidato SIN
-//     identidad nativa de proveedor (los de «Primero HubSpot»): identifica primero —por correo y,
-//     si no aparece, por LinkedIn— y, sólo si
-//     aparece la identidad, delega en `revealCandidatePhoneAction` sin cambiar NADA de su
-//     gobierno (flag, rol, corrida del waterfall, techo de créditos, presupuesto, privacidad).
+//     identidad nativa de proveedor (los de «Primero HubSpot»).
 //
-// AGENT2A-HUBSPOT-REVEAL-PUSH — lo revelado (LinkedIn, correo) viaja a HubSpot EN CUANTO se
-// guarda, sin esperar a la aprobación: se completan sólo las propiedades VACÍAS del contacto que
-// ya existía (nunca sobrescribe). El teléfono lo envían los caminos que lo guardan.
+// El trabajo vive en `candidate-identity-completion-runner.server.ts`. Desde aquí (el navegador)
+// sólo se completan candidatos en `pending_review`.
 
-import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveActor } from './current-actor.server';
-import { isApolloPhoneRevealEnabled } from '@/lib/feature-flags.server';
-import { logProviderUsage } from '@/modules/usage-tracking/logging';
 import { canSeeContactCandidate } from './candidate-scope.server';
+import type { IdentityCompletionResult, IdentityCompletionStatus } from './candidate-identity-completion-core';
 import {
-  CANDIDATE_IDENTITY_COMPLETION_HITO,
-  evaluateCandidateIdentityCompletion,
-  runCandidateIdentityCompletion,
-  type IdentityCompletionCandidate,
-  type IdentityCompletionPurpose,
-  type IdentityCompletionResult,
-  type IdentityCompletionStatus,
-} from './candidate-identity-completion-core';
-import { lookupApolloIdentity, lookupLushaIdentity } from './candidate-identity-completion-providers.server';
-import { revealCandidatePhoneAction } from './phone-reveal-actions';
-import { pushCandidateRevealToHubSpot } from './candidate-reveal-hubspot-push.server';
-import type { RevealCandidatePhoneInput, RevealCandidatePhoneResult } from './phone-reveal-core';
-
-function getServiceRoleClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Supabase service credentials not configured');
-  return createServiceRoleClient(url, key);
-}
-
-/** Usuario interno activo + rol (mismo patrón que el reveal de teléfono). */
-async function resolveActor(): Promise<{ internalUserId: string; roleKey: string | null }> {
-  const { internalUserId, roleKey } = await requireActiveActor();
-  return { internalUserId, roleKey };
-}
-
-const CANDIDATE_SELECT = `id, status, source, source_contact_id, apollo_person_id, email, linkedin_url,
-   first_name, last_name, full_name, title, enrichment_metadata,
-   run:contact_enrichment_runs ( company_name, company_domain )`;
-
-function mapCandidate(row: unknown): IdentityCompletionCandidate {
-  const r = row as Record<string, unknown>;
-  const runRaw = r.run;
-  const run = (Array.isArray(runRaw) ? runRaw[0] : runRaw) as
-    | { company_name: string | null; company_domain: string | null }
-    | null
-    | undefined;
-  const str = (value: unknown) => (typeof value === 'string' ? value : null);
-  const metadata = r.enrichment_metadata;
-  return {
-    id: r.id as string,
-    status: str(r.status),
-    source: str(r.source),
-    sourceContactId: str(r.source_contact_id),
-    apolloPersonId: str(r.apollo_person_id),
-    email: str(r.email),
-    linkedinUrl: str(r.linkedin_url),
-    firstName: str(r.first_name),
-    lastName: str(r.last_name),
-    fullName: str(r.full_name),
-    companyName: run?.company_name ?? null,
-    companyDomain: run?.company_domain ?? null,
-    title: str(r.title),
-    enrichmentMetadata:
-      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-        ? (metadata as Record<string, unknown>)
-        : {},
-  };
-}
-
-async function runCompletion(
-  candidateId: string,
-  purpose: IdentityCompletionPurpose,
-  actor: { internalUserId: string; roleKey: string | null },
-): Promise<IdentityCompletionResult> {
-  const supabase = await createClient();
-  const admin = getServiceRoleClient();
-
-  return runCandidateIdentityCompletion(
-    { candidateId, purpose },
-    {
-      actor,
-      nowIso: new Date().toISOString(),
-      async loadCandidate(id) {
-        const { data, error } = await supabase
-          .from('contact_enrichment_candidates')
-          .select(CANDIDATE_SELECT)
-          .eq('id', id)
-          .maybeSingle();
-        if (error) throw new Error(error.message);
-        return data ? mapCandidate(data) : null;
-      },
-      lookupApollo: (query) => lookupApolloIdentity(query),
-      lookupLusha: (query) => lookupLushaIdentity(query),
-      async persist(id, patch) {
-        const update: Record<string, unknown> = { enrichment_metadata: patch.enrichment_metadata };
-        if (patch.apollo_person_id) update.apollo_person_id = patch.apollo_person_id;
-        if (patch.linkedin_url) update.linkedin_url = patch.linkedin_url;
-        if (patch.email) update.email = patch.email;
-        if (patch.title) update.title = patch.title;
-        let query = admin.from('contact_enrichment_candidates').update(update).eq('id', id);
-        // Nunca se pisa un valor que otro proceso escribió entre la lectura y esta escritura.
-        if (patch.apollo_person_id) query = query.is('apollo_person_id', null);
-        const { error } = await query;
-        if (error) throw new Error(error.message);
-        // AGENT2A-HUBSPOT-REVEAL-PUSH — sólo si de verdad se guardó un canal nuevo.
-        if (patch.linkedin_url || patch.email) {
-          await pushCandidateRevealToHubSpot(id, patch.linkedin_url ? 'reveal_linkedin' : 'reveal_email');
-        }
-      },
-      async logUsage(entry, context) {
-        await logProviderUsage({
-          provider_key: entry.provider_key,
-          operation_key: entry.operation_key,
-          // null ⇒ desconocido (queda NULL), nunca 0 inventado.
-          ...(entry.credits_used === null ? {} : { credits_used: entry.credits_used }),
-          estimated_cost_usd: null,
-          results_returned: entry.results_returned,
-          status: entry.status,
-          ...(entry.error_code ? { error_code: entry.error_code } : {}),
-          triggered_by: actor.internalUserId,
-          agent_key: 'agent2a',
-          agent_step: 'identificar_contacto',
-          // Sin correo ni LinkedIn: datos personales.
-          metadata: {
-            entry_mode: 'candidate_identity_completion',
-            purpose: context.purpose,
-            // Con qué se buscó (correo / linkedin), nunca el valor.
-            channel: context.channel,
-            candidate_id: candidateId,
-            hito: CANDIDATE_IDENTITY_COMPLETION_HITO,
-          },
-        });
-      },
-    },
-  );
-}
+  revealCandidatePhoneWithIdentity,
+  runIdentityCompletionForCandidate,
+  type RevealCandidatePhoneWithIdentityResult,
+} from './candidate-identity-completion-runner.server';
+import type { RevealCandidatePhoneInput } from './phone-reveal-core';
 
 // ── «Revelar LinkedIn» / «Revelar correo» ──────────────────────────
 
@@ -173,14 +43,15 @@ async function revealChannel(
   purpose: 'linkedin' | 'email',
 ): Promise<IdentityCompletionResult> {
   const candidateId = typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
-  const actor = await resolveActor();
+  const { internalUserId, roleKey } = await requireActiveActor();
+  const actor = { internalUserId, roleKey };
   const supabase = await createClient();
   // Alcance comercial ANTES de gastar: un candidato ajeno no existe para este actor.
   if (!candidateId || !(await canSeeContactCandidate(supabase, candidateId))) {
     return failed('candidate_not_found');
   }
   try {
-    return await runCompletion(candidateId, purpose, actor);
+    return await runIdentityCompletionForCandidate(candidateId, purpose, actor);
   } catch {
     return failed('provider_error');
   }
@@ -204,68 +75,10 @@ export async function revealCandidateEmailAction(input: {
 
 // ── «Revelar teléfono» con identificación previa ──────────────────
 
-export type RevealCandidatePhoneWithIdentityResult =
-  | (RevealCandidatePhoneResult & { identityCompleted?: boolean })
-  | {
-      ok: false;
-      status: 'identity_not_found';
-      identityStatus: IdentityCompletionStatus;
-      requestAccepted: false;
-      errorCode: string | null;
-    };
+export type { RevealCandidatePhoneWithIdentityResult } from './candidate-identity-completion-runner.server';
 
 export async function revealCandidatePhoneWithIdentityAction(
   input: RevealCandidatePhoneInput,
 ): Promise<RevealCandidatePhoneWithIdentityResult> {
-  // Con el reveal apagado no se gasta una identificación que no llevaría a ningún teléfono: se
-  // delega tal cual y el reveal contesta `disabled` sin tocar nada.
-  if (!isApolloPhoneRevealEnabled()) return revealCandidatePhoneAction(input);
-
-  const candidateId = typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
-  const supabase = await createClient();
-  if (!candidateId || !(await canSeeContactCandidate(supabase, candidateId))) {
-    return revealCandidatePhoneAction(input);
-  }
-
-  const { data } = await supabase
-    .from('contact_enrichment_candidates')
-    .select('email, linkedin_url, apollo_person_id, source, source_contact_id, enrichment_metadata')
-    .eq('id', candidateId)
-    .maybeSingle();
-  const needs = data
-    ? evaluateCandidateIdentityCompletion({
-        email: data.email as string | null,
-        linkedinUrl: data.linkedin_url as string | null,
-        apolloPersonId: data.apollo_person_id as string | null,
-        source: data.source as string | null,
-        sourceContactId: data.source_contact_id as string | null,
-        enrichmentMetadata: data.enrichment_metadata as Record<string, unknown> | null,
-      })
-    : null;
-
-  // Ya identificado, sin forma de identificarlo, no es de HubSpot o un intento anterior ya salió
-  // sin resultado: el reveal de siempre decide (y bloquea fail-closed si no hay identidad).
-  if (!needs?.phoneRevealNeedsIdentity) return revealCandidatePhoneAction(input);
-
-  const actor = await resolveActor();
-  let identity: IdentityCompletionResult;
-  try {
-    identity = await runCompletion(candidateId, 'phone', actor);
-  } catch {
-    identity = failed('provider_error');
-  }
-  // El rol lo vuelve a decir el reveal con su propio copy.
-  if (identity.status === 'unauthorized_role') return revealCandidatePhoneAction(input);
-  if (!identity.providerIdentityAvailable) {
-    return {
-      ok: false,
-      status: 'identity_not_found',
-      identityStatus: identity.status,
-      requestAccepted: false,
-      errorCode: null,
-    };
-  }
-
-  const revealed = await revealCandidatePhoneAction(input);
-  return { ...revealed, identityCompleted: true };
+  return revealCandidatePhoneWithIdentity(input);
 }
