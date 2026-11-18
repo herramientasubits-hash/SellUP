@@ -12,7 +12,8 @@
 //   - con el mismo ⇒ no se escribe (`unchanged`).
 //
 // HubSpot (decisión 2): se envía en el momento con la regla de siempre, SÓLO si `hs_linkedin_url`
-// está vacío allá (nunca se pisa lo que el CRM tiene). Si no llega (HubSpot caído, contacto sin
+// está vacío allá o si allá hay OTRO perfil (Bryan 17-11: el LinkedIn encontrado reemplaza uno
+// distinto; el mismo perfil escrito de otra forma no se reescribe). Si no llega (HubSpot caído, contacto sin
 // vínculo), la aprobación vuelve a mirar: el completado de vacíos del autosync lleva
 // `contacts.linkedin_url` a `hs_linkedin_url` cuando HubSpot no lo tiene.
 //
@@ -74,7 +75,7 @@ export function planLinkedinAttach(
   return linkedinProfileKey(current) === searchedKey ? 'unchanged' : 'replaced';
 }
 
-// ── HubSpot: sólo `hs_linkedin_url`, sólo si está vacío ────────────────────────
+// ── HubSpot: sólo `hs_linkedin_url`, si está vacío o es otro perfil ─────────────────
 
 export interface HubSpotLinkedinFillDeps {
   checkConnection: () => Promise<{ connected: boolean; canWriteContacts: boolean }>;
@@ -86,8 +87,8 @@ export interface HubSpotLinkedinFillDeps {
 }
 
 /**
- * Completa `hs_linkedin_url` del contacto de HubSpot si está vacío. Misma normalización y misma
- * definición de «vacío» que el envío de lo revelado. NUNCA lanza.
+ * Completa `hs_linkedin_url` del contacto de HubSpot si está vacío, o lo reemplaza si es OTRO perfil
+ * (Bryan 17-11). Misma normalización que el envío de lo revelado. NUNCA lanza.
  */
 export async function fillHubSpotContactLinkedin(
   hubspotContactId: string | null | undefined,
@@ -107,7 +108,10 @@ export async function fillHubSpotContactLinkedin(
     return 'hubspot_contact_unreadable';
   }
   if (!existing) return 'hubspot_contact_unreadable';
-  const fill = buildCandidateRevealFill({ id, phone: null, linkedinUrl: url }, existing);
+  // El LinkedIn buscado reemplaza en HubSpot uno distinto (Bryan 17-11); el mismo perfil no se reescribe.
+  const fill = buildCandidateRevealFill({ id, phone: null, linkedinUrl: url }, existing, undefined, {
+    replaceDifferentLinkedin: true,
+  });
   // No se pudo leer qué está vacío: no se escribe.
   if (fill === null) return 'hubspot_contact_unreadable';
   if (!fill.hs_linkedin_url) return 'nothing_to_fill';

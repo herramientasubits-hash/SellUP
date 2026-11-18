@@ -106,6 +106,13 @@ export const OFFICIAL_REVEAL_IN_FLIGHT_COPY =
 export const OFFICIAL_REVEAL_PROJECTED_COPY = 'Teléfono guardado en el contacto.';
 
 /** El proveedor cerró sin número. Es un resultado, no un error. */
+/**
+ * AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — un contacto que vino de HubSpot se identifica antes
+ * del reveal (por correo y, si no, por LinkedIn). Si no aparece, no se busca el teléfono.
+ */
+export const OFFICIAL_REVEAL_IDENTITY_NOT_FOUND_COPY =
+  'No pudimos identificar a esta persona en Apollo con su correo ni su LinkedIn, así que no se buscó el teléfono (no se usaron créditos de teléfono).';
+
 export const OFFICIAL_REVEAL_NO_PHONE_COPY =
   'Los proveedores no devolvieron un teléfono para este contacto.';
 
@@ -155,6 +162,7 @@ export function officialRevealOutcomeText(outcome: {
   if (outcome.phoneProjected) return OFFICIAL_REVEAL_PROJECTED_COPY;
   if (!outcome.ok) {
     if (outcome.revealStatus === 'no_phone_found') return OFFICIAL_REVEAL_NO_PHONE_COPY;
+    if (outcome.revealStatus === 'insufficient_identity') return OFFICIAL_REVEAL_IDENTITY_NOT_FOUND_COPY;
     return OFFICIAL_REVEAL_ERROR_COPY;
   }
   if (outcome.revealStatus === 'requested') return OFFICIAL_REVEAL_IN_FLIGHT_COPY;

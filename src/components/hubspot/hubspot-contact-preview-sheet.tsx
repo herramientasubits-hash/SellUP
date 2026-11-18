@@ -45,6 +45,7 @@ import { useExclusivePanel } from '@/lib/exclusive-panels';
 import { HubSpotDetailRow, formatHubSpotShortDate } from './detail-row';
 import { fetchHubSpotContact } from '@/modules/hubspot-lookup/client';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import { importedContactToastDescription } from '@/modules/hubspot-lookup/import-copy';
 import { hubspotCompanyHref, type HubSpotContactLookupResult } from '@/modules/hubspot-lookup/types';
 import { HubSpotActivitySection, useHubSpotActivity } from './hubspot-activity';
 import { HubSpotPropertiesDisclosure } from './hubspot-properties-section';
@@ -114,7 +115,7 @@ export function HubSpotContactPreviewSheet({
         return null;
       }
       toast.success(res.created ? `${contact?.fullName ?? 'El contacto'} quedó en SellUp` : 'El contacto ya estaba en SellUp', {
-        description: res.created ? 'Con su empresa, vinculados a HubSpot.' : undefined,
+        description: res.created ? (importedContactToastDescription(res) ?? 'Con su empresa, vinculados a HubSpot.') : undefined,
       });
       router.refresh();
       return res;

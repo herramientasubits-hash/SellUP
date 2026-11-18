@@ -52,6 +52,7 @@ import { useExclusivePanel } from '@/lib/exclusive-panels';
 import { HubSpotDetailRow, formatHubSpotShortDate } from './detail-row';
 import { fetchHubSpotCompany } from '@/modules/hubspot-lookup/client';
 import { importHubSpotCompany, importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import { importedContactToastDescription } from '@/modules/hubspot-lookup/import-copy';
 import type { HubSpotCompanyLookupResult, HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 import { FIRST_CALL_TAB_ID } from '@/modules/speech/first-call-links';
 import { HubSpotActivitySection, HubSpotActivityTimelineItem, useHubSpotActivity } from './hubspot-activity';
@@ -175,7 +176,9 @@ export function HubSpotCompanyPreviewSheet({
         toast.error(res.error);
         return;
       }
-      toast.success(`${contact.fullName} quedó en SellUp`, { description: 'Con su empresa, vinculados a HubSpot.' });
+      toast.success(`${contact.fullName} quedó en SellUp`, {
+        description: importedContactToastDescription(res) ?? 'Con su empresa, vinculados a HubSpot.',
+      });
       router.refresh();
       onOpenAccount(res.accountId, 'contactos');
     } catch {

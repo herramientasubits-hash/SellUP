@@ -19,7 +19,8 @@ import { createClient } from '@/lib/supabase/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { canActOnAccount, canActOnContact } from '@/modules/access/record-scope.server';
 import { resolveAccountForEnrichmentRequest } from '@/modules/contact-enrichment/request-account-resolution-core';
-import { createOrLinkContactFromHubSpot } from '@/modules/contacts/actions';
+import { importHubSpotContactAsApprovedCandidate } from '@/modules/contact-enrichment/hubspot-contact-import.server';
+import { missingChannelsLabel } from '@/modules/contact-enrichment/hubspot-contact-import-core';
 import { buildHubSpotAccountResolutionDeps } from '@/server/agents/contact-enrichment-toolkit/hubspot-account-resolution-deps';
 import { mapCountryToCode } from '@/server/agents/contact-enrichment-toolkit/company-resolver-core';
 import {
@@ -131,6 +132,21 @@ async function existingContact(
 }
 
 /**
+ * Lo que le falta al contacto ya guardado («correo · teléfono»), para el aviso. El teléfono se
+ * mira en `phone`: la aprobación proyecta ahí el principal (y nunca escribe el celular).
+ */
+async function missingOnContact(contactId: string): Promise<string | null> {
+  const { data } = await createSupabaseAdminClient()
+    .from('contacts')
+    .select('email, linkedin_url, phone')
+    .eq('id', contactId)
+    .maybeSingle();
+  if (!data) return null;
+  const r = data as { email: string | null; linkedin_url: string | null; phone: string | null };
+  return missingChannelsLabel({ email: r.email, linkedinUrl: r.linkedin_url, hasPhone: Boolean(r.phone?.trim()) });
+}
+
+/**
  * Trae el contacto de HubSpot a SellUp, con su empresa. Si el contacto ya está (por su
  * Contact ID o por su correo en esa empresa), se usa el que estaba y se le pone el vínculo.
  *
@@ -172,19 +188,32 @@ export async function importHubSpotContact(
     accountId = company.accountId;
   }
 
-  const saved = await createOrLinkContactFromHubSpot({
-    account_id: accountId,
-    hubspot_contact_id: hubspotContactId,
-    first_name: contact.firstName,
-    last_name: contact.lastName,
-    full_name: contact.fullName,
-    email: contact.email,
-    linkedin_url: contact.linkedinUrl,
-    job_title: contact.jobTitle,
+  // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE (Bryan 17-11): el contacto entra como un candidato
+  // de HubSpot aprobado al instante, para que su ficha pueda revelar correo, LinkedIn y teléfono
+  // (y enviarlos a HubSpot). Si ya esperaba en «Por revisar», se aprueba ése.
+  const saved = await importHubSpotContactAsApprovedCandidate({
+    accountId,
+    triggeredBy: userId,
+    contact: {
+      hubspotContactId,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      fullName: contact.fullName,
+      email: contact.email,
+      linkedinUrl: contact.linkedinUrl,
+      jobTitle: contact.jobTitle,
+    },
   });
-  if (!saved.success) {
+  if (!saved.ok) {
     console.error('[hubspot-lookup] crear contacto falló:', saved.error);
-    return { success: false, error: 'Trajimos la empresa, pero no pudimos crear el contacto. Vuelve a intentarlo.' };
+    return { success: false, error: saved.error };
   }
-  return { success: true, accountId, contactId: saved.id, created: saved.created };
+  return {
+    success: true,
+    accountId,
+    contactId: saved.contactId,
+    created: saved.created,
+    missing: await missingOnContact(saved.contactId),
+    approvedFromReview: saved.via === 'pending_candidate_approved',
+  };
 }

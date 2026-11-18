@@ -92,6 +92,10 @@ import { resolvePhoneSourceLabel } from '@/components/contact-enrichment/phone-d
 // durable (`metadata.source_candidate_id`) y el contacto no tiene un teléfono reutilizable.
 // No construye un waterfall propio: delega en el pipeline del candidato.
 import { OfficialContactPhoneRevealCta } from './post-approval-reveal-cta';
+import {
+  OfficialContactChannelRevealControl,
+  useOfficialContactChannelReveal,
+} from './official-contact-channel-reveal';
 // AGENT2A-P0-R2 — el drawer del contacto SIEMPRE termina de cargar: o hay contacto, o hay
 // un estado terminal declarado. Nunca un spinner eterno.
 import { isNextControlFlowSignal } from '@/modules/contact-enrichment/next-control-flow-signal';
@@ -258,6 +262,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       setLoading(false);
     }
   }, []);
+
+  // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — «Revelar correo» / «Revelar LinkedIn» para los
+  // contactos que nacieron de un candidato de HubSpot. Se relee la oferta cada vez que la ficha
+  // cambia (`updated_at`), y tras revelar se relee la ficha por su vía normal.
+  const visibleContactId = open && contact ? contact.id : null;
+  const reloadAfterChannelReveal = React.useCallback(() => {
+    if (visibleContactId) void loadData(visibleContactId);
+  }, [visibleContactId, loadData]);
+  const channelReveal = useOfficialContactChannelReveal(visibleContactId, contact?.updated_at ?? null, reloadAfterChannelReveal);
 
   React.useEffect(() => {
     if (open && contactId) {
@@ -454,6 +467,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                               </a>
                               {marker('email')}
                             </span>
+                          ) : channelReveal.offer?.email || channelReveal.message?.channel === 'email' ? (
+                            <OfficialContactChannelRevealControl channel="email" state={channelReveal} />
                           ) : (
                             <span className="text-text-muted">Sin email. Añádelo con «Editar contacto».</span>
                           )}
@@ -533,6 +548,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             {marker('linkedin')}
                           </DetailItem>
                         )}
+                        {!contact.linkedin_url &&
+                          (channelReveal.offer?.linkedin || channelReveal.message?.channel === 'linkedin') && (
+                            // Sin LinkedIn: si nació de un candidato de HubSpot con correo, se busca por él.
+                            <DetailItem icon={Link2} label="LinkedIn">
+                              <OfficialContactChannelRevealControl channel="linkedin" state={channelReveal} />
+                            </DetailItem>
+                          )}
                       </DetailList>
                     </DrawerSection>
 

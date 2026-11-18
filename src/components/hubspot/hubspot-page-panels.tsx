@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { hubspotCompanyUrl, hubspotContactUrl } from '@/components/contact-enrichment/hubspot-company-url';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import { importedContactToastDescription, OPEN_IMPORTED_CONTACT_LABEL } from '@/modules/hubspot-lookup/import-copy';
 import type { HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 import { HubSpotActivitySection, useHubSpotActivity } from './hubspot-activity';
 import { HubSpotContactsSection, useHubSpotAccountContacts } from './hubspot-contacts-section';
@@ -55,7 +56,11 @@ export function AccountHubSpotContacts({ accountId, hubspotCompanyId, archived }
         toast.error(res.error);
         return;
       }
-      toast.success(`${contact.fullName} quedó en SellUp`);
+      const importedId = res.contactId;
+      toast.success(`${contact.fullName} quedó en SellUp`, {
+        description: importedContactToastDescription(res),
+        action: { label: OPEN_IMPORTED_CONTACT_LABEL, onClick: () => router.push(`/contacts/${importedId}`) },
+      });
       router.refresh();
       contacts.reload();
     } catch {

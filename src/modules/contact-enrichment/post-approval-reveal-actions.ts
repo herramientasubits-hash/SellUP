@@ -117,7 +117,8 @@ import { projectApprovedCandidatePhonesOntoContact } from './post-approval-revea
 import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-reveal-capability';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 // EL pipeline. No una copia suya.
-import { revealCandidatePhoneAction } from './phone-reveal-actions';
+import { revealCandidatePhoneWithIdentity } from './candidate-identity-completion-runner.server';
+import { syncApprovedCandidateChannelsOntoContact } from './official-contact-identity-completion.server';
 import { getPhoneRevealWaterfallAuthorizationPreviewAction } from './phone-reveal-waterfall-actions';
 // FINAL CUT — EL entrypoint único de la fase 2, el mismo que la edición manual y el merge. NO es
 // un cliente de HubSpot: no construye el PATCH, no lee la conexión y no conoce el token. Lee la
@@ -163,15 +164,27 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
         : null;
     },
 
+    // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — un contacto que nació de un candidato de HubSpot
+    // no tiene identidad de proveedor: se identifica primero (correo y, si no, LinkedIn), igual
+    // que en «Por revisar», y sólo entonces corre el reveal de siempre. Para los demás candidatos
+    // esto ES `revealCandidatePhoneAction`, sin cambios.
     startCandidateReveal: async (input) => {
-      const result = await revealCandidatePhoneAction({
-        candidateId: input.candidateId,
-        confirmCost: input.confirmCost,
-        phoneProcessingBasis: input.phoneProcessingBasis as PhoneProcessingBasis,
-        phoneProcessingBasisNote: input.phoneProcessingBasisNote,
-        expectedMaxCredits: input.expectedMaxCredits,
-      });
-      return { ok: result.ok, status: result.status, errorCode: result.errorCode };
+      const result = await revealCandidatePhoneWithIdentity(
+        {
+          candidateId: input.candidateId,
+          confirmCost: input.confirmCost,
+          phoneProcessingBasis: input.phoneProcessingBasis as PhoneProcessingBasis,
+          phoneProcessingBasisNote: input.phoneProcessingBasisNote,
+          expectedMaxCredits: input.expectedMaxCredits,
+        },
+        { allowApproved: true },
+      );
+      // Lo que la identificación haya traído de paso (correo, LinkedIn) también llega al contacto.
+      await syncApprovedCandidateChannelsOntoContact(input.candidateId);
+      // Sin identidad no hay reveal: es el mismo desenlace que el reveal da a un candidato sin
+      // identidad de proveedor, y así lo lee la ficha.
+      const status = result.status === 'identity_not_found' ? 'insufficient_identity' : result.status;
+      return { ok: result.ok, status, errorCode: result.errorCode };
     },
 
     project: async ({ candidateId, contactId, actorId }) => {

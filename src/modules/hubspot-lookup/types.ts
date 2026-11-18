@@ -65,7 +65,16 @@ export type ImportHubSpotCompanyResult =
   | { success: false; error: string };
 
 export type ImportHubSpotContactResult =
-  | { success: true; accountId: string; contactId: string; created: boolean }
+  | {
+      success: true;
+      accountId: string;
+      contactId: string;
+      created: boolean;
+      /** Lo que le falta al contacto traído («correo · teléfono»), o null si no le falta nada. */
+      missing?: string | null;
+      /** Ya estaba en «Por revisar» y se aprobó ése (no queda dos veces). */
+      approvedFromReview?: boolean;
+    }
   | { success: false; error: string };
 
 /** Ruta que abre una empresa de HubSpot en modo consulta (lista de Empresas). */

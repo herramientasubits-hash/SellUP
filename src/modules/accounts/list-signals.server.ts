@@ -1,4 +1,5 @@
 import 'server-only';
+import { withoutHubSpotLookupImportRuns } from '@/modules/contact-enrichment/hubspot-contact-import-core';
 
 /**
  * Las cifras y fechas de cada empresa de la «Lista de empresas» (dueño 17-11):
@@ -59,7 +60,7 @@ async function readActivityRows(
   const fetcher = <T,>(query: (from: number, to: number) => unknown) =>
     query as unknown as PageFetcher<T>;
 
-  const [contacts, runs, packs, comments, audit, reassigned] = await Promise.all([
+  const [contacts, allRuns, packs, comments, audit, reassigned] = await Promise.all([
     readChunks<{ account_id: string; created_at: string | null }>('contacts', ids, (chunk) =>
       fetcher((from, to) =>
         supabase
@@ -71,11 +72,11 @@ async function readActivityRows(
           .range(from, to),
       ),
     ),
-    readChunks<{ id: string; account_id: string; status: string; created_at: string }>('contact_enrichment_runs', ids, (chunk) =>
+    readChunks<{ id: string; account_id: string; status: string; created_at: string; summary: unknown }>('contact_enrichment_runs', ids, (chunk) =>
       fetcher((from, to) =>
         supabase
           .from('contact_enrichment_runs')
-          .select('id, account_id, status, created_at')
+          .select('id, account_id, status, created_at, summary')
           .in('account_id', chunk)
           .order('created_at', { ascending: false })
           .order('id')
@@ -110,6 +111,10 @@ async function readActivityRows(
       ),
     ),
   ]);
+
+  // «Traer» de HubSpot deja una corrida interna con un candidato ya aprobado: no es una búsqueda
+  // (no cuenta como «Última búsqueda de contactos»); el contacto ya cuenta en «aprobados».
+  const runs = withoutHubSpotLookupImportRuns(allRuns);
 
   // Candidatos de las búsquedas de estas empresas (los que no se reasignaron a otra).
   const runAccount = new Map(runs.map((run) => [run.id, run.account_id]));

@@ -1,4 +1,5 @@
 import 'server-only';
+import { withoutHubSpotLookupImportRuns } from '@/modules/contact-enrichment/hubspot-contact-import-core';
 
 /**
  * Los datos para el «siguiente paso» de cada empresa de la lista, en lotes: contactos,
@@ -44,11 +45,11 @@ async function readBatch(supabase: Supabase, ids: string[]) {
       (from, to) => supabase.from('contacts').select('account_id').in('account_id', ids).order('id').range(from, to),
       'contacts',
     ),
-    readAll<{ account_id: string; status: string; created_at: string }>(
+    readAll<{ account_id: string; status: string; created_at: string; summary: unknown }>(
       (from, to) =>
         supabase
           .from('contact_enrichment_runs')
-          .select('account_id, status, created_at')
+          .select('account_id, status, created_at, summary')
           .in('account_id', ids)
           .order('created_at', { ascending: false })
           .range(from, to),
@@ -80,7 +81,8 @@ async function readBatch(supabase: Supabase, ids: string[]) {
       'account_research_briefs',
     ),
   ]);
-  return { contacts, runs, packs, running };
+  // La corrida interna de «Traer» de HubSpot no es una búsqueda de contactos.
+  return { contacts, runs: withoutHubSpotLookupImportRuns(runs), packs, running };
 }
 
 /** El siguiente paso de cada empresa de la lista (por id). */

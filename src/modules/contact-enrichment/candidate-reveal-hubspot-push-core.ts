@@ -10,6 +10,8 @@
 //
 // Reglas (las mismas del completado de vacíos al aprobar, #612 / #828):
 //   * SÓLO se completan propiedades VACÍAS en HubSpot. Nunca se sobrescribe lo que el CRM tiene.
+//     Excepción (Bryan 17-11): un LinkedIn recién ENCONTRADO («Revelar LinkedIn», búsqueda por
+//     LinkedIn) reemplaza en HubSpot uno distinto.
 //   * Sólo viajan los canales que el reveal produce: teléfonos, `hs_linkedin_url` y el correo.
 //     Nombre y cargo no: el candidato los trajo de HubSpot.
 //   * Teléfonos (AGENT2A-HUBSPOT-PHONE-SLOTS-ORDER, `planRevealedPhonesForHubSpot`): cada número
@@ -29,6 +31,7 @@
 
 import {
   buildHubSpotFillEmptyProperties,
+  normalizeLinkedinUrlForHubSpot,
   planRevealedPhonesForHubSpot,
   type ContactForSync,
   type HubSpotContactFillProperties,
@@ -155,6 +158,7 @@ export function buildCandidateRevealFill(
   candidate: Pick<CandidateRevealPushCandidate, 'id' | 'phone' | 'linkedinUrl'>,
   existing: HubSpotExistingContactMatch,
   revealedPhones?: readonly RevealedPhoneForHubSpot[],
+  options: { replaceDifferentLinkedin?: boolean } = {},
 ): HubSpotContactFillProperties | null {
   // Se reutiliza EL constructor del completado de vacíos (misma normalización del LinkedIn, misma
   // definición de «vacío»), sin nombre ni cargo: no los produce un reveal. Los teléfonos NO pasan
@@ -185,7 +189,34 @@ export function buildCandidateRevealFill(
     const value = fill[name];
     if (value) onlyRevealed[name] = value;
   }
+  // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE (Bryan 17-11) — un LinkedIn que SellUp acaba de
+  // ENCONTRAR («Revelar LinkedIn», búsqueda por LinkedIn) reemplaza en HubSpot uno DISTINTO. El
+  // mismo perfil escrito de otra forma (http/https, www, barra final, mayúsculas) no se reescribe.
+  if (options.replaceDifferentLinkedin && !onlyRevealed.hs_linkedin_url) {
+    const local = normalizeLinkedinUrlForHubSpot(candidate.linkedinUrl);
+    const remote = existing.properties.hs_linkedin_url;
+    if (local && typeof remote === 'string' && remote.trim() && linkedinProfileKey(remote) !== linkedinProfileKey(local)) {
+      onlyRevealed.hs_linkedin_url = local;
+    }
+  }
   return onlyRevealed;
+}
+
+/** Los triggers en los que el LinkedIn se acaba de encontrar (y por eso reemplaza uno distinto). */
+const LINKEDIN_FOUND_TRIGGERS: ReadonlySet<CandidateRevealPushTrigger> = new Set([
+  'reveal_linkedin',
+  'quick_search_linkedin',
+]);
+
+/** Clave para comparar dos URL del mismo perfil: sin protocolo, subdominio, query ni barra final. */
+export function linkedinProfileKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^([a-z]{2,3}\.|www\.)(?=linkedin\.com\/)/, '')
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '');
 }
 
 /** Rastro sin PII: qué pasó, cuándo y qué propiedades se escribieron, nunca los valores. */
@@ -304,7 +335,9 @@ export async function runCandidateRevealHubSpotPush(
   }
   if (!existing) return finish(report('hubspot_contact_unreadable', { hubspotContactId }));
 
-  const fill = buildCandidateRevealFill(candidate, existing, revealedPhones);
+  const fill = buildCandidateRevealFill(candidate, existing, revealedPhones, {
+    replaceDifferentLinkedin: LINKEDIN_FOUND_TRIGGERS.has(trigger),
+  });
   if (fill === null) return finish(report('hubspot_contact_unreadable', { hubspotContactId }));
 
   let properties: HubSpotFillEmptyPropertyName[] = [];

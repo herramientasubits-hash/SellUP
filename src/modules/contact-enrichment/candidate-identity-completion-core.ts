@@ -35,7 +35,8 @@
 //   * NUNCA revela teléfonos. El teléfono sigue siendo el waterfall.
 //   * Un match cuyo nombre no se parece al del candidato NO se guarda (`identity_mismatch`):
 //     guardar la identidad de otra persona haría que la privacidad se evaluara sobre ella.
-//   * Sólo candidatos de origen HubSpot, en `pending_review`, con correo o LinkedIn. Sólo roles
+//   * Sólo candidatos de origen HubSpot, en `pending_review` (o aprobados, desde la ficha del
+//     contacto que nació de ellos), con correo o LinkedIn. Sólo roles
 //     que pueden revelar teléfono. Los candidatos de Apollo/Lusha no cambian en nada.
 //   * Es PURO: sin red, sin Supabase, sin env. Todo efecto entra por `deps`.
 
@@ -353,7 +354,16 @@ function result(
  *   3. Lusha — sólo para «Revelar LinkedIn» / «Revelar correo», nunca en el camino del teléfono.
  */
 export async function runCandidateIdentityCompletion(
-  input: { candidateId: unknown; purpose: IdentityCompletionPurpose },
+  input: {
+    candidateId: unknown;
+    purpose: IdentityCompletionPurpose;
+    /**
+     * AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — también un candidato YA APROBADO (desde la ficha
+     * del contacto que nació de él). Sólo lo pasa el servidor después de comprobar ese vínculo
+     * durable; nunca llega desde el navegador.
+     */
+    allowApproved?: boolean;
+  },
   deps: IdentityCompletionDeps,
 ): Promise<IdentityCompletionResult> {
   if (!isPhoneRevealRoleAuthorized(deps.actor.roleKey)) return result('unauthorized_role');
@@ -362,7 +372,9 @@ export async function runCandidateIdentityCompletion(
 
   const candidate = await deps.loadCandidate(candidateId);
   if (!candidate) return result('candidate_not_found');
-  if (candidate.status !== 'pending_review') return result('not_pending_review');
+  const reviewable =
+    candidate.status === 'pending_review' || (input.allowApproved === true && candidate.status === 'approved');
+  if (!reviewable) return result('not_pending_review');
   if (clean(candidate.source)?.toLowerCase() !== 'hubspot') return result('not_hubspot_candidate');
 
   const email = normalizeCandidateEmail(candidate.email);

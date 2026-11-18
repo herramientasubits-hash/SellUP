@@ -39,7 +39,7 @@ async function defaultReadSellUpContacts(accountId: string): Promise<ExistingCon
   const { data, error } = await admin
     .from('contacts')
     .select(
-      'id, first_name, last_name, full_name, email, phone, mobile_phone, linkedin_url, job_title'
+      'id, first_name, last_name, full_name, email, phone, mobile_phone, linkedin_url, job_title, hubspot_contact_id'
     )
     .eq('account_id', accountId)
     .is('archived_at', null)
@@ -63,6 +63,7 @@ async function defaultReadSellUpContacts(accountId: string): Promise<ExistingCon
       phone: phone || null,
       linkedinUrl: (row.linkedin_url as string | null)?.trim() || null,
       title: (row.job_title as string | null)?.trim() || null,
+      hubspotContactId: (row.hubspot_contact_id as string | null)?.trim() || null,
       completeness: {
         hasEmail: !!(row.email as string | null),
         hasPhone: !!(row.phone as string | null) || !!(row.mobile_phone as string | null),

@@ -74,6 +74,7 @@ import {
 import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
 import { HubSpotPropertiesDisclosure } from '@/components/hubspot/hubspot-properties-section';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
+import { importedContactToastDescription, OPEN_IMPORTED_CONTACT_LABEL } from '@/modules/hubspot-lookup/import-copy';
 import type { HubSpotActivityEntry, HubSpotContactHit } from '@/modules/hubspot-lookup/types';
 // Comentarios y alertas (168): los de la empresa y los de sus contactos, en un solo hilo.
 import { useRecordComments } from '@/components/record-comments/use-record-comments';
@@ -292,7 +293,12 @@ export function AccountDetailSheet({
         toast.error(res.error);
         return;
       }
-      toast.success(`${contact.fullName} quedó en SellUp`);
+      // Queda aprobado y con su ficha lista para revelar lo que le falta (Bryan 17-11).
+      const importedId = res.contactId;
+      toast.success(`${contact.fullName} quedó en SellUp`, {
+        description: importedContactToastDescription(res),
+        action: { label: OPEN_IMPORTED_CONTACT_LABEL, onClick: () => openContactDetail(importedId) },
+      });
       await loadData(accountId);
       hubspotContacts.reload();
     } catch {
