@@ -86,7 +86,7 @@ export async function revealOfficialContactChannelAction(input: {
       offer.candidateId,
       channel,
       { internalUserId, roleKey },
-      { allowApproved: true },
+      { allowApproved: true, surface: 'official_contact' },
     );
     if (result.status !== 'completed' && result.status !== 'nothing_to_complete') {
       return { ok: false, status: result.status, contactUpdated: false };

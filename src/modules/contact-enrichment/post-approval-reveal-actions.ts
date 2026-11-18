@@ -118,7 +118,11 @@ import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-r
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 // EL pipeline. No una copia suya.
 import { revealCandidatePhoneWithIdentity } from './candidate-identity-completion-runner.server';
-import { syncApprovedCandidateChannelsOntoContact } from './official-contact-identity-completion.server';
+import {
+  readSourceCandidateForChannelReveal,
+  syncApprovedCandidateChannelsOntoContact,
+} from './official-contact-identity-completion.server';
+import { evaluateCandidateIdentityCompletion } from './candidate-identity-completion-core';
 import { getPhoneRevealWaterfallAuthorizationPreviewAction } from './phone-reveal-waterfall-actions';
 // FINAL CUT — EL entrypoint único de la fase 2, el mismo que la edición manual y el merge. NO es
 // un cliente de HubSpot: no construye el PATCH, no lee la conexión y no conoce el token. Lee la
@@ -164,6 +168,22 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
         : null;
     },
 
+    // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — con qué se identificaría antes del reveal, para
+    // anunciar el crédito extra de Apollo bajo el botón. Sólo lectura.
+    loadIdentityChannels: async (candidateId) => {
+      const candidate = await readSourceCandidateForChannelReveal(candidateId);
+      if (!candidate) return [];
+      const evaluation = evaluateCandidateIdentityCompletion({
+        email: candidate.email,
+        linkedinUrl: candidate.linkedinUrl,
+        apolloPersonId: candidate.apolloPersonId,
+        source: candidate.source,
+        sourceContactId: candidate.sourceContactId,
+        enrichmentMetadata: candidate.enrichmentMetadata,
+      });
+      return evaluation.phoneRevealNeedsIdentity ? evaluation.identityChannels : [];
+    },
+
     // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — un contacto que nació de un candidato de HubSpot
     // no tiene identidad de proveedor: se identifica primero (correo y, si no, LinkedIn), igual
     // que en «Por revisar», y sólo entonces corre el reveal de siempre. Para los demás candidatos
@@ -177,7 +197,7 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
           phoneProcessingBasisNote: input.phoneProcessingBasisNote,
           expectedMaxCredits: input.expectedMaxCredits,
         },
-        { allowApproved: true },
+        { allowApproved: true, surface: 'official_contact' },
       );
       // Lo que la identificación haya traído de paso (correo, LinkedIn) también llega al contacto.
       await syncApprovedCandidateChannelsOntoContact(input.candidateId);

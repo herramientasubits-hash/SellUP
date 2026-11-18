@@ -44,6 +44,11 @@ import {
 } from '../candidate-reveal-hubspot-push-core';
 import { runCandidateIdentityCompletion, type IdentityCompletionDeps } from '../candidate-identity-completion-core';
 import { selectHubSpotFirstCandidates } from '@/server/agents/contact-enrichment-toolkit/hubspot-first-core';
+import {
+  runOfficialContactPhoneRevealOffer,
+  type OfficialContactPhoneRevealDeps,
+} from '../post-approval-reveal-runtime';
+import { officialRevealHelperText } from '@/components/contacts/post-approval-reveal-copy';
 import { importedContactToastDescription } from '@/modules/hubspot-lookup/import-copy';
 import type { ExistingContactSnapshot } from '../types';
 
@@ -528,5 +533,95 @@ describe('un LinkedIn recién encontrado reemplaza en HubSpot uno distinto', () 
     assert.deepEqual(await pushWith('reveal_linkedin'), [{ hs_linkedin_url: 'https://www.linkedin.com/in/ana-nueva' }]);
     assert.deepEqual(await pushWith('quick_search_linkedin'), [{ hs_linkedin_url: 'https://www.linkedin.com/in/ana-nueva' }]);
     assert.deepEqual(await pushWith('reveal_phone_apollo_webhook'), []);
+  });
+});
+
+// ── «Revelar teléfono» anuncia el crédito extra de identificación ─────────
+
+describe('«Revelar teléfono» en la ficha anuncia el crédito extra de identificación', () => {
+  const CANDIDATE = '6e28099a-ad4e-492f-9ec4-65d766877696';
+  const CONTACT_ID = '45959dfa-9607-406e-bcd0-bcb9e78b9d4c';
+
+  function offerDeps(channels: readonly ('email' | 'linkedin')[] | 'throws' | undefined): OfficialContactPhoneRevealDeps {
+    return {
+      actor: { internalUserId: 'u', roleKey: 'admin' },
+      loadContact: async () => ({
+        id: CONTACT_ID,
+        archivedAt: null,
+        phone: null,
+        mobilePhone: null,
+        metadata: { source_candidate_id: CANDIDATE },
+      }),
+      countLiveOfficialPhones: async () => 0,
+      countLiveCandidatePhones: async () => 0,
+      loadCandidateRevealStatus: async () => null,
+      loadAuthorizationPreview: async () => ({ maxCredits: 8, requiresIdentitySearch: false, lushaEligible: false }),
+      ...(channels === undefined
+        ? {}
+        : {
+            loadIdentityChannels: async () => {
+              if (channels === 'throws') throw new Error('read failed');
+              return channels;
+            },
+          }),
+      startCandidateReveal: async () => {
+        throw new Error('mirar la oferta no compra nada');
+      },
+      project: async () => null,
+      checkProjectionCapability: async () => true,
+      runHubSpotPhoneSyncFollowUp: async () =>
+        ({ status: 'skipped' }) as unknown as Awaited<ReturnType<OfficialContactPhoneRevealDeps['runHubSpotPhoneSyncFollowUp']>>,
+    };
+  }
+
+  it('con correo y LinkedIn: hasta 2 créditos adicionales de Apollo, aparte del tope del teléfono', async () => {
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, offerDeps(['email', 'linkedin']));
+    assert.deepEqual(view.identityChannels, ['email', 'linkedin']);
+    assert.equal(view.maxCredits, 8, 'el tope del waterfall no cambia: lo revalida el servidor');
+    const text = officialRevealHelperText(view);
+    assert.match(text, /por su correo y, si no aparece, por su LinkedIn \(hasta 2 créditos adicionales de Apollo\)/);
+    assert.match(text, /El teléfono puede consumir hasta 8 créditos/);
+  });
+
+  it('con un solo dato: 1 crédito adicional', async () => {
+    const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, offerDeps(['linkedin']));
+    assert.match(officialRevealHelperText(view), /por su LinkedIn \(1 crédito adicional de Apollo\)/);
+  });
+
+  it('sin paso de identificación (o sin poder leerlo) el texto es el de siempre', async () => {
+    for (const channels of [[], 'throws', undefined] as const) {
+      const view = await runOfficialContactPhoneRevealOffer(CONTACT_ID, offerDeps(channels));
+      assert.equal(view.identityChannels, undefined);
+      assert.equal(
+        officialRevealHelperText(view),
+        'Consulta Apollo. Puede consumir hasta 8 créditos y tardar algunos minutos.',
+      );
+    }
+  });
+
+  it('sin tope calculado, el paso extra se anuncia igual', () => {
+    const text = officialRevealHelperText({
+      status: 'eligible',
+      actionable: true,
+      free: false,
+      maxCredits: null,
+      requiresIdentitySearch: false,
+      lushaEligible: false,
+      identityChannels: ['email'],
+    });
+    assert.match(text, /por su correo \(1 crédito adicional de Apollo\)/);
+    assert.match(text, /se confirma en el servidor/);
+  });
+
+  it('el consumo queda a nombre de quien revela y dice desde qué pantalla', () => {
+    const runner = read('src/modules/contact-enrichment/candidate-identity-completion-runner.server.ts');
+    assert.match(runner, /triggered_by: actor\.internalUserId/);
+    assert.match(runner, /surface: options\.surface \?\? 'candidate_review'/);
+    for (const file of [
+      'src/modules/contact-enrichment/post-approval-reveal-actions.ts',
+      'src/modules/contact-enrichment/official-contact-identity-completion-actions.ts',
+    ]) {
+      assert.match(read(file), /surface: 'official_contact'/, file);
+    }
   });
 });

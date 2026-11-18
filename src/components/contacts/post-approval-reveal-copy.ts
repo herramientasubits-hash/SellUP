@@ -7,6 +7,7 @@
 // el botón NO se calcula aquí: llega ya resuelto por la vista previa del servidor, que es la misma
 // función que reserva. Este archivo lo formatea; nunca lo inventa.
 
+import { phoneIdentityHelperCopy } from '@/modules/contact-enrichment/candidate-identity-completion-core';
 import type {
   OfficialContactPhoneRevealOfferStatus,
   OfficialContactPhoneRevealOfferView,
@@ -37,15 +38,35 @@ export function officialRevealHelperText(view: OfficialContactPhoneRevealOfferVi
   if (view.status === 'reuse_from_candidate') {
     return 'Sin costo: el número ya fue obtenido y pagado para este contacto. Solo se copia a la ficha.';
   }
+  const identity = officialRevealIdentityStepText(view.identityChannels);
   if (view.maxCredits === null) {
-    return 'Consulta con proveedor. El tope de créditos se confirma en el servidor al autorizar.';
+    return withIdentityStep('Consulta con proveedor. El tope de créditos se confirma en el servidor al autorizar.', identity);
   }
   const legs = view.lushaEligible
     ? view.requiresIdentitySearch
       ? 'Apollo, y si no hay número, búsqueda de identidad en Lusha y su revelado'
       : 'Apollo, y si no hay número, revelado en Lusha'
     : 'Apollo';
-  return `Consulta ${legs}. Puede consumir hasta ${view.maxCredits} créditos y tardar algunos minutos.`;
+  const phone = identity
+    ? `Consulta ${legs}. El teléfono puede consumir hasta ${view.maxCredits} créditos y tardar algunos minutos.`
+    : `Consulta ${legs}. Puede consumir hasta ${view.maxCredits} créditos y tardar algunos minutos.`;
+  return withIdentityStep(phone, identity);
+}
+
+function withIdentityStep(text: string, identity: string | null): string {
+  return identity ? `${identity} ${text}` : text;
+}
+
+/**
+ * AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — el crédito EXTRA de identificación de un contacto que
+ * vino de HubSpot sin identidad de Apollo (1 por dato con el que se busca, hasta 2). Es el mismo
+ * texto que la ficha del candidato. `null` cuando no hay paso extra.
+ */
+export function officialRevealIdentityStepText(
+  channels: readonly ('email' | 'linkedin')[] | undefined,
+): string | null {
+  if (!channels || channels.length === 0) return null;
+  return phoneIdentityHelperCopy(channels);
 }
 
 /**

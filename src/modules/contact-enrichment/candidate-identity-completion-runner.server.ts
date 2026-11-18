@@ -80,11 +80,18 @@ function mapCandidate(row: unknown): IdentityCompletionCandidate {
   };
 }
 
+export interface IdentityCompletionRunOptions {
+  /** También un candidato aprobado (sólo desde la ficha del contacto que nació de él). */
+  allowApproved?: boolean;
+  /** Pantalla desde la que se gasta, para el registro de consumo. */
+  surface?: 'candidate_review' | 'official_contact';
+}
+
 export async function runIdentityCompletionForCandidate(
   candidateId: string,
   purpose: IdentityCompletionPurpose,
   actor: { internalUserId: string; roleKey: string | null },
-  options: { allowApproved?: boolean } = {},
+  options: IdentityCompletionRunOptions = {},
 ): Promise<IdentityCompletionResult> {
   const supabase = await createClient();
   const admin = getServiceRoleClient();
@@ -141,6 +148,9 @@ export async function runIdentityCompletionForCandidate(
             // Con qué se buscó (correo / linkedin), nunca el valor.
             channel: context.channel,
             candidate_id: candidateId,
+            // Desde dónde se gastó (ficha del contacto o «Por revisar»): el consumo por persona
+            // ya lo da `triggered_by`; esto dice en qué pantalla.
+            surface: options.surface ?? 'candidate_review',
             hito: CANDIDATE_IDENTITY_COMPLETION_HITO,
           },
         });
@@ -175,7 +185,7 @@ export type RevealCandidatePhoneWithIdentityResult =
 
 export async function revealCandidatePhoneWithIdentity(
   input: RevealCandidatePhoneInput,
-  options: { allowApproved?: boolean } = {},
+  options: IdentityCompletionRunOptions = {},
 ): Promise<RevealCandidatePhoneWithIdentityResult> {
   // Con el reveal apagado no se gasta una identificación que no llevaría a ningún teléfono: se
   // delega tal cual y el reveal contesta `disabled` sin tocar nada.

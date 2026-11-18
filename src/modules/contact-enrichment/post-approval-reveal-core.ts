@@ -613,6 +613,13 @@ export interface OfficialContactPhoneRevealOfferView {
   readonly maxCredits: number | null;
   readonly requiresIdentitySearch: boolean;
   readonly lushaEligible: boolean;
+  /**
+   * AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — el contacto nació de un candidato de HubSpot sin
+   * identidad de Apollo: antes del reveal se identifica con estos datos, EN ORDEN (correo y, si
+   * no aparece, LinkedIn), a 1 crédito de Apollo cada uno. Vacío o ausente ⇒ no hay paso extra.
+   * Va APARTE de `maxCredits` (que es el techo del waterfall que revalida el servidor).
+   */
+  readonly identityChannels?: readonly ('email' | 'linkedin')[];
 }
 
 /**

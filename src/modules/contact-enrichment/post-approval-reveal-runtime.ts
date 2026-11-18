@@ -94,6 +94,11 @@ export interface OfficialContactPhoneRevealDeps {
     readonly requiresIdentitySearch: boolean;
     readonly lushaEligible: boolean;
   } | null>;
+  /**
+   * AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — con qué se identificaría el candidato antes del
+   * reveal (sólo lectura; `[]` si no hace falta). Opcional: sin ella no se anuncia el paso extra.
+   */
+  readonly loadIdentityChannels?: (candidateId: string) => Promise<readonly ('email' | 'linkedin')[]>;
   /** EL pipeline. La ÚNICA vía a un proveedor de todo este módulo. */
   readonly startCandidateReveal: (input: {
     readonly candidateId: string;
@@ -374,6 +379,16 @@ export async function runOfficialContactPhoneRevealOffer(
     preview = null;
   }
 
+  // El paso de identificación también gasta (Apollo, por persona): se anuncia antes del clic.
+  let identityChannels: readonly ('email' | 'linkedin')[] = [];
+  if (deps.loadIdentityChannels) {
+    try {
+      identityChannels = await deps.loadIdentityChannels(offer.candidateId);
+    } catch {
+      identityChannels = [];
+    }
+  }
+
   return {
     status: offer.status,
     actionable: true,
@@ -381,6 +396,7 @@ export async function runOfficialContactPhoneRevealOffer(
     maxCredits: preview ? preview.maxCredits : null,
     requiresIdentitySearch: preview ? preview.requiresIdentitySearch : false,
     lushaEligible: preview ? preview.lushaEligible : false,
+    ...(identityChannels.length > 0 ? { identityChannels } : {}),
   };
 }
 
