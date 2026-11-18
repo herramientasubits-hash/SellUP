@@ -44,7 +44,12 @@ export type LinkedinSearchProvider = 'apollo' | 'lusha';
 export type ContactSearchSource = LinkedinSearchProvider | 'hubspot';
 
 /** Por dónde entró la búsqueda puntual. */
-export type ContactSearchEntryMode = 'linkedin_single' | 'email_single' | 'hubspot_id_single';
+export type ContactSearchEntryMode =
+  | 'linkedin_single'
+  | 'email_single'
+  | 'hubspot_id_single'
+  /** AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — candidato en la empresa nueva de un contacto que cambió de trabajo. */
+  | 'company_change';
 
 /**
  * Lo que se sabe de la persona. Los proveedores nunca traen teléfonos (siguen el flujo de

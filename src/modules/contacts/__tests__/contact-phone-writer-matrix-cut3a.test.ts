@@ -161,6 +161,24 @@ const MATRIX: readonly WriterEntry[] = [
     why: 'Escribe SÓLO hubspot_contact_id, y sólo sobre el contacto que la aprobación acaba de crear y que todavía no tiene vínculo (`.is(hubspot_contact_id, null)`): nunca pisa uno existente. No toca phone ni mobile_phone, así que el teléfono saliente no puede moverse por su causa. Corre ANTES de la sincronización posterior a la aprobación, que es la que evalúa el estado; hacerle evaluar la regla aquí lo pondría a marcar una fila que ni siquiera cambió de teléfono.',
   },
   {
+    name: 'cambio de empresa — archivar / desarchivar el contacto viejo (AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE)',
+    file: 'src/modules/contact-enrichment/contact-company-change-actions.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO archived_at, archived_by, contact_status, is_primary, updated_by y metadata (el rastro del cambio de empresa). Nunca phone ni mobile_phone: el teléfono saliente no puede moverse por su causa.',
+  },
+  {
+    name: 'cambio de empresa — desenlace del candidato nuevo en el contacto viejo',
+    file: 'src/modules/contact-enrichment/contact-company-change.server.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO metadata (aprobado / rechazado y la reasociación en HubSpot) sobre el contacto viejo, ya archivado. Nunca phone ni mobile_phone.',
+  },
+  {
+    name: 'candidato de origen para un contacto que no tenía (AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE)',
+    file: 'src/modules/contact-enrichment/official-contact-identity-completion.server.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO metadata.source_candidate_id del contacto (el vínculo durable con su candidato de origen). Lo revelado llega al contacto por updateContact, el escritor oficial ya clasificado. Nunca phone ni mobile_phone.',
+  },
+  {
     name: 'webhook de Apollo phone reveal',
     file: 'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     verdict: 'N/A',
@@ -277,6 +295,11 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
     assert.deepEqual(
       [...new Set(found)].sort(),
       [
+        // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — archivar / desarchivar por cambio de
+        // empresa, el desenlace en el contacto viejo y el vínculo con el candidato de origen.
+        // Clasificados arriba: sólo metadata y estado de archivo, nunca phone ni mobile_phone.
+        'src/modules/contact-enrichment/contact-company-change-actions.ts',
+        'src/modules/contact-enrichment/contact-company-change.server.ts',
         // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Task E1) — triggerContactHubSpotSync
         // sale del gancho de aprobación hacia este módulo nuevo. Clasificado arriba: sólo
         // escribe metadata, nunca phone ni mobile_phone.
@@ -284,6 +307,7 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         // AGENT2-HUBSPOT-FIRST-1 — sólo escribe hubspot_contact_id sobre el contacto recién
         // aprobado y sin vínculo. Clasificado arriba.
         'src/modules/contact-enrichment/hubspot-first-approval-link.ts',
+        'src/modules/contact-enrichment/official-contact-identity-completion.server.ts',
         'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
         'src/modules/contacts/actions.ts',
         // CUT-3B — el cableado de `persistSync` sale de actions.ts hacia el runner compartido,

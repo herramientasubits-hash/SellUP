@@ -368,12 +368,11 @@ describe('ficha del contacto: qué se ofrece', () => {
     assert.equal(offer.linkedin, false);
   });
 
-  it('sin vínculo durable, con otro contacto, no aprobado o sin rol: nada', () => {
+  it('con otro contacto, no aprobado, vínculo roto o sin rol: nada', () => {
     const cases: Array<[Partial<OfficialContactForChannelReveal>, Partial<SourceCandidateForChannelReveal>, boolean, string]> = [
-      [{ metadata: {} }, {}, true, 'missing_source_candidate'],
+      [{ metadata: { source_candidate_id: 'no-es-uuid' } }, {}, true, 'missing_source_candidate'],
       [{}, { matchedContactsId: 'otro' }, true, 'not_linked'],
       [{}, { status: 'pending_review' }, true, 'not_linked'],
-      [{}, { source: 'apollo' }, true, 'not_hubspot_candidate'],
       [{}, {}, false, 'unauthorized_role'],
       [{ archivedAt: '2026-11-01' }, {}, true, 'contact_unavailable'],
     ];
@@ -386,6 +385,28 @@ describe('ficha del contacto: qué se ofrece', () => {
       assert.equal(offer.reason, reason);
       assert.equal(offer.email || offer.linkedin, false);
     }
+  });
+
+  it('AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE: también candidatos de Apollo / Lusha / manuales', () => {
+    const offer = classifyOfficialContactChannelOffer({
+      contact: officialContact(),
+      candidate: sourceCandidate({ source: 'apollo' }),
+      roleAuthorized: true,
+    });
+    assert.equal(offer.reason, 'ok');
+    assert.equal(offer.linkedin, true);
+  });
+
+  it('AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE: sin candidato de origen se ofrece y se crea al clic', () => {
+    const offer = classifyOfficialContactChannelOffer({
+      contact: officialContact({ metadata: {} }),
+      candidate: null,
+      roleAuthorized: true,
+    });
+    assert.equal(offer.reason, 'needs_source_candidate');
+    assert.equal(offer.needsSourceCandidate, true);
+    assert.equal(offer.linkedin, true);
+    assert.equal(offer.email, false);
   });
 
   it('un intento anterior sin fruto no se vuelve a ofrecer', () => {

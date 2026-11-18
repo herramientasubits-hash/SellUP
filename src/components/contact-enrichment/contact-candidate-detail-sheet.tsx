@@ -49,6 +49,7 @@ import {
   CandidateSummarySection,
 } from './contact-candidate-detail-sections';
 import { CandidateEmploymentAiVerifyButton } from './candidate-employment-ai-verify-button';
+import { readCandidateCompanyChange } from '@/modules/contact-enrichment/contact-company-change-core';
 import { aiVerifyState } from './contact-candidate-title-provenance';
 import {
   CandidateDuplicateDecisionDialog,
@@ -2061,6 +2062,19 @@ export function ContactCandidateDetailSheet({
               </span>
             </Alert>
           ) : null}
+
+          {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — viene de un contacto que cambió de empresa. */}
+          {(() => {
+            const change = readCandidateCompanyChange(candidate.enrichment_metadata);
+            if (!change) return null;
+            return (
+              <Alert variant="info" role="note" className="p-3">
+                <span className="text-xs leading-relaxed">
+                  {`Viene de un cambio de empresa${change.previous_account_name ? `: antes estaba en ${change.previous_account_name}` : ''}. Si lo apruebas, en HubSpot pasa a esta empresa como principal y se desasocia de las demás.`}
+                </span>
+              </Alert>
+            );
+          })()}
 
           {candidate.status === 'duplicate' ? (
             <CandidateDuplicateNotice
