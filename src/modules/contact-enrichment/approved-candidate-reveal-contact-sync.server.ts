@@ -15,7 +15,9 @@ import {
 } from './approved-candidate-reveal-contact-sync-core';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-reveal-capability';
-import { projectApprovedCandidatePhonesOntoContact } from './post-approval-reveal-projection';
+// AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE: la misma proyección, con el arranque de la colección
+// de un contacto «legacy» (169) cuando la 128 lo rechaza.
+import { projectApprovedCandidatePhonesWithLegacyBootstrap } from './legacy-contact-phone-bootstrap.server';
 import { readCandidateScalarFactsForProjection } from './post-approval-reveal-read';
 
 function str(value: unknown): string | null {
@@ -56,7 +58,7 @@ export async function syncApprovedCandidateRevealOntoContact(
               countryCode: facts.countryCode,
             })
           : null;
-        return projectApprovedCandidatePhonesOntoContact({
+        return projectApprovedCandidatePhonesWithLegacyBootstrap({
           candidateId: id,
           contactId,
           scalarFallback: scalarFallback as Record<string, unknown> | null,

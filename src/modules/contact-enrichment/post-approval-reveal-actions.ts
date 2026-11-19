@@ -113,7 +113,9 @@ import {
   searchMoreCandidatePhonesAction,
 } from './search-more-phones-actions';
 import { getLegacyPhoneRevealAuthorizationPreviewAction } from './phone-reveal-waterfall-actions';
-import { projectApprovedCandidatePhonesOntoContact } from './post-approval-reveal-projection';
+// AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE: la misma proyección, con el arranque de la colección
+// de un contacto «legacy» (169) cuando la 128 lo rechaza.
+import { projectApprovedCandidatePhonesWithLegacyBootstrap } from './legacy-contact-phone-bootstrap.server';
 import { checkProjectApprovedCandidatePhonesCapability } from './post-approval-reveal-capability';
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 // EL pipeline. No una copia suya.
@@ -221,7 +223,7 @@ async function buildDeps(): Promise<OfficialContactPhoneRevealDeps> {
             })
           : null;
 
-        return await projectApprovedCandidatePhonesOntoContact({
+        return await projectApprovedCandidatePhonesWithLegacyBootstrap({
           candidateId,
           contactId,
           scalarFallback: scalarFallback as Record<string, unknown> | null,

@@ -605,6 +605,8 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
       '167_claude_rescue_batch_lease.sql',
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
       '168_record_comments.sql',
+      // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
+      '169_bootstrap_legacy_contact_phone_incumbent.sql',
       ],
       'E4 no necesita DDL: la allowlist y el writer se corrigen en TypeScript',
     );
@@ -730,7 +732,7 @@ describe('4O-E4 estático — alcance: E4 no amplía nada más', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 168);
+    assert.equal(numbered[numbered.length - 1], 169);
   });
 
   it('sólo 4O-H1 crea la tabla contact_phones', () => {

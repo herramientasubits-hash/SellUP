@@ -179,7 +179,9 @@ export type VerifyOfficialContactEmailStatus =
   | 'unauthorized_role'
   | 'identity_mismatch'
   | 'provider_unavailable'
-  | 'provider_error';
+  | 'provider_error'
+  /** El proveedor trajo un correo para aplicar, pero no se pudo guardar en SellUp. */
+  | 'contact_not_saved';
 
 export interface VerifyOfficialContactEmailResult {
   ok: boolean;
@@ -224,24 +226,25 @@ export async function verifyOfficialContactEmailAction(input: { contactId: strin
     const check = verified.check;
     let hubspot: string | null = null;
     if (check.case === 'same_company_new_email' && check.found_email) {
-      hubspot = (
-        await applySameCompanyNewEmail({
-          contactId,
-          candidateId: offer.candidateId,
-          newEmail: check.found_email,
-          actorId: internalUserId,
-        })
-      ).hubspot;
+      const applied = await applySameCompanyNewEmail({
+        contactId,
+        candidateId: offer.candidateId,
+        newEmail: check.found_email,
+        actorId: internalUserId,
+      });
+      // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE: sin guardar en SellUp no se dice «quedó».
+      if (!applied.contactUpdated) return { ...fail('contact_not_saved'), case: check.case };
+      hubspot = applied.hubspot;
     } else if (check.case === 'personal_email' && check.found_email) {
-      hubspot = (
-        await applyPersonalEmail({
-          contactId,
-          candidateId: offer.candidateId,
-          email: check.found_email,
-          provider: check.provider,
-          actorId: internalUserId,
-        })
-      ).hubspot;
+      const applied = await applyPersonalEmail({
+        contactId,
+        candidateId: offer.candidateId,
+        email: check.found_email,
+        provider: check.provider,
+        actorId: internalUserId,
+      });
+      if (!applied.contactUpdated) return { ...fail('contact_not_saved'), case: check.case };
+      hubspot = applied.hubspot;
     }
     return { ok: true, status: verified.status === 'checked' ? 'checked' : 'not_found', case: check.case, hubspot };
   } catch {

@@ -121,17 +121,56 @@ export function employmentLine(employment: OfficialContactEmploymentView | null)
   }
 }
 
+/**
+ * Qué pasó en HubSpot con el correo principal (AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE): la
+ * frase dice la verdad de cada desenlace en vez de dar por hecho que llegó.
+ */
+export function hubspotPrimaryEmailNote(hubspot: string | null): string {
+  switch (hubspot) {
+    case 'promoted':
+    case 'already_primary':
+      return 'En HubSpot también quedó como principal.';
+    case 'promoted_previous_not_kept':
+      return 'En HubSpot quedó como principal, pero no aceptó guardar el anterior como adicional.';
+    case 'conflict':
+      return 'En HubSpot ese correo ya lo tiene otro contacto: puedes fusionarlos con «Fusionar en HubSpot».';
+    case 'autosync':
+      return 'El contacto no estaba en HubSpot: se envió para buscarlo por el correo o crearlo.';
+    case 'unreadable':
+      return 'En HubSpot no se cambió: no pudimos leer el contacto.';
+    case 'hubspot_unavailable':
+    case 'autosync_failed':
+      return 'En HubSpot no se cambió: no pudimos conectar con HubSpot.';
+    default:
+      return 'En HubSpot no se pudo cambiar.';
+  }
+}
+
+export function hubspotAdditionalEmailNote(hubspot: string | null): string {
+  switch (hubspot) {
+    case 'added_as_additional':
+    case 'already_additional':
+      return 'En HubSpot quedó como correo adicional.';
+    case 'already_primary':
+      return 'En HubSpot ya es el correo principal.';
+    case 'not_in_hubspot':
+      return 'El contacto no está en HubSpot.';
+    case 'conflict':
+      return 'En HubSpot no se agregó: ese correo ya lo tiene otro contacto.';
+    default:
+      return 'En HubSpot no se pudo agregar.';
+  }
+}
+
 /** Qué pasó al verificar, en una frase (después del clic). */
 export function verificationOutcomeText(kind: EmailChangeCase, hubspot: string | null): string {
   switch (kind) {
     case 'same_email':
       return 'Correo verificado: es el mismo.';
     case 'same_company_new_email':
-      return hubspot === 'conflict'
-        ? 'Encontramos otro correo de la empresa y quedó como principal en SellUp. En HubSpot ya lo usa otro contacto: no se cambió allá.'
-        : 'Encontramos otro correo de la empresa: quedó como principal y el anterior se conserva como adicional.';
+      return `Encontramos otro correo de la empresa y quedó como principal en SellUp (el anterior se conserva como adicional). ${hubspotPrimaryEmailNote(hubspot)}`;
     case 'personal_email':
-      return 'Encontramos un correo personal: se guardó aparte y en HubSpot como correo adicional (no reemplaza al principal).';
+      return `Encontramos un correo personal: se guardó aparte, sin reemplazar al principal. ${hubspotAdditionalEmailNote(hubspot)}`;
     case 'company_change':
       return 'El correo que encontramos es de otra empresa: parece que cambió de trabajo. Revisa el aviso.';
     case 'conflicting':

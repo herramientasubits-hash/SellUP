@@ -179,6 +179,18 @@ const MATRIX: readonly WriterEntry[] = [
     why: 'Escribe SÓLO metadata.source_candidate_id del contacto (el vínculo durable con su candidato de origen). Lo revelado llega al contacto por updateContact, el escritor oficial ya clasificado. Nunca phone ni mobile_phone.',
   },
   {
+    name: 'fusión en HubSpot ante el 409 del correo (AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE)',
+    file: 'src/modules/contact-enrichment/contact-hubspot-merge.server.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO hubspot_contact_id (repunta SellUp al Record ID que HubSpot da al contacto fusionado) y metadata.hubspot_merges (el rastro). Nunca phone ni mobile_phone: el teléfono saliente no puede moverse por su causa. Los teléfonos que viajan a HubSpot tras fusionar salen de la colección por lectura y van al primer campo vacío (planRevealedPhonesForHubSpot).',
+  },
+  {
+    name: 'contacto legacy → colección oficial, aviso «Teléfono Apollo / Lusha» (AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE)',
+    file: 'src/modules/contact-enrichment/legacy-contact-phone-bootstrap.server.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO metadata.provider_phone (lo que la ficha muestra como «Teléfono Apollo / Lusha»). El número entra a la colección por la RPC 169, que no toca el escalar, y la proyección 128/131 —ya clasificada— decide la transición de HubSpot. Nunca phone ni mobile_phone (regla 164).',
+  },
+  {
     name: 'webhook de Apollo phone reveal',
     file: 'src/app/api/integrations/apollo/phone-reveal/webhook/route.ts',
     verdict: 'N/A',
@@ -300,6 +312,9 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         // Clasificados arriba: sólo metadata y estado de archivo, nunca phone ni mobile_phone.
         'src/modules/contact-enrichment/contact-company-change-actions.ts',
         'src/modules/contact-enrichment/contact-company-change.server.ts',
+        // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — vínculo tras fusionar en HubSpot y
+        // metadata.provider_phone. Clasificados arriba: nunca phone ni mobile_phone.
+        'src/modules/contact-enrichment/contact-hubspot-merge.server.ts',
         // AGENT2A-HUBSPOT-CONTACT-APPROVAL-AUTOSYNC (Task E1) — triggerContactHubSpotSync
         // sale del gancho de aprobación hacia este módulo nuevo. Clasificado arriba: sólo
         // escribe metadata, nunca phone ni mobile_phone.
@@ -307,6 +322,7 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         // AGENT2-HUBSPOT-FIRST-1 — sólo escribe hubspot_contact_id sobre el contacto recién
         // aprobado y sin vínculo. Clasificado arriba.
         'src/modules/contact-enrichment/hubspot-first-approval-link.ts',
+        'src/modules/contact-enrichment/legacy-contact-phone-bootstrap.server.ts',
         'src/modules/contact-enrichment/official-contact-identity-completion.server.ts',
         'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
         'src/modules/contacts/actions.ts',
