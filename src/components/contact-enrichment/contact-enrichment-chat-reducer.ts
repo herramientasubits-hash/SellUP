@@ -14,6 +14,7 @@ import type {
   ExtraCompanyData,
   ExtraDataPrefill,
 } from './contact-enrichment-chat-types';
+import { parseCompanyPageUrl } from '@/modules/contact-enrichment/company-page-url';
 import { HUBSPOT_ID_BATCH_MAX_IDS, parseHubSpotIdBatchInput } from '@/modules/contact-enrichment/hubspot-id-batch-core';
 import {
   contactCountLines,
@@ -125,7 +126,7 @@ function appendMessages(
 
 // ── Pure query classification + resolution planning ────────────────────────────
 
-export type CompanyQueryKind = 'name' | 'domain' | 'hubspot_id' | 'personal_email';
+export type CompanyQueryKind = 'name' | 'domain' | 'hubspot_id' | 'personal_email' | 'company_page';
 
 /** Correos de servicios personales: su dominio no dice de qué empresa es la persona. */
 export const PERSONAL_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
@@ -152,6 +153,8 @@ export function companyQueryDomain(query: string): { domain: string; personal: b
     return DOMAIN_RE.test(domain) ? { domain, personal: PERSONAL_EMAIL_DOMAINS.has(domain) } : null;
   }
   if (q.includes(' ')) return null;
+  // «linkedin.com/company/cemaco»: el host es de la red, no de la empresa (feedback 19-11).
+  if (parseCompanyPageUrl(q)) return null;
   const url = URL_RE.exec(q);
   const host = url?.[1]?.replace(/^www\./, '') ?? null;
   return host && DOMAIN_RE.test(host) ? { domain: host, personal: false } : null;
@@ -220,28 +223,48 @@ export function batchOfferButtonLabel(count: number): string {
 export function classifyCompanyQuery(query: string): CompanyQueryKind {
   const q = query.trim();
   if (extractHubSpotCompanyId(q)) return 'hubspot_id';
+  if (parseCompanyPageUrl(q)) return 'company_page';
   const domain = companyQueryDomain(q);
   if (domain?.personal) return 'personal_email';
   if (domain) return 'domain';
   return 'name';
 }
 
-/** Builds the resolver input from a free-text company query. */
+/**
+ * Builds the resolver input from a free-text company query. Un enlace a la página de la
+ * empresa en LinkedIn (u otra red) se busca por el NOMBRE que dice su ruta; si la ruta no
+ * dice el nombre (ID numérico), no hay nada que buscar: `{}` y se piden los datos.
+ */
 export function buildResolveInput(query: string): Record<string, string> {
   const q = query.trim();
   const kind = classifyCompanyQuery(q);
   if (kind === 'hubspot_id') return { hubspotCompanyId: extractHubSpotCompanyId(q) ?? q };
+  if (kind === 'company_page') {
+    const page = parseCompanyPageUrl(q);
+    const input: Record<string, string> = {};
+    if (page?.nameGuess) input.companyName = page.nameGuess;
+    if (page?.linkedinCompanyUrl) input.linkedinCompanyUrl = page.linkedinCompanyUrl;
+    return input;
+  }
   if (kind === 'domain') return { companyDomain: companyQueryDomain(q)?.domain ?? q };
   return { companyName: q };
+}
+
+/** El nombre de la empresa que se puede leer en lo escrito (para nombrar una empresa manual). */
+export function companyNameFromQuery(query: string): string {
+  const q = query.trim();
+  const kind = classifyCompanyQuery(q);
+  if (kind === 'company_page') return parseCompanyPageUrl(q)?.nameGuess ?? '';
+  if (kind === 'hubspot_id') return companyNameWithoutHubSpotId(q);
+  return kind === 'name' ? q : '';
 }
 
 /** Lo que el formulario «nombre, país y dominio» trae ya escrito, según lo que se buscó. */
 export function extraDataPrefill(query: string): ExtraDataPrefill {
   const q = query.trim();
-  const kind = classifyCompanyQuery(q);
   const found = companyQueryDomain(q);
   return {
-    name: kind === 'name' ? q : kind === 'hubspot_id' ? companyNameWithoutHubSpotId(q) : '',
+    name: companyNameFromQuery(q),
     domain: found && !found.personal ? found.domain : '',
   };
 }
@@ -259,10 +282,13 @@ export function buildExtraDataResolveInput(data: ExtraCompanyData): Record<strin
 
 /** La empresa nueva (manual) armada con el formulario, cuando tampoco aparece con esos datos. */
 export function manualCandidateFromExtraData(data: ExtraCompanyData): CompanyCandidate {
-  const domain = companyQueryDomain(data.domain)?.domain ?? (data.domain.trim() || undefined);
+  // Un enlace de LinkedIn en «dominio» no es el dominio: aporta el nombre y el enlace.
+  const page = parseCompanyPageUrl(data.domain);
+  const domain = page ? undefined : companyQueryDomain(data.domain)?.domain ?? (data.domain.trim() || undefined);
   return {
     source: 'manual',
-    name: data.name.trim() || domain || 'Empresa sin nombre',
+    name: data.name.trim() || page?.nameGuess || domain || 'Empresa sin nombre',
+    ...(page?.linkedinCompanyUrl ? { linkedinUrl: page.linkedinCompanyUrl } : {}),
     domain,
     country: data.countryName || undefined,
     countryCode: data.countryCode || undefined,

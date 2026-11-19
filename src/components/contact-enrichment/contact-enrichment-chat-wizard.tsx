@@ -29,6 +29,7 @@ import {
   buildExtraDataResolveInput,
   buildResolveInput,
   classifyCompanyQuery,
+  companyNameFromQuery,
   companyQueryBatch,
   extraDataPrefill,
   isComposerUnlocked,
@@ -48,6 +49,7 @@ import {
   CONTACT_ENRICHMENT_REQUEST_UNEXPECTED_ERROR_COPY,
   CONTACT_ENRICHMENT_SEARCH_CONTACTS_UNEXPECTED_ERROR_COPY,
 } from './contact-enrichment-chat-error-copy';
+import { parseCompanyPageUrl } from '@/modules/contact-enrichment/company-page-url';
 import { SurfaceCard } from '@/components/shared/surface-card';
 import { CompanyChip, RunResultSnapshot } from './contact-enrichment-chat-result';
 import type { ManualContactContext } from './contact-enrichment-chat-types';
@@ -245,7 +247,9 @@ export function ContactEnrichmentChatWizard({
     dispatch({ type: 'SUBMIT_QUERY', query });
 
     // Un correo personal (gmail, hotmail…) no dice la empresa: se piden sus datos de una vez.
-    if (classifyCompanyQuery(query) === 'personal_email') {
+    // Lo mismo con un enlace de LinkedIn cuya ruta no dice el nombre (`/company/12345`).
+    const queryKind = classifyCompanyQuery(query);
+    if (queryKind === 'personal_email' || (queryKind === 'company_page' && !companyNameFromQuery(query))) {
       dispatch({ type: 'RESOLVED_NONE_NEEDS_DATA', prefill: extraDataPrefill(query) });
       return;
     }
@@ -277,10 +281,13 @@ export function ContactEnrichmentChatWizard({
 
   function handleContinueAsManual() {
     const kind = classifyCompanyQuery(state.query);
+    const page = kind === 'company_page' ? parseCompanyPageUrl(state.query) : null;
     const manual: CompanyCandidate = {
       source: 'manual',
-      name: state.query.trim(),
+      // Un enlace de LinkedIn no es el nombre: va el nombre que dice su ruta (feedback 19-11).
+      name: page ? page.nameGuess ?? state.query.trim() : state.query.trim(),
       domain: kind === 'domain' ? state.query.trim() : undefined,
+      ...(page?.linkedinCompanyUrl ? { linkedinUrl: page.linkedinCompanyUrl } : {}),
       matchConfidence: 0.5,
     };
     dispatch({ type: 'SELECT_CANDIDATE', candidate: manual });
