@@ -401,6 +401,8 @@ test('§ 28 — la capa gratuita no necesita esquema, y lo único por encima de 
       '167_claude_rescue_batch_lease.sql',
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
       '168_record_comments.sql',
+      // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
+      '169_bootstrap_legacy_contact_phone_incumbent.sql',
     ],
     'ninguna migración nueva salvo la memoria provider-seen, la identidad cross-provider, la promoción vallada de BR CUT D, el almacenamiento compacto de BR, la valla de petición de Lusha, la auditoría administrativa del presupuesto del Wizard, la disposición durable de descartes de Prospectos, el reclamo global de identidad de empresa, la ampliación de tipos fiscales con EIN y NIF, el banco de empresas, el progreso en vivo de la corrida, varias ejecuciones activas por usuario en la reserva del piloto, la asignación de prospectos a otra persona, la ampliación de tipos fiscales con RIF, las dimensiones de las consultas a proveedores, las asociaciones entre empresas de la búsqueda en árbol, la forma de búsqueda del uso de IA desde la metadata del lote, quién le vende a cada entidad pública, el endurecimiento de claim_enrichment_jobs y el cruce NIT/dominio/LinkedIn de los reclamos de identidad',
   );

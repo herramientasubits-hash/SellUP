@@ -389,7 +389,8 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
       // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
-      '168_record_comments.sql',
+      // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
+      '169_bootstrap_legacy_contact_phone_incumbent.sql',
       'el techo conocido es la 152: la 133 (la promoción vallada de identidad fiscal de BR-SOURCE CUT D), la 134 (el almacenamiento compacto de BR), la 135 (AGENT1-LUSHA-CUT-L3, renumerada desde la 134 al integrarse en serie), la 136 (el historial de intentos seguros de Lusha), la 137 (la auditoría administrativa del presupuesto del Wizard), la 138 (la disposición durable de descartes de Prospectos), la 139 (la cola durable de continuaciones de ronda de Apollo), la 140 (el reclamo global de identidad de empresa), la 141 (la ampliación de tipos fiscales con EIN y NIF), la 142 (el banco de empresas), la 143 (el progreso en vivo de la corrida), la 144 (varias ejecuciones activas por usuario en la reserva del piloto), la 145 (la asignación de prospectos a otra persona), la 146 (la ampliación de tipos fiscales con RIF), la 147 (las dimensiones de las consultas a proveedores), la 148 (las asociaciones entre empresas de la búsqueda en árbol), la 149 (la forma de búsqueda del uso de IA desde la metadata del lote), la 150 (quién le vende a cada entidad pública, de las compras públicas), la 151 (el endurecimiento de claim_enrichment_jobs) y la 152 (el cruce NIT/dominio/LinkedIn de los reclamos de identidad) — ninguna edita el archivo de una migración anterior de la cadena de teléfono 109–117',
     );
     assert.equal(
@@ -464,14 +465,14 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       // ventana prohibida sube a la 157 y superiores.
       // AGENT1-CORPORATE-TREE-PHASE-C declara la 157 (columnas de nivel en agent1_company_relationships),
       // así que la ventana prohibida sube a la 158 y superiores.
-      files.some((file) => /^(169|1[7-9]\d)/.test(file)),
+      files.some((file) => /^(1[7-9]\d)/.test(file)),
       false,
       // La 120, la 121 y la 122 son AUTORIZADAS y están declaradas arriba con lo que hacen. Lo que
       // esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último hito
       // conocido sin declararla; la afirmación de que ninguna de ellas escribe sobre las
       // tablas de la cadena de teléfono se comprueba justo abajo, de forma directa.
       // AGENT3-FIRST-CALL-1 declara la 153 (fichas y paquetes de primera llamada del Agente 3).
-      'ninguna migración 169 o superior',
+      'ninguna migración 170 o superior',
     );
     // La afirmación que de verdad importa, ya no delegada en el orden alfabético:
     // ninguna migración posterior a la ÚLTIMA de la cadena de teléfono escribe sobre sus
@@ -563,6 +564,11 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
     // escriben en la colección de staging y en la oficial los teléfonos que Apollo ya tiene
     // guardados, y esa escritura es el hito.
     const SAVED_CONTACT_IMPORT_155 = '155_import_apollo_saved_contact_phones.sql';
+    // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — la 169 queda EXENTA por la MISMA razón que la
+    // 155: su función NUEVA mete el escalar de un contacto legacy a `contact_phones` /
+    // `contact_phone_sources` (procedencia `legacy_incumbent`), y esa escritura es el hito. Su
+    // límite se afirma directamente más abajo.
+    const LEGACY_BOOTSTRAP_169 = '169_bootstrap_legacy_contact_phone_incumbent.sql';
     const BLIND_SWEEP_EXEMPT = new Set([
       RESTATED_120,
       SEARCH_MORE_122,
@@ -571,6 +577,7 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       RESTATED_130,
       RESTATED_131,
       SAVED_CONTACT_IMPORT_155,
+      LEGACY_BOOTSTRAP_169,
     ]);
 
     for (const file of files.filter(
@@ -874,6 +881,44 @@ describe('4O-C-R1 — exactamente UNA migración nueva, y sin backfill', () => {
       !exec155.includes('phone_reveal_suppression_audit'),
       'la 155 no toca la auditoría de supresión legada',
     );
+
+    // ── El límite de la 169, afirmado de forma DIRECTA ───────────────
+    assert.ok(files.includes(LEGACY_BOOTSTRAP_169), 'el fichero de la 169 no puede faltar');
+    const exec169 = stripSqlComments(
+      readFileSync(join(repoRoot, 'supabase/migrations', LEGACY_BOOTSTRAP_169), 'utf8'),
+    ).replace(/COMMENT ON [\s\S]*?';\n/g, '');
+    for (const verb of [
+      'CREATE TABLE',
+      'ALTER TABLE',
+      'DROP TABLE',
+      'TRUNCATE',
+      'DELETE FROM',
+      'CREATE INDEX',
+      'CREATE POLICY',
+      'CREATE TRIGGER',
+    ]) {
+      assert.ok(!new RegExp(verb, 'i').test(exec169), `la 169 no puede ejecutar ${verb}: sólo crea una función y sus permisos`);
+    }
+    for (const fn of [
+      'persist_candidate_apollo_phone_reveal_result',
+      'persist_candidate_lusha_phone_reveal_result',
+      'approve_contact_candidate_with_phones',
+      'merge_contact_candidate_into_existing_contact',
+      'append_candidate_search_more_phones',
+      'project_approved_candidate_phones_onto_contact',
+    ]) {
+      assert.ok(
+        !new RegExp(`CREATE (OR REPLACE )?FUNCTION public\\.${fn}`).test(exec169),
+        `la 169 no puede re-declarar ${fn}`,
+      );
+    }
+    assert.ok(!/INSERT\s+INTO\s+public\.contacts\b/i.test(exec169), 'la 169 no crea contactos');
+    assert.ok(!/UPDATE\s+public\.contacts\b/i.test(exec169), 'la 169 no toca el escalar del contacto (regla 164)');
+    assert.ok(
+      !exec169.includes('contact_enrichment_candidate_phones'),
+      'la 169 no toca la colección del candidato',
+    );
+    assert.ok(!exec169.includes('phone_reveal_suppression_audit'), 'la 169 no toca la auditoría de supresión legada');
 
     // La 117 queda EXENTA del barrido de arriba porque sí toca la cadena — y por eso su
     // límite se afirma explícitamente aquí, que es más fuerte que exentarla y callar.

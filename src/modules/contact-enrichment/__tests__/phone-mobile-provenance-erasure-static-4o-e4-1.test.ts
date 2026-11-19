@@ -306,6 +306,9 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
         // Es literalmente la única migración de esta lista que ni siquiera la LEE —CUT-3A y
         // CUT-3C sí, para calcular el saliente— y por eso su mención es enteramente prosa.
         '132_agent2_hubspot_legacy_sync_state_backfill.sql',
+        // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — la 169 la nombra SÓLO en prosa: su
+        // `COMMENT ON FUNCTION` declara que «never touches mobile_phone». Ni la lee ni la escribe.
+        '169_bootstrap_legacy_contact_phone_incumbent.sql',
       ],
       'las únicas migraciones que pueden NOMBRAR mobile_phone sin tocarla son la 115 (4O-H2), la 116 (4O-H3) y la 117 (4O-H3-B), que documentan que no la tocan',
     );
@@ -605,8 +608,8 @@ describe('4O-E4.1 estático — alcance', () => {
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth; sin teléfonos ni
       // contactos); no ASIGNA `mobile_phone`.
       // La 165 (avisos de Slack configurables e historial de boletines) fue el techo anterior.
-      168,
-      'la 168 (comentarios y alertas: tabla nueva sólo de servidor; sin teléfonos) es la última',
+      169,
+      'la 169 (contacto legacy → colección oficial: una función nueva, procedencia legacy_incumbent) es la última',
     );
   });
 

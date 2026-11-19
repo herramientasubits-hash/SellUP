@@ -64,6 +64,13 @@ jobs:
       - name: Run Agent 2A HubSpot reveal push tests
         run: npm run test:agent2a:hubspot-reveal-push
 
+      # AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — en el contacto aprobado: «Verificar correo» dice
+      # la verdad de SellUp y de HubSpot; ante el 409 se fusiona en HubSpot (con confirmación) dejando
+      # como principal al contacto que ya tiene el correo; y un número revelado después de aprobar
+      # llega a un contacto «legacy» (169) sin reemplazar el de HubSpot (regla 164).
+      - name: Run Agent 2A approved contact email / phone / merge tests
+        run: npm run test:agent2a:contact-approved-email-phone-merge
+
       # Q3F-5BB.10C3-FIX-1 — Lusha fail-closed routing (STRICT-ALL). Guards the
       # invariant that a Lusha run never touches Apollo/Tavily and that with
       # ENABLE_LUSHA_PREVIEW off no route ever resolves to Lusha.

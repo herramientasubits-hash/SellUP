@@ -863,3 +863,73 @@ export async function removeHubSpotContactCompanyAssociation(
     return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_REMOVE_ASSOC_ERROR' };
   }
 }
+
+// ── AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE (Bryan 19-11) ─────────────────────────────
+//
+// Fusionar dos contactos de HubSpot cuando el correo correcto ya lo tiene OTRO contacto (409 al
+// cambiar el principal). Mismas reglas: sólo códigos HTTP, nunca el cuerpo (citaría el correo).
+
+/**
+ * Fusiona `objectIdToMerge` DENTRO de `primaryObjectId` (`POST /crm/v3/objects/contacts/merge`).
+ * Según HubSpot: el correo del principal se queda y el del otro pasa a adicional; en las
+ * propiedades gana el principal (lo vacío se llena con el otro); se suman asociaciones y
+ * actividades; por defecto el registro resultante recibe un Record ID NUEVO. No se puede deshacer.
+ */
+export async function mergeHubSpotContacts(
+  primaryObjectId: string,
+  objectIdToMerge: string,
+): Promise<{ ok: true; mergedId: string } | { error: string; status?: number }> {
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const response = await fetch(`${HUBSPOT_BASE}/crm/v3/objects/contacts/merge`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ primaryObjectId, objectIdToMerge }),
+    });
+    if (!response.ok) return { error: `HUBSPOT_MERGE_HTTP_${response.status}`, status: response.status };
+    const data = (await response.json().catch(() => null)) as { id?: string | number } | null;
+    const mergedId = data?.id !== undefined && data?.id !== null && String(data.id) ? String(data.id) : primaryObjectId;
+    return { ok: true, mergedId };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_MERGE_ERROR' };
+  }
+}
+
+/** Propiedades que la fusión SÍ reemplaza con lo de SellUp (decisión de Bryan, 19-11). */
+export interface HubSpotContactReplaceProperties {
+  hs_linkedin_url?: string | null;
+  jobtitle?: string | null;
+  hubspot_owner_id?: string | null;
+}
+
+/**
+ * Reemplaza (no sólo llena vacíos) LinkedIn, cargo y propietario del contacto. Un valor vacío se
+ * omite: una cadena vacía BORRARÍA la propiedad en HubSpot. Si HubSpot rechaza con 400 y llevaba
+ * `hs_linkedin_url`, reintenta UNA vez sin ella (mismo criterio que el completado de vacíos).
+ */
+export async function replaceHubSpotContactProperties(
+  hubspotContactId: string,
+  input: HubSpotContactReplaceProperties,
+): Promise<{ ok: true; written: Array<keyof HubSpotContactReplaceProperties> } | { error: string }> {
+  const properties: Record<string, string> = {};
+  for (const name of ['hs_linkedin_url', 'jobtitle', 'hubspot_owner_id'] as const) {
+    const value = input[name];
+    if (typeof value === 'string' && value.trim()) properties[name] = value.trim();
+  }
+  const names = () => Object.keys(properties) as Array<keyof HubSpotContactReplaceProperties>;
+  if (names().length === 0) return { ok: true, written: [] };
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    let result = await patchHubSpotContactProperties(token, hubspotContactId, properties);
+    if (!('ok' in result) && result.status === 400 && properties.hs_linkedin_url) {
+      delete properties.hs_linkedin_url;
+      if (names().length === 0) return { error: 'HUBSPOT_REPLACE_HTTP_400' };
+      result = await patchHubSpotContactProperties(token, hubspotContactId, properties);
+    }
+    return 'ok' in result ? { ok: true, written: names() } : { error: `HUBSPOT_REPLACE_HTTP_${result.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_REPLACE_ERROR' };
+  }
+}

@@ -168,6 +168,13 @@ mock.module('@/modules/contact-enrichment/official-contact-identity-completion-a
     },
   },
 });
+// AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — sin 409 pendiente: el panel de fusión no se pinta.
+mock.module('@/modules/contact-enrichment/official-contact-hubspot-merge-actions', {
+  namedExports: {
+    getOfficialContactHubSpotMergeOfferAction: async () => ({ status: 'none' }),
+    mergeOfficialContactInHubSpotAction: async () => ({ ok: false, outcome: 'not_pending', message: '', otherSellupContacts: 0 }),
+  },
+});
 mock.module('@/modules/contact-enrichment/contact-company-change-actions', {
   namedExports: {
     confirmOfficialContactCompanyChangeAction: async (input: { contactId: string }) => {

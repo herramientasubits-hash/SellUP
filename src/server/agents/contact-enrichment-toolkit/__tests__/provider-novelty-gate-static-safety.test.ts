@@ -225,7 +225,7 @@ describe('modelo de datos — sin migración nueva', () => {
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
     // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial; sin teléfonos). AUTORIZADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 168, 'el techo conocido es la 160');
+    assert.equal(Math.max(...numbers), 169, 'el techo conocido es la 160');
     assert.equal(
       GATE_SOURCE.includes('supabase/migrations'),
       false,

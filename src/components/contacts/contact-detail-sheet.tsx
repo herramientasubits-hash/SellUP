@@ -93,6 +93,7 @@ import { resolvePhoneSourceLabel } from '@/components/contact-enrichment/phone-d
 // No construye un waterfall propio: delega en el pipeline del candidato.
 import { OfficialContactPhoneRevealCta } from './post-approval-reveal-cta';
 import { OfficialContactEmailCheckPanel } from './official-contact-email-check-panel';
+import { OfficialContactHubSpotMergePanel } from './official-contact-hubspot-merge-panel';
 import { OfficialContactCompanyChangeBanner } from './official-contact-company-change-banner';
 import {
   OfficialContactChannelRevealControl,
@@ -572,6 +573,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                       <OfficialContactEmailCheckPanel
                         contactId={contact.id}
                         state={channelReveal}
+                        onChanged={reloadAfterChannelReveal}
+                      />
+                      {/* AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — el correo correcto ya lo
+                          tiene otro contacto de HubSpot: fusionar (con confirmación). */}
+                      <OfficialContactHubSpotMergePanel
+                        contactId={contact.id}
+                        refreshKey={channelReveal.offer}
                         onChanged={reloadAfterChannelReveal}
                       />
                     </DrawerSection>

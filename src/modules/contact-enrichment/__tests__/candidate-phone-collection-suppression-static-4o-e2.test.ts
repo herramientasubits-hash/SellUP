@@ -359,6 +359,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '167_claude_rescue_batch_lease.sql',
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
       '168_record_comments.sql',
+      // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
+      '169_bootstrap_legacy_contact_phone_incumbent.sql',
     ]);
   });
 

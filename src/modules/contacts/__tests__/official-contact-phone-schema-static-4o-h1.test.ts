@@ -264,7 +264,7 @@ describe('114 — numeración', () => {
     // una tabla nueva `agent1_competitor_watches` (sólo service_role). AUTORADA y NO APLICADA.
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
-    assert.equal(Math.max(...numbers), 168);
+    assert.equal(Math.max(...numbers), 169);
   });
 
   it('114 es la ÚNICA dueña de la forma de las dos tablas oficiales', () => {
@@ -798,6 +798,11 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
     // para mandar dos números a `phone` / `mobilephone`. Ninguna escritura: la colección sigue
     // escribiéndose sólo dentro de la transacción de la 128.
     'src/modules/contacts/contact-phones-for-hubspot-read.ts': /AGENT2A-REVEAL-PHONE-SLOTS/,
+    // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — CUARTO lector, por la misma regla: UN archivo,
+    // sólo SELECT. Tras proyectar un número nuevo sobre un contacto cuyo principal es de HubSpot
+    // (regla 164), lee el más reciente de proveedor para mostrarlo como «Teléfono Apollo / Lusha».
+    // La escritura de la colección sigue entrando sólo por RPC (128/131 y la 169).
+    'src/modules/contact-enrichment/contact-provider-phone-read.ts': /AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE/,
   };
 
   it('ningún archivo de producción nombra las tablas oficiales', () => {
@@ -868,6 +873,7 @@ describe('4O-H1 — cero lectores y cero escritores en runtime', () => {
     // colección viva del reveal post-aprobación. Ninguna escritura: la de la proyección vive
     // dentro de la transacción de la 128 y entra por `rpc()`, no por `from()`.
     assert.deepEqual(offenders.sort(), [
+      'src/modules/contact-enrichment/contact-provider-phone-read.ts → from(contact_phones)',
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',
       'src/modules/contact-enrichment/official-contact-stored-phones-read.ts → from(OFFICIAL_CONTACT_PHONE_SOURCES_TABLE)',
       'src/modules/contact-enrichment/post-approval-reveal-read.ts → from(OFFICIAL_CONTACT_PHONES_TABLE)',

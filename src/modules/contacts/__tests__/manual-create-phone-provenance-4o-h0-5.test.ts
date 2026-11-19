@@ -716,7 +716,8 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial en empresas, contactos y búsquedas; sin tablas, teléfonos, presupuesto ni HubSpot). AUTORIZADA y NO APLICADA.
       // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
-      '168_record_comments.sql',
+      // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
+      '169_bootstrap_legacy_contact_phone_incumbent.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

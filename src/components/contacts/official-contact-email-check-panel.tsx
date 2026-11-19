@@ -25,6 +25,7 @@ import {
   VERIFY_EMAIL_BUTTON_LABEL,
   VERIFY_EMAIL_HELPER,
   employmentLine,
+  hubspotPrimaryEmailNote,
   lastVerificationLabel,
   verificationOutcomeText,
 } from '@/modules/contact-enrichment/official-contact-email-check-view';
@@ -40,6 +41,7 @@ const VERIFY_FAILURE_COPY: Record<string, string> = {
   identity_mismatch: IDENTITY_COMPLETION_COPY.mismatch,
   provider_unavailable: IDENTITY_COMPLETION_COPY.unavailable,
   provider_error: IDENTITY_COMPLETION_COPY.error,
+  contact_not_saved: 'Encontramos un correo, pero no pudimos guardarlo en el contacto. No se cambió nada en HubSpot.',
 };
 
 export function OfficialContactEmailCheckPanel({
@@ -115,7 +117,7 @@ export function OfficialContactEmailCheckPanel({
           ? {
               tone: 'success',
               text: result.applied
-                ? 'Listo: el correo que encontramos quedó como principal y el anterior como adicional.'
+                ? `Listo: el correo que encontramos quedó como principal en SellUp y el anterior como adicional. ${hubspotPrimaryEmailNote(result.hubspot)}`
                 : 'Listo: se descartó el aviso.',
             }
           : { tone: 'error', text: 'No pudimos guardar la decisión. Vuelve a abrir la ficha.' },
