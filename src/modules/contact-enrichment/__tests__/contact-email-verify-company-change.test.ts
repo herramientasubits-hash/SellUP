@@ -7,7 +7,8 @@
  *  - un intento sin fruto sólo bloquea con los MISMOS datos;
  *  - HubSpot: correo nuevo como principal (el anterior como adicional), personal como adicional,
  *    y al aprobar el cambio de empresa la nueva queda como principal y las demás se desasocian;
- *  - el candidato de la empresa nueva: sin teléfonos viejos, sin la empresa vieja de HubSpot;
+ *  - el candidato de la empresa nueva: sin la empresa vieja de HubSpot (los teléfonos que viajan
+ *    desde el 19-11 se prueban en `contact-page-actions-company-change-phones.test.ts`);
  *  - archivar / desarchivar sólo por este flujo.
  */
 
@@ -463,7 +464,7 @@ describe('«Cambió de empresa»', () => {
     assert.equal((evaluateCompanyChangeConfirmation({ contact: contact({ linkedinUrl: null }), check: check() }) as { reason: string }).reason, 'missing_linkedin');
   });
 
-  it('el candidato nuevo: mismo contacto de HubSpot, sin la empresa vieja ni los teléfonos viejos', () => {
+  it('el candidato nuevo: mismo contacto de HubSpot, sin la empresa vieja (y sin teléfono si no se pasan)', () => {
     const hubspotId = resolveCompanyChangeHubSpotContactId(contact(), null);
     const data = buildCompanyChangeSearchData({ contact: contact(), candidate: null, check: check(), hubspotContactId: hubspotId, nowIso: NOW });
     assert.equal(data.entryMode, 'company_change');

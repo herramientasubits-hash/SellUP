@@ -128,6 +128,63 @@ export function companyChangeNewCompanyName(check: EmailCheckBlock | null, compa
   return clean(company?.name) ?? clean(check?.employment?.current_company) ?? clean(check?.found_email_domain);
 }
 
+// ── Los teléfonos que viajan (Bryan 19-11) ──────────────────────────
+
+/**
+ * De dónde venía cada número en el contacto viejo:
+ *   * `mobile` — «Celular» (`contacts.mobile_phone`);
+ *   * `main` — «Teléfono» (`contacts.phone`, el principal / el de HubSpot);
+ *   * `provider` — «Teléfono Apollo / Lusha» (`metadata.provider_phone`, regla 164);
+ *   * `stored` — uno de «Ver más números» (la colección oficial).
+ */
+export type CompanyChangePhoneOrigin = 'mobile' | 'main' | 'provider' | 'stored';
+
+export interface CompanyChangePhone {
+  number: string;
+  origin: CompanyChangePhoneOrigin;
+}
+
+export const COMPANY_CHANGE_PHONE_ORIGIN_LABELS: Record<CompanyChangePhoneOrigin, string> = {
+  mobile: 'Celular',
+  main: 'Teléfono',
+  provider: 'Teléfono Apollo / Lusha',
+  stored: 'Otro número',
+};
+
+/** «Mismo número» para no repetir: sólo los dígitos (`+57 300 123` ≈ `57300123`). */
+function phoneDedupeKey(value: string): string {
+  return value.replace(/\D+/g, '');
+}
+
+/**
+ * TODOS los teléfonos del contacto viejo viajan al candidato de la empresa nueva (decisión de
+ * Bryan 19-11, reemplaza «sin teléfonos viejos» del 18-11): quien revisa decide cuál sirve. En
+ * orden — celular, teléfono, Apollo / Lusha, los guardados — y sin repetir. El primero es el
+ * teléfono del candidato; todos quedan listados en su `company_change`.
+ */
+export function collectCompanyChangePhones(input: {
+  mobilePhone: string | null | undefined;
+  mainPhone: string | null | undefined;
+  providerPhone: string | null | undefined;
+  storedPhones: readonly (string | null | undefined)[];
+}): CompanyChangePhone[] {
+  const out: CompanyChangePhone[] = [];
+  const seen = new Set<string>();
+  const add = (value: string | null | undefined, origin: CompanyChangePhoneOrigin) => {
+    const number = clean(value);
+    if (!number) return;
+    const key = phoneDedupeKey(number);
+    if (key.length < 6 || seen.has(key)) return;
+    seen.add(key);
+    out.push({ number, origin });
+  };
+  add(input.mobilePhone, 'mobile');
+  add(input.mainPhone, 'main');
+  add(input.providerPhone, 'provider');
+  for (const stored of input.storedPhones) add(stored, 'stored');
+  return out;
+}
+
 // ── El candidato en la empresa nueva ────────────────────────────────
 
 /**
@@ -146,6 +203,8 @@ export function buildCompanyChangeSearchData(input: {
   check: EmailCheckBlock;
   hubspotContactId: string | null;
   nowIso: string;
+  /** Los teléfonos del contacto viejo (`collectCompanyChangePhones`). El primero va al candidato. */
+  phones?: readonly CompanyChangePhone[];
 }): SearchedContactData {
   const { contact, candidate, check, hubspotContactId } = input;
   const normalized = normalizeLinkedinProfileUrl(contact.linkedinUrl ?? candidate?.linkedinUrl ?? null);
@@ -172,8 +231,9 @@ export function buildCompanyChangeSearchData(input: {
       providerCompanyWebsiteUrl: null,
       phoneAvailable: null,
       linkedinUrl,
-      // Los teléfonos del contacto viejo NO viajan: pueden ser fijos de la empresa anterior.
-      phone: null,
+      // Bryan 19-11: los teléfonos del contacto viejo SÍ viajan (todos). El primero es el del
+      // candidato; la lista completa queda en `company_change.previous_phones`.
+      phone: input.phones?.[0]?.number ?? null,
     },
     // Sin la empresa de HubSpot del contacto: es la VIEJA.
     hubspotContact: hubspotContactId ? { id: hubspotContactId, associatedCompanyId: null } : null,
@@ -193,6 +253,8 @@ export interface CandidateCompanyChangeBlock {
   detected_case: EmailChangeCase;
   confirmed_at: string;
   confirmed_by: string;
+  /** Todos los teléfonos que traía el contacto viejo (Bryan 19-11). */
+  previous_phones: CompanyChangePhone[];
 }
 
 export function buildCandidateCompanyChangeBlock(input: {
@@ -201,6 +263,7 @@ export function buildCandidateCompanyChangeBlock(input: {
   hubspotContactId: string | null;
   actorId: string;
   nowIso: string;
+  phones?: readonly CompanyChangePhone[];
 }): CandidateCompanyChangeBlock {
   const email = clean(input.contact.email)?.toLowerCase() ?? null;
   return {
@@ -213,6 +276,7 @@ export function buildCandidateCompanyChangeBlock(input: {
     detected_case: input.check.case,
     confirmed_at: input.nowIso,
     confirmed_by: input.actorId,
+    previous_phones: [...(input.phones ?? [])],
   };
 }
 
@@ -233,7 +297,24 @@ export function readCandidateCompanyChange(metadata: unknown): CandidateCompanyC
     detected_case: (clean(raw.detected_case) ?? 'company_change') as EmailChangeCase,
     confirmed_at: clean(raw.confirmed_at) ?? '',
     confirmed_by: clean(raw.confirmed_by) ?? '',
+    previous_phones: readCompanyChangePhones(raw.previous_phones),
   };
+}
+
+function readCompanyChangePhones(raw: unknown): CompanyChangePhone[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CompanyChangePhone[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const number = clean(entry.number);
+    const origin = clean(entry.origin);
+    if (!number) continue;
+    out.push({
+      number,
+      origin: origin === 'mobile' || origin === 'main' || origin === 'provider' || origin === 'stored' ? origin : 'stored',
+    });
+  }
+  return out;
 }
 
 // ── Lo que viaja a HubSpot antes de la revisión (D5) ────────────────

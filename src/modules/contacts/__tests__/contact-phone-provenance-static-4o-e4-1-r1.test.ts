@@ -717,8 +717,17 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
       for (const forbidden of ['phone_source', 'mobile_phone_source', 'mobile_phone:']) {
         assert.equal(src.includes(forbidden), false, `${file.join('/')}: ${forbidden}`);
       }
-      // Los únicos `phone:` permitidos son los `phone: null` de las filas de CANDIDATOS.
-      assert.equal(/\bphone:(?!\s*null\b)/.test(src), false, `${file.join('/')} escribe un teléfono`);
+      // Los únicos `phone:` permitidos son los `phone: null` de las filas de CANDIDATOS y, desde
+      // AGENT2A-CONTACT-PAGE-ACTIONS (Bryan 19-11), el teléfono del PERFIL del candidato de la
+      // empresa nueva en un cambio de empresa: copia el número que el contacto viejo ya tenía a
+      // un candidato «Por revisar». No toca `contacts` (ni su procedencia): eso sigue siendo de la
+      // aprobación, que escribe `phone` junto a `phone_source`.
+      const withoutCandidateProfilePhone = src.replace(/\bphone: input\.phones\?\.\[0\]\?\.number \?\? null,/g, '');
+      assert.equal(
+        /\bphone:(?!\s*null\b)/.test(withoutCandidateProfilePhone),
+        false,
+        `${file.join('/')} escribe un teléfono`,
+      );
     }
   });
 

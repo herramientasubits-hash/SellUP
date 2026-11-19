@@ -43,6 +43,7 @@ import {
 import {
   createCompanyChangeCandidate,
   loadCompanyChangeContact,
+  loadCompanyChangePhones,
   loadCompanyChangeSourceCandidate,
   pushCompanyChangeToHubSpot,
   resolveCompanyChangeCompany,
@@ -111,8 +112,10 @@ export async function confirmOfficialContactCompanyChangeAction(input: {
     // 2. Candidato «Por revisar» en la empresa nueva, vinculado al MISMO contacto de HubSpot.
     const nowIso = new Date().toISOString();
     const hubspotContactId = resolveCompanyChangeHubSpotContactId(contact, source);
+    // Bryan 19-11: TODOS sus teléfonos viajan al candidato (quien revisa decide cuál sirve).
+    const phones = await loadCompanyChangePhones(contact.id).catch(() => []);
     const created = await createCompanyChangeCandidate({
-      data: buildCompanyChangeSearchData({ contact, candidate: source, check, hubspotContactId, nowIso }),
+      data: buildCompanyChangeSearchData({ contact, candidate: source, check, hubspotContactId, nowIso, phones }),
       company,
       companyMatchedBy: resolution.status === 'resolved' ? resolution.matchedBy : null,
       actorId: internalUserId,
@@ -123,6 +126,7 @@ export async function confirmOfficialContactCompanyChangeAction(input: {
           hubspotContactId,
           actorId: internalUserId,
           nowIso,
+          phones,
         }),
       },
     });

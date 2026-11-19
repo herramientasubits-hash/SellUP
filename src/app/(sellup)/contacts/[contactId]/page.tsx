@@ -4,7 +4,6 @@ import Link from 'next/link';
 import {
   Mail,
   Phone,
-  Link2,
   Briefcase,
   Activity,
   Tag,
@@ -47,6 +46,9 @@ import {
 import { ContactRowActions } from '@/components/contacts/contact-row-actions';
 import { ContactHubSpotSyncBadge } from '@/components/contacts/contact-hubspot-sync-badge';
 import { describeContactAuditDetails } from './audit-details';
+import { readProviderPhone } from '@/modules/contact-enrichment/provider-phone';
+import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
+import { ContactPageChannels, ContactPageCompanyChangeBanner } from '@/components/contacts/contact-page-channels';
 import { isAgent3FirstCallEnabled } from '@/lib/feature-flags.server';
 
 interface ContactDetailPageProps {
@@ -121,12 +123,17 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
   const contact = await getContactById(contactId);
   if (!contact) notFound();
 
-  const [auditLog, account] = await Promise.all([
+  const [auditLog, account, storedPhones] = await Promise.all([
     getContactAudit(contactId),
     getAccountById(contact.account_id),
+    // 4O-H4: CUÁNTOS números adicionales hay guardados (un entero). Complementario: si falla, 0.
+    getOfficialContactStoredPhoneSummaryAction({ contactId }).catch(() => ({ additionalCount: 0 })),
   ]);
+  const additionalPhoneCount = storedPhones.additionalCount;
 
-  const bestPhone = contact.mobile_phone ?? contact.phone ?? null;
+  // 164: si no hay celular ni el teléfono de HubSpot, el de Apollo / Lusha también sirve aquí.
+  const bestPhone =
+    contact.mobile_phone ?? contact.phone ?? readProviderPhone(contact.metadata, contact.phone)?.number ?? null;
   const hubspotContact = {
     hubspot_contact_id: contact.hubspot_contact_id,
     metadata: contact.metadata as Record<string, unknown> | null,
@@ -179,6 +186,9 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
         }
       />
 
+      {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — archivado porque cambió de empresa. */}
+      <ContactPageCompanyChangeBanner contact={contact} />
+
       {/* Lo esencial del contacto, de un vistazo y antes de las pestañas. */}
       <SurfaceCard className="p-5">
         <DetailList columns={4} aria-label="Datos clave">
@@ -219,41 +229,10 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
           <div className="grid gap-4 lg:grid-cols-2">
             <SurfaceCard>
               <SurfaceCardHeader title="Cómo contactarle" />
-              <DetailList>
-                <DetailItem icon={Mail} label="Correo" emptyLabel="Sin correo">
-                  {contact.email && (
-                    <a href={`mailto:${contact.email}`} className={`break-all ${LINK_CLASSES}`}>
-                      {contact.email}
-                    </a>
-                  )}
-                </DetailItem>
-                <DetailItem icon={Phone} label="Celular" emptyLabel="Sin celular">
-                  {contact.mobile_phone && (
-                    <a href={`tel:${contact.mobile_phone}`} className={`tabular-nums ${LINK_CLASSES}`}>
-                      {contact.mobile_phone}
-                    </a>
-                  )}
-                </DetailItem>
-                <DetailItem icon={Phone} label="Teléfono fijo" emptyLabel="Sin teléfono fijo">
-                  {contact.phone && (
-                    <a href={`tel:${contact.phone}`} className={`tabular-nums ${LINK_CLASSES}`}>
-                      {contact.phone}
-                    </a>
-                  )}
-                </DetailItem>
-                <DetailItem icon={Link2} label="LinkedIn" emptyLabel="Sin perfil">
-                  {contact.linkedin_url && (
-                    <a
-                      href={contact.linkedin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`break-all ${LINK_CLASSES}`}
-                    >
-                      {contact.linkedin_url.replace(/^https?:\/\/(www\.)?/i, '')}
-                    </a>
-                  )}
-                </DetailItem>
-              </DetailList>
+              {/* AGENT2A-CONTACT-PAGE-ACTIONS — la MISMA pieza que el panel lateral: revelar
+                  correo / LinkedIn / teléfono, «Ver más números», «Verificar correo», el aviso
+                  de cambio de empresa y la fusión en HubSpot. */}
+              <ContactPageChannels contact={contact} additionalPhoneCount={additionalPhoneCount} />
             </SurfaceCard>
 
             <SurfaceCard>
@@ -360,7 +339,7 @@ export default async function ContactDetailPage({ params, searchParams }: Contac
             title="Aquí todavía no hay historial de enriquecimiento"
             description={
               account
-                ? 'Para buscar su correo verificado o su teléfono, usa «Enriquecer contactos» desde la ficha de la empresa.'
+                ? 'Para revelar su correo, su LinkedIn o su teléfono, o verificar su correo, usa «Cómo contactarle» en Resumen. Para buscar contactos nuevos, usa «Enriquecer contactos» desde la ficha de la empresa.'
                 : 'Asocia este contacto a una empresa para poder buscar su correo verificado o su teléfono.'
             }
             action={

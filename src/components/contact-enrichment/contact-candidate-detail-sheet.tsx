@@ -49,7 +49,10 @@ import {
   CandidateSummarySection,
 } from './contact-candidate-detail-sections';
 import { CandidateEmploymentAiVerifyButton } from './candidate-employment-ai-verify-button';
-import { readCandidateCompanyChange } from '@/modules/contact-enrichment/contact-company-change-core';
+import {
+  COMPANY_CHANGE_PHONE_ORIGIN_LABELS,
+  readCandidateCompanyChange,
+} from '@/modules/contact-enrichment/contact-company-change-core';
 import { aiVerifyState } from './contact-candidate-title-provenance';
 import {
   CandidateDuplicateDecisionDialog,
@@ -2071,6 +2074,14 @@ export function ContactCandidateDetailSheet({
               <Alert variant="info" role="note" className="p-3">
                 <span className="text-xs leading-relaxed">
                   {`Viene de un cambio de empresa${change.previous_account_name ? `: antes estaba en ${change.previous_account_name}` : ''}. Si lo apruebas, en HubSpot pasa a esta empresa como principal y se desasocia de las demás.`}
+                  {/* Bryan 19-11: todos los teléfonos que traía viajan; quien revisa decide cuál sirve. */}
+                  {change.previous_phones.length > 0 && (
+                    <span className="mt-1 block">
+                      {`Teléfonos que traía: ${change.previous_phones
+                        .map((p) => `${p.number} (${COMPANY_CHANGE_PHONE_ORIGIN_LABELS[p.origin].toLowerCase()})`)
+                        .join(' · ')}. El primero quedó como teléfono de este candidato.`}
+                    </span>
+                  )}
                 </span>
               </Alert>
             );

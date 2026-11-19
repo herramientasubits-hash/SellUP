@@ -50,10 +50,15 @@ import {
   readContactCompanyChange,
   withCompanyChangeOutcome,
   companyChangeLookupInput,
+  collectCompanyChangePhones,
   type CompanyChangeContact,
+  type CompanyChangePhone,
   type CompanyChangeSourceCandidate,
 } from './contact-company-change-core';
 import type { EmailCheckBlock } from './email-change-classifier-core';
+import { readProviderPhone } from './provider-phone';
+import { readOfficialContactStoredPhones } from './official-contact-stored-phones-read';
+import { selectAdditionalStoredOfficialPhones } from './official-contact-stored-phones-core';
 import type { CompanyCandidate } from './types';
 
 function str(value: unknown): string | null {
@@ -100,6 +105,34 @@ export async function loadCompanyChangeContact(contactId: string): Promise<Compa
     archivedAt: str(r.archived_at),
     metadata: asRecord(r.metadata),
   };
+}
+
+/**
+ * Todos los teléfonos del contacto viejo, para el candidato de la empresa nueva (Bryan 19-11):
+ * «Celular», «Teléfono», «Teléfono Apollo / Lusha» y los de «Ver más números». SÓLO LECTURA.
+ * Complementario: si la colección no se puede leer, viajan los escalares; si nada se puede leer,
+ * el candidato nace sin teléfono (el cambio de empresa no se frena por esto).
+ */
+export async function loadCompanyChangePhones(contactId: string): Promise<CompanyChangePhone[]> {
+  const { data } = await createSupabaseAdminClient()
+    .from('contacts')
+    .select('phone, mobile_phone, metadata')
+    .eq('id', contactId)
+    .maybeSingle();
+  const row = (data ?? {}) as Record<string, unknown>;
+  const phone = str(row.phone);
+  let stored: string[] = [];
+  try {
+    stored = selectAdditionalStoredOfficialPhones(await readOfficialContactStoredPhones(contactId)).map((p) => p.number);
+  } catch {
+    stored = [];
+  }
+  return collectCompanyChangePhones({
+    mobilePhone: str(row.mobile_phone),
+    mainPhone: phone,
+    providerPhone: readProviderPhone(row.metadata, phone)?.number ?? null,
+    storedPhones: stored,
+  });
 }
 
 export async function loadCompanyChangeSourceCandidate(candidateId: string): Promise<CompanyChangeSourceCandidate | null> {

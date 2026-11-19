@@ -101,12 +101,17 @@ const PACKAGE_JSON = ['package.json'];
  */
 const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   'app/(sellup)/contacts/[contactId]/page.tsx': 'lectura — UI de detalle',
-  'components/contacts/contact-detail-sheet.tsx': 'lectura — UI de detalle',
+  // AGENT2A-CONTACT-PAGE-ACTIONS: «Datos de contacto» salió de la ficha a una pieza compartida
+  // con la página del contacto. Sigue siendo sólo lectura (pinta el «Celular»).
+  'components/contacts/contact-channels-section.tsx': 'lectura — UI de detalle (ficha y página)',
   'components/contacts/contacts-data-table-client.tsx': 'lectura — columna de tabla',
   'components/contacts/contacts-tab.tsx': 'lectura — UI de cuenta',
   'components/contacts/contacts-table-client.tsx': 'lectura — tabla legacy',
   'components/contacts/create-contact-drawer.tsx': 'ESCRITOR MANUAL — formulario «Celular»',
   'components/contacts/edit-contact-drawer.tsx': 'ESCRITOR MANUAL — formulario «Celular»',
+  // Cambio de empresa (Bryan 19-11): LEE el celular del contacto viejo para que viaje al
+  // candidato de la empresa nueva. No escribe la columna ni le asigna procedencia.
+  'modules/contact-enrichment/contact-company-change.server.ts': 'lectura — teléfonos que viajan en un cambio de empresa',
   'modules/contacts/actions.ts': 'ESCRITOR — createContact / updateContact (manual)',
   'modules/contacts/contact-hubspot-sync-core.ts': 'lectura — sync saliente a HubSpot',
   // CUT-2: `resolveOutboundHubSpotPhone` decide QUÉ teléfono viaja a HubSpot y, con la misma

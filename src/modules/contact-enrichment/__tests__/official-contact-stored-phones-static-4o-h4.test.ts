@@ -31,9 +31,13 @@ const MAPPING = 'src/modules/contact-enrichment/stored-phone-provenance-mapping.
 const DISCLOSURE = 'src/components/contacts/official-contact-stored-phones-disclosure.tsx';
 const COPY = 'src/components/contacts/official-contact-stored-phones-copy.ts';
 const SHEET = 'src/components/contacts/contact-detail-sheet.tsx';
+// AGENT2A-CONTACT-PAGE-ACTIONS (Bryan 19-11) — «Datos de contacto» salió de la ficha a una pieza
+// compartida con la página del contacto. Lo que la ficha pinta vive ahora ahí: las afirmaciones
+// sobre «la ficha» miran las dos (la ficha la monta tal cual).
+const CHANNELS = 'src/components/contacts/contact-channels-section.tsx';
 
 /** Todo lo que 4O-H4 añade o toca en `src/`. La lista es el alcance. */
-const TOUCHED_FILES = [CORE, READ, ACTIONS, MAPPING, DISCLOSURE, COPY, SHEET] as const;
+const TOUCHED_FILES = [CORE, READ, ACTIONS, MAPPING, DISCLOSURE, COPY, SHEET, CHANNELS] as const;
 
 /** Los que el hito CREA. La ficha ya existía. */
 const NEW_FILES = [CORE, READ, ACTIONS, MAPPING, DISCLOSURE, COPY] as const;
@@ -306,7 +310,8 @@ describe('4O-H4 — no invade la aprobación, ni H3-B, ni la privacidad, ni la e
 
     // Y la ficha sigue pintando el móvil tal como lo pintaba: este hito no le quita
     // nada a lo que ya se veía.
-    assert.match(sources[SHEET], /contact\.mobile_phone/);
+    assert.match(sources[SHEET], /<ContactChannelsSection/);
+    assert.match(sources[CHANNELS], /contact\.mobile_phone/);
   });
 
   it('no existe un CTA «Buscar más números», ni deshabilitado', () => {
@@ -585,6 +590,15 @@ describe('4O-H4 — alcance', () => {
 
     const ALLOWED_IMPORTERS: readonly string[] = [
       SHEET,
+      // AGENT2A-CONTACT-PAGE-ACTIONS — la pieza compartida que la ficha monta (el disclosure) y
+      // la página del contacto (el CONTEO, la misma acción que usa la ficha). Las dos son la
+      // ficha del contacto en otra forma; ninguna gasta.
+      CHANNELS,
+      'src/app/(sellup)/contacts/[contactId]/page.tsx',
+      // Cambio de empresa (Bryan 19-11: TODOS los teléfonos viajan al candidato nuevo). SÓLO
+      // LECTURA de la colección para copiar los números que ya eran del contacto: ni proveedor,
+      // ni crédito, ni reveal. No es la aprobación ni el waterfall.
+      'src/modules/contact-enrichment/contact-company-change.server.ts',
       DISCLOSURE,
       CORE,
       READ,
@@ -706,9 +720,10 @@ describe('4O-H4 — alcance', () => {
 
   it('la ficha del contacto sigue mostrando los escalares que ya mostraba', () => {
     // Este hito AÑADE una superficie de lectura; no reemplaza ninguna.
-    const sheet = sources[SHEET];
-    assert.match(sheet, /contact\.phone && \(/, '`contacts.phone` sigue pintándose');
-    assert.match(sheet, /contact\.mobile_phone && \(/, 'el móvil sigue pintándose');
+    assert.match(sources[SHEET], /<ContactChannelsSection/, 'la ficha monta «Datos de contacto»');
+    const sheet = sources[CHANNELS];
+    assert.match(sheet, /contact\.phone \|\| page\) && \(/, '`contacts.phone` sigue pintándose');
+    assert.match(sheet, /contact\.mobile_phone \|\| page\) && \(/, 'el móvil sigue pintándose');
     // Y el CTA sólo existe si el servidor contó extras.
     assert.match(sheet, /additionalPhoneCount > 0 && \(/);
   });
