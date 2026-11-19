@@ -22,10 +22,25 @@ import { findDuplicateContact, type ExistingContactForDedup } from './candidate-
 export const HUBSPOT_LOOKUP_IMPORT_ENTRY_MODE = 'hubspot_lookup_import' as const;
 export const HUBSPOT_LOOKUP_IMPORT_HITO = 'AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE' as const;
 
-/** ¿Es la corrida interna de «Traer»? Se lee de `contact_enrichment_runs.summary`. */
+/**
+ * Corridas internas que NO son búsquedas y no salen en el historial ni en las señales:
+ *   * `hubspot_lookup_import` — «Traer» un contacto de HubSpot;
+ *   * `official_contact_source` — el candidato de origen que se le crea a un contacto que no
+ *     tenía (creado a mano o traído antes), para poder revelar desde su ficha;
+ *   * `company_change` — el candidato en la empresa nueva de un contacto que cambió de trabajo.
+ * (Los dos últimos: AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE.)
+ */
+export const INTERNAL_RUN_ENTRY_MODES: ReadonlySet<string> = new Set([
+  HUBSPOT_LOOKUP_IMPORT_ENTRY_MODE,
+  'official_contact_source',
+  'company_change',
+]);
+
+/** ¿Es una corrida interna (no una búsqueda)? Se lee de `contact_enrichment_runs.summary`. */
 export function isHubSpotLookupImportRunSummary(summary: unknown): boolean {
   if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return false;
-  return (summary as Record<string, unknown>).entry_mode === HUBSPOT_LOOKUP_IMPORT_ENTRY_MODE;
+  const mode = (summary as Record<string, unknown>).entry_mode;
+  return typeof mode === 'string' && INTERNAL_RUN_ENTRY_MODES.has(mode);
 }
 
 /** Quita las corridas internas de «Traer» de una lista de corridas (historial, señales). */

@@ -39,6 +39,10 @@ export function useOfficialContactChannelReveal(contactId: string | null, refres
   const [running, setRunning] = React.useState<OfficialContactChannel | null>(null);
   const [said, setSaid] = React.useState<{ contactId: string; message: Message } | null>(null);
   const inFlight = React.useRef(false);
+  // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — «Verificar correo» puede cambiar sólo el
+  // candidato de origen (no la ficha): la oferta se relee a pedido.
+  const [nonce, setNonce] = React.useState(0);
+  const refresh = React.useCallback(() => setNonce((n) => n + 1), []);
 
   React.useEffect(() => {
     if (!contactId) return;
@@ -51,7 +55,7 @@ export function useOfficialContactChannelReveal(contactId: string | null, refres
     return () => {
       cancelled = true;
     };
-  }, [contactId, refreshKey]);
+  }, [contactId, refreshKey, nonce]);
 
   const offer = contactId && loaded?.contactId === contactId ? loaded.offer : null;
   const message = contactId && said?.contactId === contactId ? said.message : null;
@@ -78,6 +82,7 @@ export function useOfficialContactChannelReveal(contactId: string | null, refres
         setSaid({ contactId, message: next });
         if (next.tone === 'success') toast.success(next.text);
         onRevealed();
+        refresh();
       } catch {
         setSaid({ contactId, message: { channel, tone: 'error', text: IDENTITY_COMPLETION_COPY.error } });
       } finally {
@@ -85,10 +90,10 @@ export function useOfficialContactChannelReveal(contactId: string | null, refres
         setRunning(null);
       }
     },
-    [contactId, onRevealed],
+    [contactId, onRevealed, refresh],
   );
 
-  return { offer, running, message, reveal };
+  return { offer, running, message, reveal, refresh };
 }
 
 export function OfficialContactChannelRevealControl({

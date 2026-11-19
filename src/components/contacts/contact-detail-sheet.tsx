@@ -92,6 +92,8 @@ import { resolvePhoneSourceLabel } from '@/components/contact-enrichment/phone-d
 // durable (`metadata.source_candidate_id`) y el contacto no tiene un teléfono reutilizable.
 // No construye un waterfall propio: delega en el pipeline del candidato.
 import { OfficialContactPhoneRevealCta } from './post-approval-reveal-cta';
+import { OfficialContactEmailCheckPanel } from './official-contact-email-check-panel';
+import { OfficialContactCompanyChangeBanner } from './official-contact-company-change-banner';
 import {
   OfficialContactChannelRevealControl,
   useOfficialContactChannelReveal,
@@ -408,6 +410,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
         />
       ) : (
         <div className="space-y-4">
+          {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — archivado porque cambió de empresa. */}
+          <OfficialContactCompanyChangeBanner
+            contact={{
+              id: contact.id,
+              archived_at: contact.archived_at,
+              metadata: contact.metadata as Record<string, unknown> | null,
+            }}
+            onRestored={() => void loadData(contact.id)}
+          />
           {/* Lo esencial, antes de las pestañas: de qué empresa es, qué hace
               allí y qué papel tiene para nosotros. */}
           <section aria-label="Resumen del contacto">
@@ -556,6 +567,13 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                             </DetailItem>
                           )}
                       </DetailList>
+                      {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — dónde trabaja hoy,
+                          «Verificar correo» y el aviso de cambio de empresa. */}
+                      <OfficialContactEmailCheckPanel
+                        contactId={contact.id}
+                        state={channelReveal}
+                        onChanged={reloadAfterChannelReveal}
+                      />
                     </DrawerSection>
 
                     {/* Empresa, cargo, rol y seniority ya van en el resumen de

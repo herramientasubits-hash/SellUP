@@ -30,11 +30,13 @@ import {
   evaluateCandidateIdentityCompletion,
   runCandidateIdentityCompletion,
   type IdentityCompletionCandidate,
+  type IdentityCompletionDeps,
   type IdentityCompletionPurpose,
   type IdentityCompletionResult,
   type IdentityCompletionStatus,
 } from './candidate-identity-completion-core';
 import { lookupApolloIdentity, lookupLushaIdentity } from './candidate-identity-completion-providers.server';
+import { runCandidateEmailVerification, type EmailVerificationResult } from './candidate-email-verification-core';
 import { revealCandidatePhoneAction } from './phone-reveal-actions';
 import { pushCandidateRevealToHubSpot } from './candidate-reveal-hubspot-push.server';
 import type { RevealCandidatePhoneInput, RevealCandidatePhoneResult } from './phone-reveal-core';
@@ -83,6 +85,11 @@ function mapCandidate(row: unknown): IdentityCompletionCandidate {
 export interface IdentityCompletionRunOptions {
   /** También un candidato aprobado (sólo desde la ficha del contacto que nació de él). */
   allowApproved?: boolean;
+  /**
+   * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — también candidatos de Apollo, Lusha o creados a
+   * mano (sólo desde la ficha del contacto oficial, después de comprobar el vínculo durable).
+   */
+  allowAnySource?: boolean;
   /** Pantalla desde la que se gasta, para el registro de consumo. */
   surface?: 'candidate_review' | 'official_contact';
 }
@@ -93,70 +100,104 @@ export async function runIdentityCompletionForCandidate(
   actor: { internalUserId: string; roleKey: string | null },
   options: IdentityCompletionRunOptions = {},
 ): Promise<IdentityCompletionResult> {
+  return runCandidateIdentityCompletion(
+    {
+      candidateId,
+      purpose,
+      allowApproved: options.allowApproved === true,
+      allowAnySource: options.allowAnySource === true,
+    },
+    await buildIdentityCompletionDeps(candidateId, actor, options),
+  );
+}
+
+/**
+ * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — «Verificar correo» desde la ficha del contacto
+ * oficial: mismas dependencias (proveedores, persistencia, registro de consumo) que revelar.
+ */
+export async function runEmailVerificationForCandidate(
+  candidateId: string,
+  actor: { internalUserId: string; roleKey: string | null },
+  input: { currentEmail: string | null; linkedinUrl: string | null; companyDomains: readonly (string | null)[] },
+  options: IdentityCompletionRunOptions = {},
+): Promise<EmailVerificationResult> {
+  return runCandidateEmailVerification(
+    {
+      candidateId,
+      currentEmail: input.currentEmail,
+      linkedinUrl: input.linkedinUrl,
+      companyDomains: input.companyDomains,
+      allowApproved: options.allowApproved === true,
+    },
+    await buildIdentityCompletionDeps(candidateId, actor, options),
+  );
+}
+
+async function buildIdentityCompletionDeps(
+  candidateId: string,
+  actor: { internalUserId: string; roleKey: string | null },
+  options: IdentityCompletionRunOptions,
+): Promise<IdentityCompletionDeps> {
   const supabase = await createClient();
   const admin = getServiceRoleClient();
-
-  return runCandidateIdentityCompletion(
-    { candidateId, purpose, allowApproved: options.allowApproved === true },
-    {
-      actor,
-      nowIso: new Date().toISOString(),
-      async loadCandidate(id) {
-        const { data, error } = await supabase
-          .from('contact_enrichment_candidates')
-          .select(CANDIDATE_SELECT)
-          .eq('id', id)
-          .maybeSingle();
-        if (error) throw new Error(error.message);
-        return data ? mapCandidate(data) : null;
-      },
-      lookupApollo: (query) => lookupApolloIdentity(query),
-      lookupLusha: (query) => lookupLushaIdentity(query),
-      async persist(id, patch) {
-        const update: Record<string, unknown> = { enrichment_metadata: patch.enrichment_metadata };
-        if (patch.apollo_person_id) update.apollo_person_id = patch.apollo_person_id;
-        if (patch.linkedin_url) update.linkedin_url = patch.linkedin_url;
-        if (patch.email) update.email = patch.email;
-        if (patch.title) update.title = patch.title;
-        let query = admin.from('contact_enrichment_candidates').update(update).eq('id', id);
-        // Nunca se pisa un valor que otro proceso escribió entre la lectura y esta escritura.
-        if (patch.apollo_person_id) query = query.is('apollo_person_id', null);
-        const { error } = await query;
-        if (error) throw new Error(error.message);
-        // AGENT2A-HUBSPOT-REVEAL-PUSH — sólo si de verdad se guardó un canal nuevo.
-        if (patch.linkedin_url || patch.email) {
-          await pushCandidateRevealToHubSpot(id, patch.linkedin_url ? 'reveal_linkedin' : 'reveal_email');
-        }
-      },
-      async logUsage(entry, context) {
-        await logProviderUsage({
-          provider_key: entry.provider_key,
-          operation_key: entry.operation_key,
-          // null ⇒ desconocido (queda NULL), nunca 0 inventado.
-          ...(entry.credits_used === null ? {} : { credits_used: entry.credits_used }),
-          estimated_cost_usd: null,
-          results_returned: entry.results_returned,
-          status: entry.status,
-          ...(entry.error_code ? { error_code: entry.error_code } : {}),
-          triggered_by: actor.internalUserId,
-          agent_key: 'agent2a',
-          agent_step: 'identificar_contacto',
-          // Sin correo ni LinkedIn: datos personales.
-          metadata: {
-            entry_mode: 'candidate_identity_completion',
-            purpose: context.purpose,
-            // Con qué se buscó (correo / linkedin), nunca el valor.
-            channel: context.channel,
-            candidate_id: candidateId,
-            // Desde dónde se gastó (ficha del contacto o «Por revisar»): el consumo por persona
-            // ya lo da `triggered_by`; esto dice en qué pantalla.
-            surface: options.surface ?? 'candidate_review',
-            hito: CANDIDATE_IDENTITY_COMPLETION_HITO,
-          },
-        });
-      },
+  return {
+    actor,
+    nowIso: new Date().toISOString(),
+    async loadCandidate(id) {
+      const { data, error } = await supabase
+        .from('contact_enrichment_candidates')
+        .select(CANDIDATE_SELECT)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data ? mapCandidate(data) : null;
     },
-  );
+    lookupApollo: (query) => lookupApolloIdentity(query),
+    lookupLusha: (query) => lookupLushaIdentity(query),
+    async persist(id, patch) {
+      const update: Record<string, unknown> = { enrichment_metadata: patch.enrichment_metadata };
+      if (patch.apollo_person_id) update.apollo_person_id = patch.apollo_person_id;
+      if (patch.linkedin_url) update.linkedin_url = patch.linkedin_url;
+      if (patch.email) update.email = patch.email;
+      if (patch.title) update.title = patch.title;
+      let query = admin.from('contact_enrichment_candidates').update(update).eq('id', id);
+      // Nunca se pisa un valor que otro proceso escribió entre la lectura y esta escritura.
+      if (patch.apollo_person_id) query = query.is('apollo_person_id', null);
+      const { error } = await query;
+      if (error) throw new Error(error.message);
+      // AGENT2A-HUBSPOT-REVEAL-PUSH — sólo si de verdad se guardó un canal nuevo.
+      if (patch.linkedin_url || patch.email) {
+        await pushCandidateRevealToHubSpot(id, patch.linkedin_url ? 'reveal_linkedin' : 'reveal_email');
+      }
+    },
+    async logUsage(entry, context) {
+      await logProviderUsage({
+        provider_key: entry.provider_key,
+        operation_key: entry.operation_key,
+        // null ⇒ desconocido (queda NULL), nunca 0 inventado.
+        ...(entry.credits_used === null ? {} : { credits_used: entry.credits_used }),
+        estimated_cost_usd: null,
+        results_returned: entry.results_returned,
+        status: entry.status,
+        ...(entry.error_code ? { error_code: entry.error_code } : {}),
+        triggered_by: actor.internalUserId,
+        agent_key: 'agent2a',
+        agent_step: 'identificar_contacto',
+        // Sin correo ni LinkedIn: datos personales.
+        metadata: {
+          entry_mode: 'candidate_identity_completion',
+          purpose: context.purpose,
+          // Con qué se buscó (correo / linkedin), nunca el valor.
+          channel: context.channel,
+          candidate_id: candidateId,
+          // Desde dónde se gastó (ficha del contacto o «Por revisar»): el consumo por persona
+          // ya lo da `triggered_by`; esto dice en qué pantalla.
+          surface: options.surface ?? 'candidate_review',
+          hito: CANDIDATE_IDENTITY_COMPLETION_HITO,
+        },
+      });
+    },
+  };
 }
 
 // ── «Revelar teléfono» con identificación previa ──────────────────

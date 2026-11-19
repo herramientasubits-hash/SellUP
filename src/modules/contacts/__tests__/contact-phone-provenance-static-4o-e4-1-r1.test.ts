@@ -641,6 +641,12 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     // duplicado en HubSpot). Su único UPDATE escribe SÓLO ese vínculo: nunca `phone` ni
     // `phone_source` — demostrado en la prueba de abajo, igual que el runner.
     join('src', 'modules', 'contact-enrichment', 'hubspot-first-approval-link.ts'),
+    // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — archivar / desarchivar por cambio de empresa,
+    // el desenlace en el contacto viejo y el vínculo con el candidato de origen. Sus UPDATE
+    // escriben estado de archivo y metadata, nunca `phone` ni `phone_source` — demostrado abajo.
+    join('src', 'modules', 'contact-enrichment', 'contact-company-change-actions.ts'),
+    join('src', 'modules', 'contact-enrichment', 'contact-company-change.server.ts'),
+    join('src', 'modules', 'contact-enrichment', 'official-contact-identity-completion.server.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -688,6 +694,22 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
         false,
         'el runner sólo persiste vínculo y metadata',
       );
+    }
+  });
+
+  it('el cambio de empresa y el candidato de origen no pueden tocar el par (phone, phone_source)', () => {
+    for (const file of [
+      ['modules', 'contact-enrichment', 'contact-company-change-actions.ts'],
+      ['modules', 'contact-enrichment', 'contact-company-change.server.ts'],
+      ['modules', 'contact-enrichment', 'contact-company-change-core.ts'],
+      ['modules', 'contact-enrichment', 'official-contact-identity-completion.server.ts'],
+    ]) {
+      const src = stripComments(readFileSync(join(SRC_DIR, ...file), 'utf8'));
+      for (const forbidden of ['phone_source', 'mobile_phone_source', 'mobile_phone:']) {
+        assert.equal(src.includes(forbidden), false, `${file.join('/')}: ${forbidden}`);
+      }
+      // Los únicos `phone:` permitidos son los `phone: null` de las filas de CANDIDATOS.
+      assert.equal(/\bphone:(?!\s*null\b)/.test(src), false, `${file.join('/')} escribe un teléfono`);
     }
   });
 

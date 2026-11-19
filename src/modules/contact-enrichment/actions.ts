@@ -47,6 +47,10 @@ import { REVIEWABLE_CONTACT_CANDIDATE_STATUSES } from './reviewable-candidate-st
 import { buildCandidateScalarFallback } from './official-contact-approval-core';
 import { approveContactCandidateWithPhones } from './official-contact-approval-persistence';
 import { linkApprovedHubSpotCandidate } from './hubspot-first-approval-link';
+import {
+  afterCompanyChangeCandidateApproved,
+  afterCompanyChangeCandidateDiscarded,
+} from './contact-company-change.server';
 import { buildIncumbentContactBootstrap } from './existing-contact-merge-core';
 import { mergeCandidateIntoExistingContact } from './existing-contact-merge-persistence';
 import { resolveOrCreateAccountForHubSpotCandidate } from './hubspot-account-resolver';
@@ -1171,6 +1175,11 @@ export async function approveContactCandidate(
       });
     }
 
+    // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — si el candidato viene de un cambio de empresa,
+    // en HubSpot la empresa nueva queda como principal y el contacto se desasocia de las demás.
+    // No-op para el resto; nunca lanza.
+    await afterCompanyChangeCandidateApproved(candidateId, result.contactId);
+
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error aprobando el candidato';
@@ -1592,6 +1601,10 @@ export async function discardContactCandidate(
         return { error: error?.message };
       },
     });
+
+    // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — el contacto viejo anota que se rechazó (sigue
+    // archivado; HubSpot ya tiene la información nueva). No-op para el resto; nunca lanza.
+    if (result.ok) await afterCompanyChangeCandidateDiscarded(candidateId);
 
     return result;
   } catch (err) {

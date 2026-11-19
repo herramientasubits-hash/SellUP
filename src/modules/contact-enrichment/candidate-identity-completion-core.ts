@@ -50,6 +50,14 @@ import {
   titleAfterEmploymentCheck,
   type CurrentEmploymentSnapshot,
 } from './current-employment-check';
+import {
+  EMAIL_CHECK_METADATA_KEY,
+  EMAIL_WITHHELD_CASES,
+  COMPANY_CHANGE_CASES,
+  buildEmailCheckBlock,
+  buildEmailCheckEmployment,
+  classifyEmailChange,
+} from './email-change-classifier-core';
 
 export const CANDIDATE_IDENTITY_COMPLETION_HITO = 'AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION';
 
@@ -82,7 +90,7 @@ export function normalizeCandidateEmail(value: string | null | undefined): strin
 }
 
 /** URL canónica de un perfil `/in/` o null. */
-function canonicalLinkedin(value: string | null | undefined): string | null {
+export function canonicalLinkedin(value: string | null | undefined): string | null {
   const normalized = normalizeLinkedinProfileUrl(value);
   return normalized.ok ? normalized.canonicalUrl : null;
 }
@@ -129,6 +137,38 @@ export interface IdentityCompletionEligibility {
 
 const FRUITLESS_OUTCOMES = new Set<IdentityCompletionOutcome>(['not_found', 'identity_mismatch']);
 
+/**
+ * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — huella del dato con el que se buscó (correo y
+ * LinkedIn normalizados). Un intento sin fruto bloquea volver a gastar CON LOS MISMOS DATOS; si el
+ * registro gana un correo o un LinkedIn nuevo, la huella cambia y se vuelve a ofrecer. Es un hash
+ * FNV-1a (no criptográfico): sólo sirve para comparar, nunca para guardar el dato en claro.
+ */
+export function identityCompletionInputKey(facts: Pick<IdentityCompletionFacts, 'email' | 'linkedinUrl'>): string {
+  const text = `${normalizeCandidateEmail(facts.email) ?? ''}|${canonicalLinkedin(facts.linkedinUrl) ?? ''}`;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `v1:${hash.toString(16).padStart(8, '0')}`;
+}
+
+/** Huella guardada en el último intento, o null (intentos anteriores a este hito). */
+export function readLastIdentityCompletionInputKey(metadata: Record<string, unknown> | null | undefined): string | null {
+  const block = metadata?.[IDENTITY_COMPLETION_METADATA_KEY];
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return null;
+  const key = (block as Record<string, unknown>).input_key;
+  return typeof key === 'string' && key ? key : null;
+}
+
+export interface IdentityCompletionEvaluationOptions {
+  /**
+   * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — también candidatos de Apollo, Lusha o creados a
+   * mano. Sólo lo pasa la ficha del contacto OFICIAL (Bryan 18-11): «Por revisar» no cambia.
+   */
+  anySource?: boolean;
+}
+
 /** Último desenlace registrado en la metadata del candidato, o null. */
 export function readLastIdentityCompletionOutcome(
   metadata: Record<string, unknown> | null | undefined,
@@ -141,7 +181,10 @@ export function readLastIdentityCompletionOutcome(
     : null;
 }
 
-export function evaluateCandidateIdentityCompletion(facts: IdentityCompletionFacts): IdentityCompletionEligibility {
+export function evaluateCandidateIdentityCompletion(
+  facts: IdentityCompletionFacts,
+  options: IdentityCompletionEvaluationOptions = {},
+): IdentityCompletionEligibility {
   const isHubSpotCandidate = clean(facts.source)?.toLowerCase() === 'hubspot';
   const hasEmail = normalizeCandidateEmail(facts.email) !== null;
   const hasLinkedin = canonicalLinkedin(facts.linkedinUrl) !== null;
@@ -154,12 +197,15 @@ export function evaluateCandidateIdentityCompletion(facts: IdentityCompletionFac
       sourceContactId: facts.sourceContactId ?? null,
     }) === null;
   const last = readLastIdentityCompletionOutcome(facts.enrichmentMetadata ?? null);
-  const previousAttemptFruitless = last !== null && FRUITLESS_OUTCOMES.has(last);
+  // Sin fruto CON LOS MISMOS DATOS. Un intento viejo (sin huella) sigue bloqueando como antes.
+  const lastKey = readLastIdentityCompletionInputKey(facts.enrichmentMetadata ?? null);
+  const previousAttemptFruitless =
+    last !== null && FRUITLESS_OUTCOMES.has(last) && (lastKey === null || lastKey === identityCompletionInputKey(facts));
   const identityChannels: IdentityChannel[] = [
     ...(hasEmail ? (['email'] as const) : []),
     ...(hasLinkedin ? (['linkedin'] as const) : []),
   ];
-  const offerable = isHubSpotCandidate && !previousAttemptFruitless;
+  const offerable = (isHubSpotCandidate || options.anySource === true) && !previousAttemptFruitless;
   return {
     isHubSpotCandidate,
     hasEmail,
@@ -289,7 +335,10 @@ export interface IdentityCompletionDeps {
   /** Opcional: sin él no hay segunda vía para el LinkedIn ni el correo. */
   lookupLusha?: (query: IdentityLookupQuery) => Promise<IdentityLookup>;
   persist: (candidateId: string, patch: IdentityCompletionPatch) => Promise<void>;
-  logUsage: (entry: IdentityProviderUsage, context: { purpose: IdentityCompletionPurpose; channel: IdentityChannel }) => Promise<void>;
+  logUsage: (
+    entry: IdentityProviderUsage,
+    context: { purpose: IdentityCompletionPurpose | 'verify_email'; channel: IdentityChannel },
+  ) => Promise<void>;
 }
 
 export const IDENTITY_COMPLETION_OUTCOMES = [
@@ -298,6 +347,12 @@ export const IDENTITY_COMPLETION_OUTCOMES = [
   'identity_mismatch',
   'provider_unavailable',
   'provider_error',
+  /**
+   * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — se encontró un correo, pero es de OTRA empresa
+   * (o Apollo dice que ya trabaja en otra): no se guarda en este registro. Queda la evidencia en
+   * `enrichment_metadata.email_check` para mandarlo a revisión en la empresa nueva.
+   */
+  'company_change_detected',
 ] as const;
 export type IdentityCompletionOutcome = (typeof IDENTITY_COMPLETION_OUTCOMES)[number];
 
@@ -363,6 +418,11 @@ export async function runCandidateIdentityCompletion(
      * durable; nunca llega desde el navegador.
      */
     allowApproved?: boolean;
+    /**
+     * AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — también candidatos que no son de HubSpot. Sólo
+     * lo pasa el servidor desde la ficha del contacto oficial; nunca llega desde el navegador.
+     */
+    allowAnySource?: boolean;
   },
   deps: IdentityCompletionDeps,
 ): Promise<IdentityCompletionResult> {
@@ -375,17 +435,22 @@ export async function runCandidateIdentityCompletion(
   const reviewable =
     candidate.status === 'pending_review' || (input.allowApproved === true && candidate.status === 'approved');
   if (!reviewable) return result('not_pending_review');
-  if (clean(candidate.source)?.toLowerCase() !== 'hubspot') return result('not_hubspot_candidate');
+  if (input.allowAnySource !== true && clean(candidate.source)?.toLowerCase() !== 'hubspot') {
+    return result('not_hubspot_candidate');
+  }
 
   const email = normalizeCandidateEmail(candidate.email);
   const linkedinUrl = canonicalLinkedin(candidate.linkedinUrl);
-  const before = evaluateCandidateIdentityCompletion({
-    email: candidate.email,
-    linkedinUrl: candidate.linkedinUrl,
-    apolloPersonId: candidate.apolloPersonId,
-    source: candidate.source,
-    sourceContactId: candidate.sourceContactId,
-  });
+  const before = evaluateCandidateIdentityCompletion(
+    {
+      email: candidate.email,
+      linkedinUrl: candidate.linkedinUrl,
+      apolloPersonId: candidate.apolloPersonId,
+      source: candidate.source,
+      sourceContactId: candidate.sourceContactId,
+    },
+    { anySource: input.allowAnySource === true },
+  );
 
   // Con qué se busca, según lo pedido: el LinkedIn se busca por correo, el correo por LinkedIn,
   // y la identidad para el teléfono con los dos, uno después del otro.
@@ -436,6 +501,9 @@ export async function runCandidateIdentityCompletion(
   let linkedinProvider: 'apollo' | 'lusha' | null = null;
   let foundEmail: string | null = null;
   let emailProvider: 'apollo' | 'lusha' | null = null;
+  // El correo que devolvió el proveedor aunque no se pidiera (evidencia de cambio de empresa).
+  let providerEmail: string | null = null;
+  let providerEmailFrom: 'apollo' | 'lusha' | null = null;
   let mismatch = false;
   let anyAnswered = false;
   let employmentSnapshot: CurrentEmploymentSnapshot | null = null;
@@ -467,6 +535,10 @@ export async function runCandidateIdentityCompletion(
         linkedinProvider = provider;
       }
       const em = normalizeCandidateEmail(lookup.person.email);
+      if (em && providerEmail === null) {
+        providerEmail = em;
+        providerEmailFrom = provider;
+      }
       if (em && foundEmail === null && before.missingEmail) {
         foundEmail = em;
         emailProvider = provider;
@@ -503,23 +575,10 @@ export async function runCandidateIdentityCompletion(
   // Sólo se completan columnas VACÍAS.
   const newApolloPersonId = !clean(candidate.apolloPersonId) && apolloPersonId ? apolloPersonId : null;
   const newLinkedin = foundLinkedin;
-  const newEmail = foundEmail;
-  const gainedSomething = !!newApolloPersonId || !!newLinkedin || !!newEmail;
 
-  // El desenlace responde a lo que se PIDIÓ: un dato traído de paso es un extra, no convierte en
-  // éxito lo que no apareció. Es también lo que se anota, y un desenlace sin fruto retira los
-  // botones para no volver a gastar en lo mismo.
-  const outcome: IdentityCompletionOutcome = satisfied()
-    ? 'completed'
-    : mismatch
-      ? 'identity_mismatch'
-      : failure && !anyAnswered && !gainedSomething
-        ? failure
-        : 'not_found';
-
-  // Nada que anotar si no se llamó a ningún proveedor (p. ej. Apollo sin clave configurada).
-  // CONTACT-CURRENT-EMPLOYMENT-1 — la misma respuesta de Apollo dice dónde trabaja HOY: se compara
-  // con la empresa y el cargo de HubSpot, sin gastar nada más.
+  // AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — el empleo que dice la MISMA respuesta de Apollo
+  // y el correo que trajo deciden si ese correo es de esta empresa. Uno de OTRA empresa nunca se
+  // guarda en este registro (Bryan 18-11): queda como evidencia para el flujo de cambio.
   const employmentCheck = employmentSnapshot
     ? assessCurrentEmployment({
         snapshot: employmentSnapshot,
@@ -529,19 +588,60 @@ export async function runCandidateIdentityCompletion(
         checkedAt: deps.nowIso,
       })
     : null;
+  const emailCheck = classifyEmailChange({
+    currentEmail: candidate.email,
+    foundEmail: providerEmail,
+    companyDomains: [candidate.companyDomain],
+    employment: employmentCheck,
+  });
+  const emailWithheld = foundEmail !== null && EMAIL_WITHHELD_CASES.has(emailCheck.case);
+  const newEmail = emailWithheld ? null : foundEmail;
+  const gainedSomething = !!newApolloPersonId || !!newLinkedin || !!newEmail;
+
+  // El desenlace responde a lo que se PIDIÓ: un dato traído de paso es un extra, no convierte en
+  // éxito lo que no apareció. Es también lo que se anota, y un desenlace sin fruto retira los
+  // botones para no volver a gastar en lo mismo.
+  const outcome: IdentityCompletionOutcome = emailWithheld
+    ? 'company_change_detected'
+    : satisfied()
+    ? 'completed'
+    : mismatch
+      ? 'identity_mismatch'
+      : failure && !anyAnswered && !gainedSomething
+        ? failure
+        : 'not_found';
+
+  // Nada que anotar si no se llamó a ningún proveedor (p. ej. Apollo sin clave configurada).
+  // CONTACT-CURRENT-EMPLOYMENT-1 — la misma respuesta de Apollo dice dónde trabaja HOY: se compara
+  // con la empresa y el cargo de HubSpot, sin gastar nada más (`employmentCheck`, arriba).
   const usefulEmploymentCheck = employmentCheck && employmentCheck.status !== 'unknown' ? employmentCheck : null;
   const currentTitle = usefulEmploymentCheck
     ? titleAfterEmploymentCheck(usefulEmploymentCheck, clean(candidate.title))
     : null;
   const newTitle = currentTitle && currentTitle !== clean(candidate.title) ? currentTitle : null;
 
+  // Sólo se anota la comprobación de correo hecha DE PASO cuando apunta a un cambio de empresa:
+  // un «todo igual» no pisa una verificación anterior.
+  const incidentalEmailCheck = COMPANY_CHANGE_CASES.has(emailCheck.case)
+    ? buildEmailCheckBlock({
+        classification: emailCheck,
+        purpose: input.purpose,
+        checkedAt: deps.nowIso,
+        checkedBy: deps.actor.internalUserId,
+        provider: providerEmailFrom ?? (employmentSnapshot ? 'apollo' : null),
+        employment: buildEmailCheckEmployment(employmentCheck, employmentSnapshot),
+      })
+    : null;
+
   if (providers.length > 0 || gainedSomething) {
     const patch: IdentityCompletionPatch = {
       enrichment_metadata: {
         ...candidate.enrichmentMetadata,
         ...(usefulEmploymentCheck ? { [CURRENT_EMPLOYMENT_METADATA_KEY]: usefulEmploymentCheck } : {}),
+        ...(incidentalEmailCheck ? { [EMAIL_CHECK_METADATA_KEY]: incidentalEmailCheck } : {}),
         [IDENTITY_COMPLETION_METADATA_KEY]: {
           outcome,
+          input_key: identityCompletionInputKey({ email: candidate.email, linkedinUrl: candidate.linkedinUrl }),
           purpose: input.purpose,
           channels,
           attempted_at: deps.nowIso,
@@ -587,6 +687,8 @@ export const IDENTITY_COMPLETION_COPY = {
   identityCompleted: 'Persona identificada en Apollo.',
   notFound: 'No encontramos a esta persona en los proveedores. No se volverá a ofrecer para no gastar créditos.',
   mismatch: 'El proveedor devolvió a una persona con otro nombre. No se guardó nada.',
+  companyChange:
+    'El correo que encontramos es de otra empresa: parece que esta persona cambió de trabajo. No se guardó en este registro.',
   phoneIdentityNotFound: 'No pudimos identificar a esta persona en Apollo, así que no se buscó el teléfono (no se usaron créditos de teléfono).',
   unavailable: 'El proveedor no está disponible en este momento. Intenta más tarde.',
   error: 'No fue posible completar la búsqueda. Intenta de nuevo.',
@@ -636,6 +738,8 @@ export function identityCompletionMessage(
       };
     case 'identity_mismatch':
       return { tone: 'info', text: IDENTITY_COMPLETION_COPY.mismatch };
+    case 'company_change_detected':
+      return { tone: 'info', text: IDENTITY_COMPLETION_COPY.companyChange };
     case 'provider_unavailable':
       return { tone: 'error', text: IDENTITY_COMPLETION_COPY.unavailable };
     case 'unauthorized_role':

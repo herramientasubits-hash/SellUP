@@ -707,3 +707,159 @@ export async function associateHubSpotContactWithCompany(
     return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_ASSOC_ERROR' };
   }
 }
+
+// ── AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE (Bryan 18-11) ────────────────────────────
+//
+// Correo principal y adicionales, y la empresa principal del contacto. Mismas reglas que el
+// resto del adaptador: nunca se devuelve ni se registra el cuerpo de una respuesta de HubSpot
+// (citaría el correo); sólo códigos HTTP.
+
+/** Correo principal y adicionales (`hs_additional_emails`, separados por `;`). null = no se pudo leer. */
+export async function readHubSpotContactEmails(
+  hubspotContactId: string,
+): Promise<{ primary: string | null; additional: string[] } | null> {
+  const token = await getHubSpotToken();
+  if (!token) return null;
+  try {
+    const params = new URLSearchParams({ properties: 'email,hs_additional_emails' });
+    const response = await fetch(
+      `${HUBSPOT_BASE}/crm/v3/objects/contacts/${encodeURIComponent(hubspotContactId)}?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { properties?: Record<string, unknown> };
+    const primary = typeof data.properties?.email === 'string' ? data.properties.email.trim().toLowerCase() : '';
+    const rawAdditional = data.properties?.hs_additional_emails;
+    const additional =
+      typeof rawAdditional === 'string'
+        ? rawAdditional
+            .split(';')
+            .map((value) => value.trim().toLowerCase())
+            .filter(Boolean)
+        : [];
+    return { primary: primary || null, additional };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Agrega un correo ADICIONAL al contacto. `hs_additional_emails` es de sólo lectura en la API v3:
+ * la única vía documentada es la API v1 de correos secundarios.
+ */
+export async function addHubSpotContactSecondaryEmail(
+  hubspotContactId: string,
+  email: string,
+): Promise<{ ok: true } | { error: string }> {
+  const value = email.trim().toLowerCase();
+  if (!value) return { error: 'EMPTY_EMAIL' };
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE}/contacts/v1/secondary-email/${encodeURIComponent(hubspotContactId)}/email/${encodeURIComponent(value)}`,
+      { method: 'PUT', headers: { Authorization: `Bearer ${token}` } },
+    );
+    return response.ok ? { ok: true } : { error: `HUBSPOT_SECONDARY_EMAIL_HTTP_${response.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_SECONDARY_EMAIL_ERROR' };
+  }
+}
+
+/** Cambia el correo PRINCIPAL. 409 = otro contacto de HubSpot ya usa ese correo. */
+export async function setHubSpotContactPrimaryEmail(
+  hubspotContactId: string,
+  email: string,
+): Promise<{ ok: true } | { error: string; status?: number }> {
+  const value = email.trim().toLowerCase();
+  if (!value) return { error: 'EMPTY_EMAIL' };
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const result = await patchHubSpotContactProperties(token, hubspotContactId, { email: value });
+    return 'ok' in result ? { ok: true } : { error: `HUBSPOT_EMAIL_HTTP_${result.status}`, status: result.status };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_EMAIL_ERROR' };
+  }
+}
+
+/** Cargo actual (información nueva del cambio de empresa: SÍ reemplaza el anterior). */
+export async function setHubSpotContactJobTitle(
+  hubspotContactId: string,
+  jobTitle: string,
+): Promise<{ ok: true } | { error: string }> {
+  const value = jobTitle.trim();
+  if (!value) return { error: 'EMPTY_TITLE' };
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const result = await patchHubSpotContactProperties(token, hubspotContactId, { jobtitle: value });
+    return 'ok' in result ? { ok: true } : { error: `HUBSPOT_TITLE_HTTP_${result.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_TITLE_ERROR' };
+  }
+}
+
+/** Ids de las empresas asociadas al contacto. null = no se pudieron leer. */
+export async function listHubSpotContactCompanyIds(hubspotContactId: string): Promise<string[] | null> {
+  const token = await getHubSpotToken();
+  if (!token) return null;
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE}/crm/v4/objects/contacts/${encodeURIComponent(hubspotContactId)}/associations/companies?limit=500`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { results?: Array<{ toObjectId?: unknown }> };
+    return (data.results ?? [])
+      .map((row) => (row.toObjectId === undefined || row.toObjectId === null ? '' : String(row.toObjectId)))
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/** Tipo de asociación «Principal» contacto → empresa (HUBSPOT_DEFINED). */
+const HUBSPOT_PRIMARY_CONTACT_TO_COMPANY_TYPE_ID = 1;
+
+/** Asocia el contacto a la empresa con la etiqueta «Principal» (v4). */
+export async function setHubSpotContactPrimaryCompany(
+  hubspotContactId: string,
+  hubspotCompanyId: string,
+): Promise<{ ok: true } | { error: string }> {
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE}/crm/v4/objects/contacts/${encodeURIComponent(hubspotContactId)}/associations/companies/${encodeURIComponent(hubspotCompanyId)}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify([
+          { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: HUBSPOT_PRIMARY_CONTACT_TO_COMPANY_TYPE_ID },
+        ]),
+      },
+    );
+    return response.ok ? { ok: true } : { error: `HUBSPOT_PRIMARY_ASSOC_HTTP_${response.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_PRIMARY_ASSOC_ERROR' };
+  }
+}
+
+/** Quita la asociación contacto ↔ empresa (todas sus etiquetas). No toca deals ni actividades. */
+export async function removeHubSpotContactCompanyAssociation(
+  hubspotContactId: string,
+  hubspotCompanyId: string,
+): Promise<{ ok: true } | { error: string }> {
+  const token = await getHubSpotToken();
+  if (!token) return { error: 'TOKEN_UNAVAILABLE' };
+  try {
+    const response = await fetch(
+      `${HUBSPOT_BASE}/crm/v4/objects/contacts/${encodeURIComponent(hubspotContactId)}/associations/companies/${encodeURIComponent(hubspotCompanyId)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+    );
+    return response.ok ? { ok: true } : { error: `HUBSPOT_REMOVE_ASSOC_HTTP_${response.status}` };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.slice(0, 120) : 'HUBSPOT_REMOVE_ASSOC_ERROR' };
+  }
+}

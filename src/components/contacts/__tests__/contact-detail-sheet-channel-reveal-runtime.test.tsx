@@ -101,7 +101,17 @@ const BASE = {
 };
 
 let contactToReturn: Record<string, unknown> = BASE;
-let offer = { email: false, linkedin: true };
+type EmailStateDouble = {
+  employment: null | { status: string; currentCompany: string | null; currentTitle: string | null; since: string | null; checkedAt: string | null };
+  check: null | { case: string; foundEmail: string | null; checkedAt: string; resolution: string | null; newCandidateId: string | null };
+  pendingCompanyChange: boolean;
+  newCompanyName: string | null;
+};
+const NO_EMAIL_STATE: EmailStateDouble = { employment: null, check: null, pendingCompanyChange: false, newCompanyName: null };
+let offer: { email: boolean; linkedin: boolean; verifyEmail?: boolean; emailState?: EmailStateDouble } = { email: false, linkedin: true };
+const verifyCalls: string[] = [];
+const confirmCalls: string[] = [];
+const keepCalls: string[] = [];
 let contactReads = 0;
 type RevealResult = { ok: boolean; status: string; contactUpdated: boolean };
 const foundLinkedin = async (input: { contactId: string; channel: string }): Promise<RevealResult> => {
@@ -146,8 +156,25 @@ mock.module('@/components/contacts/edit-contact-drawer', {
 });
 mock.module('@/modules/contact-enrichment/official-contact-identity-completion-actions', {
   namedExports: {
-    getOfficialContactChannelRevealOfferAction: async () => offer,
+    getOfficialContactChannelRevealOfferAction: async () => ({ verifyEmail: false, emailState: NO_EMAIL_STATE, ...offer }),
     revealOfficialContactChannelAction: (input: { contactId: string; channel: string }) => revealImpl(input),
+    verifyOfficialContactEmailAction: async (input: { contactId: string }) => {
+      verifyCalls.push(input.contactId);
+      return { ok: true, status: 'checked', case: 'same_company_new_email', hubspot: 'promoted' };
+    },
+    keepOfficialContactAtCompanyAction: async (input: { contactId: string }) => {
+      keepCalls.push(input.contactId);
+      return { ok: true, applied: false, hubspot: null };
+    },
+  },
+});
+mock.module('@/modules/contact-enrichment/contact-company-change-actions', {
+  namedExports: {
+    confirmOfficialContactCompanyChangeAction: async (input: { contactId: string }) => {
+      confirmCalls.push(input.contactId);
+      return { ok: true, candidateId: 'cand-new', companyName: 'Empresa Nueva', companyAssigned: true, message: 'Listo: el contacto se archivó.' };
+    },
+    restoreCompanyChangeContactAction: async () => ({ ok: true, message: 'Contacto desarchivado.' }),
   },
 });
 
@@ -165,6 +192,9 @@ beforeEach(() => {
   offer = { email: false, linkedin: true };
   contactReads = 0;
   revealCalls.length = 0;
+  verifyCalls.length = 0;
+  confirmCalls.length = 0;
+  keepCalls.length = 0;
 });
 afterEach(() => cleanup());
 
@@ -214,5 +244,64 @@ describe('ficha del contacto traído de HubSpot: revelar lo que falta', () => {
     await renderSheet();
     assert.ok(await screen.findByRole('button', { name: /Revelar correo/ }));
     assert.equal(screen.queryByText('Sin email. Añádelo con «Editar contacto».'), null);
+  });
+});
+
+describe('AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — verificar correo y cambio de empresa', () => {
+  it('con correo y LinkedIn: «Verificar correo» con su costo; al verificar dice qué pasó', async () => {
+    offer = { email: false, linkedin: false, verifyEmail: true };
+    contactToReturn = { ...BASE, linkedin_url: 'https://www.linkedin.com/in/persona-ficticia' };
+    await renderSheet();
+    const button = await screen.findByRole('button', { name: /Verificar correo/ });
+    assert.ok(screen.getByText(/Pregunta a Apollo por su LinkedIn dónde trabaja hoy/));
+    fireEvent.click(button);
+    await waitFor(() => assert.deepEqual(verifyCalls, [BASE.id]));
+    assert.ok(await screen.findByText(/quedó como principal y el anterior se conserva como adicional/));
+  });
+
+  it('cambio de empresa pendiente: aviso con «Enviar a revisión en …», confirmación y «Sigue aquí»', async () => {
+    offer = {
+      email: false,
+      linkedin: false,
+      verifyEmail: true,
+      emailState: {
+        employment: { status: 'other_company', currentCompany: 'Empresa Nueva', currentTitle: 'Directora', since: '2026-03', checkedAt: null },
+        check: { case: 'company_change', foundEmail: 'persona@nueva.com', checkedAt: '2026-11-18T00:00:00.000Z', resolution: null, newCandidateId: null },
+        pendingCompanyChange: true,
+        newCompanyName: 'Empresa Nueva',
+      },
+    };
+    contactToReturn = { ...BASE, linkedin_url: 'https://www.linkedin.com/in/persona-ficticia' };
+    await renderSheet();
+    assert.ok(await screen.findByText('Cambió de empresa'));
+    assert.ok(screen.getByText(/Ahora trabaja en Empresa Nueva desde 2026-03/));
+    // Con un cambio pendiente no se ofrece volver a verificar (primero se decide).
+    assert.equal(screen.queryByRole('button', { name: /Verificar correo/ }), null);
+    fireEvent.click(screen.getByRole('button', { name: /Enviar a revisión en Empresa Nueva/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Confirmar cambio/ }));
+    await waitFor(() => assert.deepEqual(confirmCalls, [BASE.id]));
+
+    fireEvent.click(screen.getByRole('button', { name: /Sigue aquí/ }));
+    await waitFor(() => assert.deepEqual(keepCalls, [BASE.id]));
+  });
+
+  it('contacto archivado por cambio de empresa: aviso y «Desarchivar»', async () => {
+    offer = { email: false, linkedin: false };
+    contactToReturn = {
+      ...BASE,
+      archived_at: '2026-11-18T00:00:00.000Z',
+      contact_status: 'archived',
+      metadata: {
+        company_change: {
+          new_candidate_id: 'cand-new',
+          confirmed_at: '2026-11-18T00:00:00.000Z',
+          new_company_name: 'Empresa Nueva',
+          outcome: 'pending_review',
+        },
+      },
+    };
+    await renderSheet();
+    assert.ok(await screen.findByText(/Archivado por cambio de empresa: ahora en Empresa Nueva/));
+    assert.ok(screen.getByRole('button', { name: /Desarchivar/ }));
   });
 });
