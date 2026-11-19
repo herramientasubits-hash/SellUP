@@ -599,6 +599,9 @@ describe('4O-H4 — alcance', () => {
       // LECTURA de la colección para copiar los números que ya eran del contacto: ni proveedor,
       // ni crédito, ni reveal. No es la aprobación ni el waterfall.
       'src/modules/contact-enrichment/contact-company-change.server.ts',
+      // AGENT2A-CONTACT-APPROVED-REVIEW — la «Revisión» LEE la colección para no ofrecer como
+      // «teléfono nuevo» uno que el contacto ya tiene. Sólo lectura; el gasto vive en el reveal.
+      'src/modules/contact-enrichment/official-contact-review-actions.ts',
       DISCLOSURE,
       CORE,
       READ,

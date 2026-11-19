@@ -2,6 +2,7 @@
 // Sin 'use server' a propósito: son ayudantes del servidor, no acciones invocables desde el
 // cliente. Cada acción que recibe un id del cliente los llama ANTES de leer o escribir.
 
+import { isOpenCompanyChangeCandidate } from './official-contact-review-core';
 import { createClient } from '@/lib/supabase/server';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
@@ -87,11 +88,15 @@ export async function canSeeContactCandidate(
   if (scopeIds.length === 0 || !isUuid(candidateId)) return false;
   const { data, error } = await supabase
     .from('contact_enrichment_candidates')
-    .select(`run:contact_enrichment_runs ( ${RUN_SCOPE_SELECT} )`)
+    .select(`status, enrichment_metadata, run:contact_enrichment_runs ( ${RUN_SCOPE_SELECT} )`)
     .eq('id', candidateId.trim())
     .maybeSingle();
   if (error) throw new Error(`canSeeContactCandidate: ${error.message}`);
-  const run = (data as { run?: unknown } | null)?.run;
+  const row = data as { status?: unknown; enrichment_metadata?: unknown; run?: unknown } | null;
+  // AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — cambio de empresa sin dueño en la empresa
+  // nueva: lo ven todos mientras siga por revisar.
+  if (row?.status === 'pending_review' && isOpenCompanyChangeCandidate(row.enrichment_metadata)) return true;
+  const run = row?.run;
   return isContactRunInScope(toFacts(Array.isArray(run) ? run[0] : run), scopeIds);
 }
 

@@ -671,6 +671,9 @@ describe('4O-G — alcance', () => {
     // Esto sí lo impide, y para siempre.
     const ALLOWED_IMPORTERS = [
       'src/components/contact-enrichment/contact-candidate-detail-sheet.tsx',
+      // AGENT2A-CONTACT-APPROVED-REVIEW — «Guardar» de la revisión de un contacto aprobado LEE la
+      // colección del candidato para resumir y comprobar los números nuevos. Sólo lectura.
+      'src/modules/contact-enrichment/official-contact-review-actions.ts',
       'src/components/contact-enrichment/candidate-stored-phones-disclosure.tsx',
       'src/modules/contact-enrichment/candidate-stored-phones-actions.ts',
       'src/modules/contact-enrichment/candidate-stored-phones-authorized-roles.ts',

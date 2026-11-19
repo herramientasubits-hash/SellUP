@@ -69,6 +69,15 @@ interface ContactCandidateCompanyReassignDialogProps {
   candidate: PendingContactCandidate;
   /** Se llama tras una reasignación confirmada por el servidor. */
   onReassigned: (message: string) => void;
+  /**
+   * AGENT2A-CONTACT-APPROVED-REVIEW — en la «Revisión» de un contacto aprobado la empresa elegida
+   * se aplica al CONTACTO, no al candidato: el dueño de la ficha pasa su propia acción. Un
+   * `message` nulo con `ok` ⇒ el llamador ya avisó (y cerró).
+   */
+  confirmSelection?: (selection: CompanyReassignmentSelection) => Promise<{ ok: boolean; message: string | null }>;
+  confirmLabel?: string;
+  /** Una línea bajo los resultados que explica qué va a pasar. */
+  confirmHint?: string;
 }
 
 // Nota: el llamador debe remontar el diálogo (prop `key`) en cada apertura.
@@ -78,6 +87,9 @@ export function ContactCandidateCompanyReassignDialog({
   onOpenChange,
   candidate,
   onReassigned,
+  confirmSelection,
+  confirmLabel,
+  confirmHint,
 }: ContactCandidateCompanyReassignDialogProps) {
   // Cada apertura monta el diálogo con una `key` nueva (la pone la ficha), así que el estado
   // arranca limpio y con la sugerencia del candidato sin un efecto que lo reinicie.
@@ -101,6 +113,16 @@ export function ContactCandidateCompanyReassignDialog({
     setSubmitting(true);
     setError(null);
     try {
+      if (confirmSelection) {
+        const res = await confirmSelection(selection);
+        if (!res.ok) {
+          setError(res.message ?? 'No fue posible cambiar la empresa.');
+          return;
+        }
+        if (res.message) onReassigned(res.message);
+        onOpenChange(false);
+        return;
+      }
       const res = await reassignContactCandidateCompanyAction(candidate.id, selection);
       if (!res.ok) {
         setError(res.error ?? 'No fue posible reasignar la empresa.');
@@ -137,7 +159,7 @@ export function ContactCandidateCompanyReassignDialog({
           </Button>
           <Button onClick={handleConfirm} disabled={!selectedKey || busy}>
             {submitting && <Loader2 className="size-3.5 animate-spin" />}
-            Reasignar empresa
+            {confirmLabel ?? 'Reasignar empresa'}
           </Button>
         </>
       }
@@ -169,6 +191,8 @@ export function ContactCandidateCompanyReassignDialog({
           disabled={submitting}
           hubspotSelectionNote="Esta empresa aún no tiene cuenta en SellUp: se vinculará a la cuenta existente con el mismo dominio o se creará una cuenta nueva al reasignar."
         />
+
+        {confirmHint && <p className="text-xs text-muted-foreground">{confirmHint}</p>}
 
         {error && (
           <Alert variant="destructive">

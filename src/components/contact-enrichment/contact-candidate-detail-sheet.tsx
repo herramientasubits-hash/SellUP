@@ -63,6 +63,16 @@ import {
 import { CandidateWaterfallAuditSection } from './contact-candidate-waterfall-audit-section';
 import { useCandidateReviewDecision } from './use-candidate-review-decision';
 import { RejectedCandidateActions } from './contact-candidate-rejected-actions';
+import {
+  ContactReviewModeBanner,
+  ContactReviewSaveActions,
+  saveContactReviewOnClose,
+} from './contact-review-mode';
+import {
+  getOfficialContactReviewCandidateAction,
+  moveOfficialContactCompanyAction,
+} from '@/modules/contact-enrichment/official-contact-review-actions';
+import { OFFICIAL_CONTACT_REVIEW_COPY } from '@/modules/contact-enrichment/official-contact-review-core';
 import { rejectionInfo } from './contact-candidate-rejection-info';
 import { revealCandidatePhoneAction } from '@/modules/contact-enrichment/phone-reveal-actions';
 // AGENT2A-HUBSPOT-CANDIDATE-IDENTITY-COMPLETION — candidatos que ya existen en HubSpot y llegan
@@ -354,7 +364,17 @@ interface ContactCandidateDetailSheetProps {
    * lo lee con `getRejectedContactCandidateById` y su barra inferior ofrece únicamente
    * «Enviar a revisar». Por defecto `review` (comportamiento histórico).
    */
-  variant?: 'review' | 'rejected';
+  variant?: 'review' | 'rejected' | 'contact_review';
+  /**
+   * AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — con `variant="contact_review"`: el contacto
+   * APROBADO que se revisa. El candidato es su candidato de origen (aprobado); la barra ofrece
+   * «Guardar» en vez de «Aprobar» y al cerrar se guarda lo revelado.
+   */
+  reviewContactId?: string | null;
+  /** Correo de hoy del contacto revisado (para el aviso de cambio de empresa). */
+  reviewContactEmail?: string | null;
+  /** Se llama cuando el guardado de la revisión (con «Guardar» o al cerrar) terminó. */
+  onContactReviewSaved?: () => void;
 }
 
 /**
@@ -367,7 +387,7 @@ interface ContactCandidateDetailSheetProps {
 export function ContactCandidateDetailSheet({
   candidateId,
   open,
-  onClose,
+  onClose: onCloseProp,
   phoneRevealEnabled = false,
   phoneRevealAuthorized = false,
   lushaPhoneFallbackEnabled = false,
@@ -375,14 +395,34 @@ export function ContactCandidateDetailSheet({
   phoneRevealWaterfallEnabled = false,
   phoneRevealWaterfallAuthorized = false,
   variant = 'review',
+  reviewContactId = null,
+  reviewContactEmail = null,
+  onContactReviewSaved,
 }: ContactCandidateDetailSheetProps) {
+  const isRejectedVariant = variant === 'rejected';
+  // AGENT2A-CONTACT-APPROVED-REVIEW — la «Revisión» de un contacto aprobado.
+  const isContactReview = variant === 'contact_review' && !!reviewContactId;
+  // Al cerrar la revisión, lo revelado se guarda en el contacto (Bryan 19-11). `candidateId` es el
+  // de la ficha abierta; si no hay revisión, cerrar es cerrar.
+  const onClose = React.useCallback(() => {
+    if (isContactReview && reviewContactId && candidateId) {
+      void saveContactReviewOnClose(reviewContactId, candidateId).then(() => onContactReviewSaved?.());
+    }
+    onCloseProp();
+  }, [isContactReview, reviewContactId, candidateId, onCloseProp, onContactReviewSaved]);
   // Un solo panel abierto: si se abre Rumbo u otro panel de IA, esta ficha se cierra.
   useExclusivePanel('detail', open, onClose);
-  const isRejectedVariant = variant === 'rejected';
+  const loadContactReviewCandidate = React.useCallback(
+    (id: string) =>
+      getOfficialContactReviewCandidateAction({ contactId: reviewContactId ?? '', candidateId: id }),
+    [reviewContactId],
+  );
   // La misma proyección de sólo lectura; cambia únicamente el estado que se admite.
-  const loadCandidateById = isRejectedVariant
-    ? getRejectedContactCandidateById
-    : getReviewableContactCandidateById;
+  const loadCandidateById = isContactReview
+    ? loadContactReviewCandidate
+    : isRejectedVariant
+      ? getRejectedContactCandidateById
+      : getReviewableContactCandidateById;
   const [candidate, setCandidate] = React.useState<PendingContactCandidate | null>(null);
   const [loading, setLoading] = React.useState(false);
   /**
@@ -1796,10 +1836,12 @@ export function ContactCandidateDetailSheet({
   const phoneRevealUnlockableByIdentity =
     !phoneRevealIdentityEligible &&
     identityCompletion.phoneRevealNeedsIdentity &&
-    candidate?.status === 'pending_review';
+    (candidate?.status === 'pending_review' || (isContactReview && candidate?.status === 'approved'));
   const phoneRevealIdentityReady = phoneRevealIdentityEligible || phoneRevealUnlockableByIdentity;
   const canOfferChannelReveal =
-    !!candidate && candidate.status === 'pending_review' && phoneRevealAuthorized === true;
+    !!candidate &&
+    (candidate.status === 'pending_review' || (isContactReview && candidate.status === 'approved')) &&
+    phoneRevealAuthorized === true;
   const canOfferLinkedinReveal = canOfferChannelReveal && identityCompletion.canRevealLinkedin;
   const canOfferEmailReveal = canOfferChannelReveal && identityCompletion.canRevealEmail;
 
@@ -2021,7 +2063,18 @@ export function ContactCandidateDetailSheet({
         // en el cuerpo del drawer. Presentarlo con la barra de aprobación normal era justamente
         // mezclarlo con una aprobación pendiente.
         // AGENT2A-CONTACTOS-RECHAZADOS: un rechazado sólo puede volver a «Por revisar».
-        candidate && isRejectedVariant ? (
+        candidate && isContactReview && reviewContactId ? (
+          // AGENT2A-CONTACT-APPROVED-REVIEW — «Guardar» en vez de «Aprobar».
+          <ContactReviewSaveActions
+            contactId={reviewContactId}
+            candidateId={candidate.id}
+            onSaved={() => {
+              void reloadCandidate();
+              router.refresh();
+              onContactReviewSaved?.();
+            }}
+          />
+        ) : candidate && isRejectedVariant ? (
           <RejectedCandidateActions candidateId={candidate.id} onClose={onClose} />
         ) : candidate && candidate.status !== 'duplicate' ? (
           <CandidateReviewActions
@@ -2053,6 +2106,18 @@ export function ContactCandidateDetailSheet({
         />
       ) : !candidate ? null : (
         <div className="space-y-4">
+          {/* AGENT2A-CONTACT-APPROVED-REVIEW — modo revisión de un contacto aprobado. */}
+          {isContactReview && reviewContactId ? (
+            <ContactReviewModeBanner
+              contactId={reviewContactId}
+              contactEmail={reviewContactEmail}
+              refreshKey={candidate}
+              onChanged={() => {
+                void reloadCandidate();
+                router.refresh();
+              }}
+            />
+          ) : null}
           {/* 4O-H3-B-R1 — aviso DURADERO de duplicado. Vive en el cuerpo del drawer, no en
               un diálogo, y por eso sigue ahí después de cerrar, refrescar o navegar. */}
           {candidate.status === 'discarded' ? (
@@ -2113,7 +2178,7 @@ export function ContactCandidateDetailSheet({
               />
             }
             companyAction={
-              candidate.status === 'pending_review' ? (
+              candidate.status === 'pending_review' || (isContactReview && candidate.status === 'approved') ? (
                 <Button
                   variant="outline"
                   size="xs"
@@ -2762,7 +2827,7 @@ export function ContactCandidateDetailSheet({
 
           {/* 5. Revisión humana (Hito 17A.4B): el override de identidad, el motivo de
               rechazo o, en reposo, el aviso de qué pasa al aprobar. */}
-          <CandidateReviewStep candidate={candidate} review={review} />
+          {isContactReview ? null : <CandidateReviewStep candidate={candidate} review={review} />}
         </div>
       )}
     </DrawerShell>
@@ -2776,6 +2841,30 @@ export function ContactCandidateDetailSheet({
           open={reassignCompanyOpen}
           onOpenChange={setReassignCompanyOpen}
           candidate={candidate}
+          // AGENT2A-CONTACT-APPROVED-REVIEW — en la revisión de un contacto aprobado, la empresa
+          // elegida se aplica al CONTACTO: en el mismo contacto si es de quien revisa; si no, va
+          // por «Cambió de empresa» (opción A) y el contacto se archiva.
+          confirmSelection={
+            isContactReview && reviewContactId
+              ? async (selection) => {
+                  const result = await moveOfficialContactCompanyAction({
+                    contactId: reviewContactId,
+                    candidateId: candidate.id,
+                    selection,
+                  });
+                  if (result.ok && result.decision === 'company_change') {
+                    // El contacto quedó archivado: no hay nada más que revisar aquí.
+                    toast.success(result.message);
+                    onCloseProp();
+                    router.refresh();
+                    return { ok: true, message: null };
+                  }
+                  return result.ok ? { ok: true, message: result.message } : { ok: false, message: result.message };
+                }
+              : undefined
+          }
+          confirmLabel={isContactReview ? 'Cambiar empresa' : undefined}
+          confirmHint={isContactReview ? OFFICIAL_CONTACT_REVIEW_COPY.companyChangeHint : undefined}
           onReassigned={(message) => {
             toast.success(message);
             void reloadCandidate();

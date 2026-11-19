@@ -654,6 +654,12 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     // escalar). Ninguno nombra `phone` ni `phone_source` — demostrado abajo.
     join('src', 'modules', 'contact-enrichment', 'contact-hubspot-merge.server.ts'),
     join('src', 'modules', 'contact-enrichment', 'legacy-contact-phone-bootstrap.server.ts'),
+    // AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — el cambio de empresa se mudó a un runner sin
+    // frontera de acciones (mismos UPDATE: archivo y metadata), y la «Revisión» de un contacto
+    // aprobado cambia su empresa en el mismo contacto (`account_id`, `is_primary`, `metadata`).
+    // Ninguno nombra `phone` ni `phone_source` — demostrado abajo.
+    join('src', 'modules', 'contact-enrichment', 'contact-company-change-runner.server.ts'),
+    join('src', 'modules', 'contact-enrichment', 'official-contact-review-actions.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -712,6 +718,8 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
       ['modules', 'contact-enrichment', 'official-contact-identity-completion.server.ts'],
       ['modules', 'contact-enrichment', 'contact-hubspot-merge.server.ts'],
       ['modules', 'contact-enrichment', 'legacy-contact-phone-bootstrap.server.ts'],
+      ['modules', 'contact-enrichment', 'contact-company-change-runner.server.ts'],
+      ['modules', 'contact-enrichment', 'official-contact-review-actions.ts'],
     ]) {
       const src = stripComments(readFileSync(join(SRC_DIR, ...file), 'utf8'));
       for (const forbidden of ['phone_source', 'mobile_phone_source', 'mobile_phone:']) {

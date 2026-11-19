@@ -19,8 +19,15 @@
  */
 
 import * as React from 'react';
-import { Link2, Mail, Phone } from '@/icons';
+import { toast } from 'sonner';
+import { ClipboardCheck, Link2, Loader2, Mail, Phone } from '@/icons';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  openOfficialContactReviewAction,
+  type OfficialContactReviewSheetFlags,
+} from '@/modules/contact-enrichment/official-contact-review-actions';
+import { OFFICIAL_CONTACT_REVIEW_COPY } from '@/modules/contact-enrichment/official-contact-review-core';
 import { DetailItem, DetailList } from '@/components/shared/detail-list';
 import type { Contact } from '@/modules/contacts/types';
 import type { RecordCommentFieldKey } from '@/modules/record-comments/types';
@@ -34,6 +41,13 @@ import {
   OfficialContactChannelRevealControl,
   useOfficialContactChannelReveal,
 } from './official-contact-channel-reveal';
+
+// AGENT2A-CONTACT-APPROVED-REVIEW — la ficha del candidato es grande: sólo se carga al abrir «Revisión».
+const ContactCandidateDetailSheet = React.lazy(() =>
+  import('@/components/contact-enrichment/contact-candidate-detail-sheet').then((m) => ({
+    default: m.ContactCandidateDetailSheet,
+  })),
+);
 
 const INLINE_LINK =
   'rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
@@ -75,6 +89,29 @@ export function ContactChannelsSection({
   const marker = (fieldKey: RecordCommentFieldKey, fieldValue?: string | null) =>
     renderFieldMarker ? renderFieldMarker(fieldKey, fieldValue) : null;
   const phoneControl = (phone: string) => (renderPhoneControl ? renderPhoneControl(phone) : null);
+
+  // AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — «Revisión»: la MISMA ficha del candidato que
+  // «Por revisar», sobre su candidato de origen (se crea si no tiene). Lo ve quien ve el contacto.
+  const [review, setReview] = React.useState<{ candidateId: string; flags: OfficialContactReviewSheetFlags } | null>(null);
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [openingReview, setOpeningReview] = React.useState(false);
+  const openReview = async () => {
+    if (openingReview) return;
+    setOpeningReview(true);
+    try {
+      const result = await openOfficialContactReviewAction({ contactId: contact.id });
+      if (!result.ok) {
+        toast.error(result.message);
+        return;
+      }
+      setReview({ candidateId: result.candidateId, flags: result.flags });
+      setReviewOpen(true);
+    } catch {
+      toast.error(OFFICIAL_CONTACT_REVIEW_COPY.openFailed);
+    } finally {
+      setOpeningReview(false);
+    }
+  };
 
   const emailOffered = channelReveal.offer?.email || channelReveal.message?.channel === 'email';
   const linkedinOffered = channelReveal.offer?.linkedin || channelReveal.message?.channel === 'linkedin';
@@ -178,6 +215,37 @@ export function ContactChannelsSection({
           </DetailItem>
         ) : null}
       </DetailList>
+
+      {/* AGENT2A-CONTACT-APPROVED-REVIEW — «Revisión»: revelar / verificar como en «Por revisar»
+          (incluida la búsqueda de más números), cambiar la empresa y «Guardar». */}
+      <div className="mt-3 flex flex-col items-start gap-1.5 border-t border-border/50 pt-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="gap-1.5"
+          disabled={openingReview}
+          onClick={() => void openReview()}
+        >
+          {openingReview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+          {OFFICIAL_CONTACT_REVIEW_COPY.button}
+        </Button>
+        <span className="text-xs text-muted-foreground">{OFFICIAL_CONTACT_REVIEW_COPY.buttonHelper}</span>
+      </div>
+      {review && (
+        <React.Suspense fallback={null}>
+          <ContactCandidateDetailSheet
+            candidateId={review.candidateId}
+            open={reviewOpen}
+            onClose={() => setReviewOpen(false)}
+            variant="contact_review"
+            reviewContactId={contact.id}
+            reviewContactEmail={contact.email}
+            onContactReviewSaved={onChanged}
+            {...review.flags}
+          />
+        </React.Suspense>
+      )}
 
       {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — dónde trabaja hoy, «Verificar correo» y el
           aviso de cambio de empresa. */}

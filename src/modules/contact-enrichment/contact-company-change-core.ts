@@ -128,6 +128,43 @@ export function companyChangeNewCompanyName(check: EmailCheckBlock | null, compa
   return clean(company?.name) ?? clean(check?.employment?.current_company) ?? clean(check?.found_email_domain);
 }
 
+// ── Empresa elegida a mano (AGENT2A-CONTACT-APPROVED-REVIEW, Bryan 19-11) ──
+
+/**
+ * La «detección» de un cambio de empresa elegido A MANO desde la Revisión, cuando ningún
+ * proveedor trajo una: el correo de hoy (nadie trajo otro) y la empresa elegida como la actual.
+ * Sólo da forma a los datos del candidato nuevo y del archivo; no se guarda como verificación.
+ */
+export function buildManualCompanyChangeCheck(input: {
+  contact: Pick<CompanyChangeContact, 'email' | 'jobTitle'>;
+  company: Pick<CompanyCandidate, 'name' | 'domain'>;
+  actorId: string;
+  nowIso: string;
+}): EmailCheckBlock {
+  const email = clean(input.contact.email)?.toLowerCase() ?? null;
+  return {
+    hito: CONTACT_EMAIL_CHECK_HITO,
+    case: 'company_change',
+    purpose: 'verify_email',
+    checked_at: input.nowIso,
+    checked_by: input.actorId,
+    provider: null,
+    found_email: email,
+    found_email_domain: email ? email.slice(email.lastIndexOf('@') + 1) : null,
+    employment: {
+      status: 'other_company',
+      current_company: clean(input.company.name),
+      current_title: clean(input.contact.jobTitle),
+      current_since: null,
+      organization_domain: clean(input.company.domain),
+    },
+    resolution: null,
+    resolved_at: null,
+    resolved_by: null,
+    new_candidate_id: null,
+  };
+}
+
 // ── Los teléfonos que viajan (Bryan 19-11) ──────────────────────────
 
 /**

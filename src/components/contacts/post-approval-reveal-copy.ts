@@ -81,7 +81,7 @@ export function officialRevealUnavailableText(
   status: OfficialContactPhoneRevealOfferStatus,
 ): string | null {
   if (status === 'phone_already_present') {
-    return 'Este contacto ya tiene un teléfono guardado. Para buscar números adicionales usa la revisión del candidato.';
+    return 'Este contacto ya tiene un teléfono guardado. Para buscar números adicionales usa «Revisión» (abajo, en esta misma ficha).';
   }
   // ── DURABLE RESUME ──────────────────────────────────────────────
   // Los cuatro desenlaces del estado durable SÍ se explican, y por la misma razón que

@@ -112,6 +112,9 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   // Cambio de empresa (Bryan 19-11): LEE el celular del contacto viejo para que viaje al
   // candidato de la empresa nueva. No escribe la columna ni le asigna procedencia.
   'modules/contact-enrichment/contact-company-change.server.ts': 'lectura — teléfonos que viajan en un cambio de empresa',
+  // AGENT2A-CONTACT-APPROVED-REVIEW: LEE el celular para no ofrecer como «nuevo» un número que el
+  // contacto ya tiene. No escribe la columna.
+  'modules/contact-enrichment/official-contact-review-actions.ts': 'lectura — revisión de un contacto aprobado',
   'modules/contacts/actions.ts': 'ESCRITOR — createContact / updateContact (manual)',
   'modules/contacts/contact-hubspot-sync-core.ts': 'lectura — sync saliente a HubSpot',
   // CUT-2: `resolveOutboundHubSpotPhone` decide QUÉ teléfono viaja a HubSpot y, con la misma

@@ -167,6 +167,18 @@ const MATRIX: readonly WriterEntry[] = [
     why: 'Escribe SÓLO archived_at, archived_by, contact_status, is_primary, updated_by y metadata (el rastro del cambio de empresa). Nunca phone ni mobile_phone: el teléfono saliente no puede moverse por su causa.',
   },
   {
+    name: 'cambio de empresa — el trabajo mudado a un runner sin frontera de acciones (AGENT2A-CONTACT-APPROVED-REVIEW)',
+    file: 'src/modules/contact-enrichment/contact-company-change-runner.server.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Es el mismo archivo por cambio de empresa que vivía en contact-company-change-actions.ts: escribe SÓLO archived_at, archived_by, contact_status, is_primary, updated_by y metadata. Nunca phone ni mobile_phone.',
+  },
+  {
+    name: '«Revisión» de un contacto aprobado — empresa elegida a mano del mismo dueño (AGENT2A-CONTACT-APPROVED-REVIEW)',
+    file: 'src/modules/contact-enrichment/official-contact-review-actions.ts',
+    verdict: 'DELIBERATELY_EXCLUDED',
+    why: 'Escribe SÓLO account_id, is_primary, updated_at y metadata (el rastro de la revisión). Los datos de contacto que se guardan van por updateContact y por las piezas ya clasificadas (correo principal, proyección de teléfonos 128/131/169). Nunca phone ni mobile_phone: el teléfono saliente no puede moverse por su causa.',
+  },
+  {
     name: 'cambio de empresa — desenlace del candidato nuevo en el contacto viejo',
     file: 'src/modules/contact-enrichment/contact-company-change.server.ts',
     verdict: 'DELIBERATELY_EXCLUDED',
@@ -311,6 +323,7 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         // empresa, el desenlace en el contacto viejo y el vínculo con el candidato de origen.
         // Clasificados arriba: sólo metadata y estado de archivo, nunca phone ni mobile_phone.
         'src/modules/contact-enrichment/contact-company-change-actions.ts',
+        'src/modules/contact-enrichment/contact-company-change-runner.server.ts',
         'src/modules/contact-enrichment/contact-company-change.server.ts',
         // AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — vínculo tras fusionar en HubSpot y
         // metadata.provider_phone. Clasificados arriba: nunca phone ni mobile_phone.
@@ -324,6 +337,7 @@ describe('16. el descubrimiento encuentra exactamente lo que la matriz nombra', 
         'src/modules/contact-enrichment/hubspot-first-approval-link.ts',
         'src/modules/contact-enrichment/legacy-contact-phone-bootstrap.server.ts',
         'src/modules/contact-enrichment/official-contact-identity-completion.server.ts',
+        'src/modules/contact-enrichment/official-contact-review-actions.ts',
         'src/modules/contact-enrichment/phone-cache-suppression-actions.ts',
         'src/modules/contacts/actions.ts',
         // CUT-3B — el cableado de `persistSync` sale de actions.ts hacia el runner compartido,

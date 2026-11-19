@@ -643,7 +643,8 @@ describe('guardas estáticas', () => {
   });
 
   it('el archivo por cambio de empresa: sólo en su acción y después de crear el candidato', () => {
-    const src = code(`${CE}/contact-company-change-actions.ts`);
+    // AGENT2A-CONTACT-APPROVED-REVIEW: el trabajo se mudó a un runner (sin frontera de acciones).
+    const src = code(`${CE}/contact-company-change-runner.server.ts`);
     const create = src.indexOf('createCompanyChangeCandidate(');
     const archive = src.indexOf('buildCompanyChangeArchivePatch(');
     assert.ok(create > 0 && archive > create);
