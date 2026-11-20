@@ -295,7 +295,8 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
       open={open}
       onOpenChange={(v) => !v && onClose()}
       side="right"
-      className="w-full sm:w-[70vw] sm:min-w-[700px] sm:!max-w-none"
+      // Mismo ancho que la ficha de la empresa (account-detail-sheet), dueña 19-11.
+      className="w-full sm:w-[58vw] sm:min-w-[660px] sm:!max-w-[900px]"
       icon={<User className="h-4 w-4" />}
       title={
         contact
