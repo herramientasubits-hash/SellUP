@@ -6,8 +6,6 @@ import { useExclusivePanel } from '@/lib/exclusive-panels';
 import Link from 'next/link';
 import {
   Mail,
-  Phone,
-  Link2,
   Briefcase,
   Activity,
   Tag,
@@ -23,6 +21,7 @@ import {
   Pencil,
   PhoneCall,
   MessageSquare,
+  ExternalLink,
 } from "@/icons";
 import { DrawerShell } from '@/components/shared/drawer-shell';
 import { Badge } from '@/components/ui/badge';
@@ -84,21 +83,13 @@ import {
 // Sólo LECTURA: abrirlo hace un SELECT sobre la colección oficial de
 // teléfonos del contacto y nada más. Ni proveedor, ni crédito, ni escritura.
 import { getOfficialContactStoredPhoneSummaryAction } from '@/modules/contact-enrichment/official-contact-stored-phones-actions';
-import { OfficialContactStoredPhonesDisclosure } from './official-contact-stored-phones-disclosure';
-import { PROVIDER_PHONE_LABEL, readProviderPhone } from '@/modules/contact-enrichment/provider-phone';
-import { resolvePhoneSourceLabel } from '@/components/contact-enrichment/phone-display-labels';
-// AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-REVEAL-1 — «Revelar teléfono» desde el
-// contacto OFICIAL. El botón sólo aparece cuando el SERVIDOR resuelve un candidato fuente
-// durable (`metadata.source_candidate_id`) y el contacto no tiene un teléfono reutilizable.
-// No construye un waterfall propio: delega en el pipeline del candidato.
-import { OfficialContactPhoneRevealCta } from './post-approval-reveal-cta';
-import { OfficialContactEmailCheckPanel } from './official-contact-email-check-panel';
-import { OfficialContactHubSpotMergePanel } from './official-contact-hubspot-merge-panel';
 import { OfficialContactCompanyChangeBanner } from './official-contact-company-change-banner';
-import {
-  OfficialContactChannelRevealControl,
-  useOfficialContactChannelReveal,
-} from './official-contact-channel-reveal';
+// AGENT2A-CONTACT-PAGE-ACTIONS — «Datos de contacto» (correo, teléfonos, LinkedIn y todo lo que
+// se revela o verifica desde aquí) es la MISMA pieza que usa la página del contacto. Dentro viven
+// «Revelar correo / LinkedIn», «Revelar teléfono» (AGENT2A-POST-APPROVAL-OFFICIAL-CONTACT-PHONE-
+// REVEAL-1: delega en el pipeline del candidato), «Ver más números», «Verificar correo», el aviso
+// de cambio de empresa y la fusión en HubSpot.
+import { ContactChannelsSection } from './contact-channels-section';
 // AGENT2A-P0-R2 — el drawer del contacto SIEMPRE termina de cargar: o hay contacto, o hay
 // un estado terminal declarado. Nunca un spinner eterno.
 import { isNextControlFlowSignal } from '@/modules/contact-enrichment/next-control-flow-signal';
@@ -167,8 +158,6 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
   // 4O-H4: CUÁNTOS números adicionales hay almacenados. Es un entero y nada más —
   // ningún número viaja al navegador hasta que el operador abre el disclosure.
   const [additionalPhoneCount, setAdditionalPhoneCount] = React.useState(0);
-  // 164: el número de Apollo / Lusha, aparte del de HubSpot (que no se reemplaza).
-  const providerPhone = readProviderPhone(contact?.metadata, contact?.phone);
   // Agente 3: ¿se ofrece «Preparar primer contacto»? Complementario: si no se puede saber, no se ofrece.
   const [firstCallEnabled, setFirstCallEnabled] = React.useState(false);
   // AGENT2A-P0-R2: por qué el contacto no está. `null` ⇒ hay contacto, o sigue cargando.
@@ -266,14 +255,12 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
     }
   }, []);
 
-  // AGENT2A-HUBSPOT-IMPORT-APPROVED-CANDIDATE — «Revelar correo» / «Revelar LinkedIn» para los
-  // contactos que nacieron de un candidato de HubSpot. Se relee la oferta cada vez que la ficha
-  // cambia (`updated_at`), y tras revelar se relee la ficha por su vía normal.
+  // Tras revelar o verificar algo en «Datos de contacto» se relee la ficha por su vía normal (la
+  // oferta de reveal vive en `ContactChannelsSection` y se relee con `updated_at`).
   const visibleContactId = open && contact ? contact.id : null;
   const reloadAfterChannelReveal = React.useCallback(() => {
     if (visibleContactId) void loadData(visibleContactId);
   }, [visibleContactId, loadData]);
-  const channelReveal = useOfficialContactChannelReveal(visibleContactId, contact?.updated_at ?? null, reloadAfterChannelReveal);
 
   React.useEffect(() => {
     if (open && contactId) {
@@ -356,6 +343,14 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
               placement="drawer"
               onActionComplete={() => loadData(contact.id)}
             />
+            {/* AGENT2A-CONTACT-PAGE-ACTIONS — la página tiene las mismas acciones de
+                «Datos de contacto» y además la actividad completa. */}
+            <Button asChild type="button" size="sm" variant="ghost">
+              <Link href={`/contacts/${contact.id}`}>
+                <ExternalLink aria-hidden="true" />
+                Abrir página completa
+              </Link>
+            </Button>
             {firstCallEnabled && account && contact.contact_status === 'active' && (
               <Button asChild type="button" size="sm" variant="outline">
                 <Link href={firstCallHref(account.id, contact.id)}>
@@ -470,117 +465,15 @@ export function ContactDetailSheet({ contactId, open, onClose }: ContactDetailSh
                 <TabsContent value="resumen" className="space-y-4">
                   <div className="grid gap-4 md:grid-cols-2">
                     <DrawerSection title="Datos de contacto" icon={Mail}>
-                      <DetailList className="gap-y-3 sm:grid-cols-1">
-                        <DetailItem icon={Mail} label="Email">
-                          {contact.email ? (
-                            <span className="inline-flex flex-wrap items-center gap-1">
-                              <a href={`mailto:${contact.email}`} className={`break-all ${INLINE_LINK}`}>
-                                {contact.email}
-                              </a>
-                              {marker('email')}
-                            </span>
-                          ) : channelReveal.offer?.email || channelReveal.message?.channel === 'email' ? (
-                            <OfficialContactChannelRevealControl channel="email" state={channelReveal} />
-                          ) : (
-                            <span className="text-text-muted">Sin email. Añádelo con «Editar contacto».</span>
-                          )}
-                        </DetailItem>
-                        {contact.mobile_phone && (
-                          <DetailItem icon={Phone} label="Celular">
-                            <span className="inline-flex flex-wrap items-center gap-1">
-                              <a href={`tel:${contact.mobile_phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                                {contact.mobile_phone}
-                              </a>
-                              {phoneControl(contact.mobile_phone)}
-                            </span>
-                          </DetailItem>
-                        )}
-                        {contact.phone && (
-                          <DetailItem icon={Phone} label="Teléfono">
-                            <span className="inline-flex flex-wrap items-center gap-1">
-                              <a href={`tel:${contact.phone}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                                {contact.phone}
-                              </a>
-                              {phoneControl(contact.phone)}
-                            </span>
-                          </DetailItem>
-                        )}
-                        {providerPhone && (
-                          <DetailItem icon={Phone} label={PROVIDER_PHONE_LABEL}>
-                            <span className="inline-flex flex-wrap items-center gap-2">
-                              <a href={`tel:${providerPhone.number}`} className="tabular-nums hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40">
-                                {providerPhone.number}
-                              </a>
-                              {resolvePhoneSourceLabel(providerPhone.source) ? (
-                                <Badge variant="neutral">{resolvePhoneSourceLabel(providerPhone.source)}</Badge>
-                              ) : null}
-                              {phoneControl(providerPhone.number)}
-                            </span>
-                          </DetailItem>
-                        )}
-                        {/*
-                          4O-H4 — «Ver N números más». El CTA existe SÓLO si el
-                          servidor contó extras, y los escalares de arriba siguen
-                          visibles exactamente como estaban: esto AÑADE una
-                          superficie de lectura, no reemplaza ninguna.
-                        */}
-                        {additionalPhoneCount > 0 && (
-                          <OfficialContactStoredPhonesDisclosure
-                            contactId={contact.id}
-                            additionalCount={additionalPhoneCount}
-                          />
-                        )}
-                        {/*
-                          POST-APPROVAL REVEAL — la ficha de un contacto creado al aprobar un
-                          candidato podía quedarse SIN teléfono para siempre: el pipeline de
-                          reveal existe entero, pero sólo era alcanzable desde la revisión del
-                          candidato, que ya salió de revisión. El CTA lo hace alcanzable desde
-                          aquí, reutilizando ese pipeline tal cual. Se pinta debajo de los
-                          escalares y no reemplaza nada de lo que ya se mostraba.
-                        */}
-                        <OfficialContactPhoneRevealCta
-                          contactId={contact.id}
-                          onPhoneProjected={() => {
-                            // La AUTORIDAD de lo que se muestra es la ficha, no la respuesta del
-                            // reveal: ningún teléfono viaja en ese resultado. Se relee por la vía
-                            // normal, que además refresca el conteo de números adicionales.
-                            void loadData(contact.id);
-                          }}
-                        />
-                        {contact.linkedin_url && (
-                          <DetailItem icon={Link2} label="LinkedIn">
-                            <a
-                              href={contact.linkedin_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="break-all text-primary hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                            >
-                              {contact.linkedin_url}
-                            </a>
-                            {marker('linkedin')}
-                          </DetailItem>
-                        )}
-                        {!contact.linkedin_url &&
-                          (channelReveal.offer?.linkedin || channelReveal.message?.channel === 'linkedin') && (
-                            // Sin LinkedIn: si nació de un candidato de HubSpot con correo, se busca por él.
-                            <DetailItem icon={Link2} label="LinkedIn">
-                              <OfficialContactChannelRevealControl channel="linkedin" state={channelReveal} />
-                            </DetailItem>
-                          )}
-                      </DetailList>
-                      {/* AGENT2A-CONTACT-EMAIL-VERIFY-COMPANY-CHANGE — dónde trabaja hoy,
-                          «Verificar correo» y el aviso de cambio de empresa. */}
-                      <OfficialContactEmailCheckPanel
-                        contactId={contact.id}
-                        state={channelReveal}
+                      {/* AGENT2A-CONTACT-PAGE-ACTIONS — la MISMA pieza que la página del
+                          contacto: correo, teléfonos, LinkedIn, revelar, «Verificar correo»,
+                          cambio de empresa y fusión en HubSpot. */}
+                      <ContactChannelsSection
+                        contact={contact}
+                        additionalPhoneCount={additionalPhoneCount}
                         onChanged={reloadAfterChannelReveal}
-                      />
-                      {/* AGENT2A-CONTACT-APPROVED-EMAIL-PHONE-MERGE — el correo correcto ya lo
-                          tiene otro contacto de HubSpot: fusionar (con confirmación). */}
-                      <OfficialContactHubSpotMergePanel
-                        contactId={contact.id}
-                        refreshKey={channelReveal.offer}
-                        onChanged={reloadAfterChannelReveal}
+                        renderFieldMarker={marker}
+                        renderPhoneControl={phoneControl}
                       />
                     </DrawerSection>
 

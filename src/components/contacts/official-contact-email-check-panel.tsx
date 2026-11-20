@@ -22,9 +22,14 @@ import {
 } from '@/modules/contact-enrichment/official-contact-identity-completion-actions';
 import { confirmOfficialContactCompanyChangeAction } from '@/modules/contact-enrichment/contact-company-change-actions';
 import {
+  COMPANY_CHANGE_SEARCH_EMAIL_LABEL,
   VERIFY_EMAIL_BUTTON_LABEL,
   VERIFY_EMAIL_HELPER,
+  companyChangeLacksNewEmail,
+  companyChangeNoNewEmailNote,
+  companyChangeSearchEmailHelper,
   employmentLine,
+  newEmailAlreadySearched,
   hubspotPrimaryEmailNote,
   lastVerificationLabel,
   verificationOutcomeText,
@@ -46,10 +51,13 @@ const VERIFY_FAILURE_COPY: Record<string, string> = {
 
 export function OfficialContactEmailCheckPanel({
   contactId,
+  currentEmail,
   state,
   onChanged,
 }: {
   contactId: string;
+  /** El correo de hoy del contacto: para saber si el cambio detectado ya trae uno NUEVO. */
+  currentEmail?: string | null;
   state: RevealState;
   onChanged: () => void;
 }) {
@@ -64,6 +72,12 @@ export function OfficialContactEmailCheckPanel({
   const pending = emailState?.pendingCompanyChange === true;
   const conflicting = emailState?.check?.case === 'conflicting';
   const company = emailState?.newCompanyName ?? null;
+  // AGENT2A-CONTACT-PAGE-ACTIONS (Bryan 19-11) — el cambio se detectó de paso (p. ej. al revelar
+  // el LinkedIn buscando por el correo viejo) y no trajo el correo NUEVO: primero se busca por el
+  // LinkedIn («Verificar correo», sin la empresa vieja), para que el candidato nazca con él.
+  const lacksNewEmail = !!emailState && companyChangeLacksNewEmail(emailState, currentEmail);
+  const searchedNewEmail = !!emailState && newEmailAlreadySearched(emailState);
+  const offerNewEmailSearch = pending && lacksNewEmail && !searchedNewEmail && offer?.verifyEmail === true;
 
   const finish = React.useCallback(
     (next: Note) => {
@@ -145,13 +159,32 @@ export function OfficialContactEmailCheckPanel({
           <AlertTitle>{conflicting ? 'Posible cambio de empresa, sin confirmar' : 'Cambió de empresa'}</AlertTitle>
           <AlertDescription>
             <p>
-              {conflicting
-                ? 'El correo y el empleo que devolvió el proveedor no cuentan la misma historia. Decide tú.'
-                : (line ?? `El correo que encontramos es de ${company ?? 'otra empresa'}.`)}
+              {offerNewEmailSearch
+                ? companyChangeSearchEmailHelper(emailState?.employment?.currentCompany ?? company)
+                : conflicting
+                  ? 'El correo y el empleo que devolvió el proveedor no cuentan la misma historia. Decide tú.'
+                  : (line ?? `El correo que encontramos es de ${company ?? 'otra empresa'}.`)}
             </p>
+            {pending && lacksNewEmail && searchedNewEmail && emailState && (
+              <p className="mt-1">{companyChangeNoNewEmailNote(emailState)}</p>
+            )}
             <div className="mt-2 flex flex-wrap gap-2">
-              <Button type="button" size="xs" disabled={busy !== null} onClick={() => setConfirmOpen(true)}>
-                {conflicting ? 'Sí cambió' : `Enviar a revisión en ${company ?? 'la empresa nueva'}`}
+              {offerNewEmailSearch && (
+                <Button type="button" size="xs" className="gap-1.5" disabled={busy !== null} onClick={() => void verify()}>
+                  {busy === 'verify' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  {busy === 'verify' ? 'Buscando…' : COMPANY_CHANGE_SEARCH_EMAIL_LABEL}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="xs"
+                variant={offerNewEmailSearch ? 'outline' : 'default'}
+                disabled={busy !== null}
+                onClick={() => setConfirmOpen(true)}
+              >
+                {conflicting
+                  ? 'Sí cambió'
+                  : `Enviar a revisión en ${company ?? 'la empresa nueva'}${offerNewEmailSearch ? ' sin correo nuevo' : ''}`}
               </Button>
               <Button type="button" size="xs" variant="outline" disabled={busy !== null} onClick={() => void keep()}>
                 {busy === 'keep' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -204,7 +237,10 @@ export function OfficialContactEmailCheckPanel({
         onConfirm={() => void confirmChange()}
       >
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>Se crea un candidato en «Por revisar» en la empresa nueva, para su responsable, con el correo nuevo sugerido.</li>
+          <li>
+            Se crea un candidato en «Por revisar» en la empresa nueva, para su responsable, con el correo nuevo
+            {lacksNewEmail ? ' (si lo encontramos)' : ''}, su LinkedIn y todos sus teléfonos.
+          </li>
           <li>Si el contacto está en HubSpot, recibe ya el correo nuevo como principal (el actual queda como adicional) y el cargo actual.</li>
           <li>Este contacto se archiva con su información de hoy. Se puede desarchivar.</li>
           <li>Si aprueban el candidato, en HubSpot pasa a la empresa nueva (las demás empresas se desasocian). Si lo rechazan, HubSpot conserva los datos nuevos y su empresa actual.</li>

@@ -185,7 +185,9 @@ export function buildQuickSearchCandidateRow(input: {
     linkedin_url: data.linkedinUrl,
     email: p.email,
     // Sólo HubSpot trae teléfono (el del CRM); el de los proveedores sigue el flujo de reveal.
-    phone: hubspot ? (p.phone ?? null) : null,
+    // Excepción (Bryan 19-11): el candidato de un CAMBIO DE EMPRESA lleva el teléfono que ya
+    // tenía el contacto viejo (no se pagó aquí: ya era de SellUp / HubSpot).
+    phone: hubspot || data.entryMode === 'company_change' ? (p.phone ?? null) : null,
     source: p.provider,
     source_contact_id: p.sourceContactId,
     ...(hubspot ? { matched_hubspot_contact_id: hubspot.id } : {}),

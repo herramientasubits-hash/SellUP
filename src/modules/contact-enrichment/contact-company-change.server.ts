@@ -50,10 +50,16 @@ import {
   readContactCompanyChange,
   withCompanyChangeOutcome,
   companyChangeLookupInput,
+  collectCompanyChangePhones,
   type CompanyChangeContact,
+  type CompanyChangePhone,
   type CompanyChangeSourceCandidate,
 } from './contact-company-change-core';
 import type { EmailCheckBlock } from './email-change-classifier-core';
+import { COMPANY_CHANGE_OPEN_METADATA_KEY, isOpenCompanyChangeTarget } from './official-contact-review-core';
+import { readProviderPhone } from './provider-phone';
+import { readOfficialContactStoredPhones } from './official-contact-stored-phones-read';
+import { selectAdditionalStoredOfficialPhones } from './official-contact-stored-phones-core';
 import type { CompanyCandidate } from './types';
 
 function str(value: unknown): string | null {
@@ -100,6 +106,34 @@ export async function loadCompanyChangeContact(contactId: string): Promise<Compa
     archivedAt: str(r.archived_at),
     metadata: asRecord(r.metadata),
   };
+}
+
+/**
+ * Todos los teléfonos del contacto viejo, para el candidato de la empresa nueva (Bryan 19-11):
+ * «Celular», «Teléfono», «Teléfono Apollo / Lusha» y los de «Ver más números». SÓLO LECTURA.
+ * Complementario: si la colección no se puede leer, viajan los escalares; si nada se puede leer,
+ * el candidato nace sin teléfono (el cambio de empresa no se frena por esto).
+ */
+export async function loadCompanyChangePhones(contactId: string): Promise<CompanyChangePhone[]> {
+  const { data } = await createSupabaseAdminClient()
+    .from('contacts')
+    .select('phone, mobile_phone, metadata')
+    .eq('id', contactId)
+    .maybeSingle();
+  const row = (data ?? {}) as Record<string, unknown>;
+  const phone = str(row.phone);
+  let stored: string[] = [];
+  try {
+    stored = selectAdditionalStoredOfficialPhones(await readOfficialContactStoredPhones(contactId)).map((p) => p.number);
+  } catch {
+    stored = [];
+  }
+  return collectCompanyChangePhones({
+    mobilePhone: str(row.mobile_phone),
+    mainPhone: phone,
+    providerPhone: readProviderPhone(row.metadata, phone)?.number ?? null,
+    storedPhones: stored,
+  });
 }
 
 export async function loadCompanyChangeSourceCandidate(candidateId: string): Promise<CompanyChangeSourceCandidate | null> {
@@ -267,6 +301,32 @@ export async function createCompanyChangeCandidate(input: {
   return created;
 }
 
+/**
+ * Bryan 19-11 (§ 6): el candidato de un cambio de empresa cuya empresa nueva NO tiene dueño (o
+ * no quedó cuenta en SellUp) queda ABIERTO: lo ven todos hasta que alguien lo apruebe. Nunca lanza.
+ */
+export async function markCompanyChangeCandidateOpenIfOwnerless(candidateId: string, accountId: string | null): Promise<boolean> {
+  try {
+    const admin = createSupabaseAdminClient();
+    let ownerId: string | null = null;
+    if (accountId) {
+      const { data } = await admin.from('accounts').select('owner_id').eq('id', accountId).maybeSingle();
+      ownerId = str((data as { owner_id?: unknown } | null)?.owner_id);
+    }
+    if (!isOpenCompanyChangeTarget(accountId ? { accountId, ownerId } : null)) return false;
+    const { data: row } = await admin.from('contact_enrichment_candidates').select('enrichment_metadata').eq('id', candidateId).maybeSingle();
+    const metadata = asRecord((row as { enrichment_metadata?: unknown } | null)?.enrichment_metadata);
+    const { error } = await admin
+      .from('contact_enrichment_candidates')
+      .update({ enrichment_metadata: { ...metadata, [COMPANY_CHANGE_OPEN_METADATA_KEY]: true } })
+      .eq('id', candidateId)
+      .eq('status', 'pending_review');
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 // ── HubSpot ─────────────────────────────────────────────────────────
 
 export const hubspotEmailDeps: HubSpotEmailDeps = {
@@ -281,6 +341,27 @@ async function canWriteHubSpotContacts(): Promise<boolean> {
     return connection.connected && connection.canWriteContacts;
   } catch {
     return false;
+  }
+}
+
+/**
+ * La empresa nueva como «Principal» del contacto de HubSpot y fuera las demás (primero asocia,
+ * después quita: nunca queda sin empresa). Deals y actividades no se tocan. Nunca lanza.
+ */
+export async function moveHubSpotContactPrimaryCompany(
+  hubspotContactId: string,
+  hubspotCompanyId: string,
+): Promise<HubSpotCompanyMoveOutcome | 'hubspot_unavailable' | 'error'> {
+  try {
+    if (!(await canWriteHubSpotContacts())) return 'hubspot_unavailable';
+    const report = await moveHubSpotContactToCompany(hubspotContactId, hubspotCompanyId, {
+      listCompanyIds: listHubSpotContactCompanyIds,
+      setPrimaryCompany: setHubSpotContactPrimaryCompany,
+      removeCompany: removeHubSpotContactCompanyAssociation,
+    });
+    return report.outcome;
+  } catch {
+    return 'error';
   }
 }
 

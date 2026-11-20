@@ -11,7 +11,8 @@
 //     identidad nativa de proveedor (los de «Primero HubSpot»).
 //
 // El trabajo vive en `candidate-identity-completion-runner.server.ts`. Desde aquí (el navegador)
-// sólo se completan candidatos en `pending_review`.
+// sólo se completan candidatos en `pending_review` y, en la «Revisión» de un contacto aprobado
+// (AGENT2A-CONTACT-APPROVED-REVIEW), su candidato de origen aprobado (lo decide el servidor).
 
 import { createClient } from '@/lib/supabase/server';
 import { requireActiveActor } from './current-actor.server';
@@ -23,6 +24,8 @@ import {
   type RevealCandidatePhoneWithIdentityResult,
 } from './candidate-identity-completion-runner.server';
 import type { RevealCandidatePhoneInput } from './phone-reveal-core';
+import { resolveApprovedReviewAllowance } from './official-contact-review.server';
+import { syncApprovedCandidateChannelsOntoContact } from './official-contact-identity-completion.server';
 
 // ── «Revelar LinkedIn» / «Revelar correo» ──────────────────────────
 
@@ -46,12 +49,21 @@ async function revealChannel(
   const { internalUserId, roleKey } = await requireActiveActor();
   const actor = { internalUserId, roleKey };
   const supabase = await createClient();
+  // AGENT2A-CONTACT-APPROVED-REVIEW — la «Revisión» de un contacto aprobado: el servidor decide si
+  // este candidato (aprobado) se puede completar desde aquí; el alcance es el del contacto.
+  const review = candidateId ? await resolveApprovedReviewAllowance(candidateId) : null;
   // Alcance comercial ANTES de gastar: un candidato ajeno no existe para este actor.
-  if (!candidateId || !(await canSeeContactCandidate(supabase, candidateId))) {
+  if (!candidateId || (!review && !(await canSeeContactCandidate(supabase, candidateId)))) {
     return failed('candidate_not_found');
   }
   try {
-    return await runIdentityCompletionForCandidate(candidateId, purpose, actor);
+    const result = await runIdentityCompletionForCandidate(candidateId, purpose, actor, review?.options ?? {});
+    // Bryan 19-11: lo revelado en la revisión se guarda en el contacto (y de ahí en HubSpot) sin
+    // esperar a «Guardar». Sólo campos vacíos, la misma regla de la ficha del contacto.
+    if (review && (result.status === 'completed' || result.status === 'nothing_to_complete')) {
+      await syncApprovedCandidateChannelsOntoContact(candidateId);
+    }
+    return result;
   } catch {
     return failed('provider_error');
   }
@@ -80,5 +92,9 @@ export type { RevealCandidatePhoneWithIdentityResult } from './candidate-identit
 export async function revealCandidatePhoneWithIdentityAction(
   input: RevealCandidatePhoneInput,
 ): Promise<RevealCandidatePhoneWithIdentityResult> {
-  return revealCandidatePhoneWithIdentity(input);
+  // AGENT2A-CONTACT-APPROVED-REVIEW — en la revisión de un contacto aprobado, la identificación
+  // previa también aplica a su candidato aprobado (lo decide el servidor).
+  const candidateId = typeof input?.candidateId === 'string' ? input.candidateId.trim() : '';
+  const review = candidateId ? await resolveApprovedReviewAllowance(candidateId) : null;
+  return revealCandidatePhoneWithIdentity(input, review?.options ?? {});
 }

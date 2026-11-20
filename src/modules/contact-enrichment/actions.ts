@@ -73,8 +73,10 @@ import {
   isCandidateRunInScope,
   mergeScopedCandidateRows,
 } from './candidate-scope';
+import { COMPANY_CHANGE_OPEN_METADATA_KEY } from './official-contact-review-core';
 import {
   canSeeContactCandidate,
+  canSeeOfficialContact,
   resolveCandidateScopeIds,
 } from './candidate-scope.server';
 import {
@@ -392,7 +394,7 @@ function scopedCandidateQueries(
   scopeIds: string[] | null,
 ): CandidateQuery[] {
   if (scopeIds === null) return [unscopedCandidateRead(supabase)];
-  return CANDIDATE_SCOPE_BRANCHES.map((branch) => {
+  const branches = CANDIDATE_SCOPE_BRANCHES.map((branch) => {
     const query = withVisibleSince(
       supabase.from('contact_enrichment_candidates').select(candidateSelect(candidateRunEmbedForBranch(branch))),
     );
@@ -400,6 +402,13 @@ function scopedCandidateQueries(
       ? query.or(candidateAccountScopeOrClause(scopeIds), { referencedTable: 'run.account' })
       : query.in('run.triggered_by', scopeIds);
   });
+  // AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — el candidato de un cambio de empresa cuya
+  // empresa nueva no tiene dueño (o no existe) lo ven TODOS hasta que alguien lo apruebe. Va al
+  // final: si la base rechazara esta rama, la lista sigue con las de siempre.
+  branches.push(
+    unscopedCandidateRead(supabase).contains('enrichment_metadata', { [COMPANY_CHANGE_OPEN_METADATA_KEY]: true }),
+  );
+  return branches;
 }
 
 /** Lee la lista (todas las ramas), une sin repetidos, ordena y aplica el tope. */
@@ -1698,6 +1707,36 @@ export async function getRejectedContactCandidateById(
     .maybeSingle();
   if (error) throw new Error(`getRejectedContactCandidateById: ${error.message}`);
   return data ? mapPendingContactCandidate(data) : null;
+}
+
+/**
+ * AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — el candidato de ORIGEN de un contacto aprobado,
+ * para abrir su «Revisión» con la MISMA ficha que «Por revisar». El alcance es el del CONTACTO
+ * (quien ve la ficha puede revisarla); el candidato tiene que estar aprobado y apuntar a ese
+ * contacto. Sin el filtro de antigüedad de las listas: un contacto aprobado hace meses se revisa
+ * igual.
+ */
+export async function getApprovedReviewCandidateForContact(
+  candidateId: string,
+  contactId: string,
+): Promise<PendingContactCandidate | null> {
+  await requireActiveUserForEnrichment();
+  const id = typeof candidateId === 'string' ? candidateId.trim() : '';
+  const officialContactId = typeof contactId === 'string' ? contactId.trim() : '';
+  if (!id || !officialContactId) return null;
+  const supabase = await createClient();
+  if (!(await canSeeOfficialContact(supabase, officialContactId))) return null;
+  const { data, error } = await supabase
+    .from('contact_enrichment_candidates')
+    .select(candidateSelect())
+    .eq('id', id)
+    .eq('status', 'approved')
+    .eq('matched_contacts_id', officialContactId)
+    .maybeSingle();
+  if (error) throw new Error(`getApprovedReviewCandidateForContact: ${error.message}`);
+  if (!data) return null;
+  const [withContext] = await withCandidateAccountContext(supabase, [mapPendingContactCandidate(data)]);
+  return withContext;
 }
 
 // ── Bulk Run Status (Hito 17A.10K) ────────────────────────────────────────────

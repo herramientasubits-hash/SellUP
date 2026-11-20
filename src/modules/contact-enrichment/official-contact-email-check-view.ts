@@ -23,6 +23,8 @@ export interface OfficialContactEmploymentView {
 
 export interface OfficialContactEmailCheckView {
   case: EmailChangeCase;
+  /** Para qué se consultó: `verify_email` es «Verificar correo»; los demás, de paso al revelar. */
+  purpose: 'verify_email' | 'email' | 'linkedin' | 'phone';
   /** El correo que trajo el proveedor (ya pagado). */
   foundEmail: string | null;
   checkedAt: string;
@@ -73,6 +75,7 @@ export function buildOfficialContactEmailState(metadata: Record<string, unknown>
     check: check
       ? {
           case: check.case,
+          purpose: check.purpose,
           foundEmail: check.found_email,
           checkedAt: check.checked_at,
           resolution: check.resolution,
@@ -94,6 +97,34 @@ function shortDate(iso: string | null): string | null {
   // Zona fija (Bogotá): servidor y navegador escriben el mismo día.
   const label = formatAppDate(iso, '');
   return label || null;
+}
+
+/**
+ * AGENT2A-CONTACT-PAGE-ACTIONS (Bryan 19-11) — hay un cambio de empresa detectado pero sin el
+ * correo NUEVO (p. ej. lo detectó «Revelar LinkedIn» buscando por el correo viejo): conviene
+ * buscarlo por su LinkedIn antes de enviarlo a revisión, para que el candidato nazca con él.
+ */
+export function companyChangeLacksNewEmail(state: OfficialContactEmailState, currentEmail: string | null | undefined): boolean {
+  if (!state.pendingCompanyChange) return false;
+  const found = state.check?.foundEmail?.trim().toLowerCase() || null;
+  const current = currentEmail?.trim().toLowerCase() || null;
+  return !found || found === current;
+}
+
+/** Ya se buscó con «Verificar correo» (no fue una detección de paso). */
+export function newEmailAlreadySearched(state: OfficialContactEmailState): boolean {
+  return state.check?.purpose === 'verify_email';
+}
+
+export const COMPANY_CHANGE_SEARCH_EMAIL_LABEL = 'Buscar su correo nuevo';
+
+export function companyChangeSearchEmailHelper(company: string | null): string {
+  return `${company ? `Ahora trabaja en ${company}` : 'Ya no trabaja aquí'}, pero todavía no tenemos su correo nuevo. Búscalo por su LinkedIn antes de enviarlo a revisión (${IDENTITY_COMPLETION_APOLLO_CREDITS} crédito en Apollo; si no lo trae, Lusha).`;
+}
+
+export function companyChangeNoNewEmailNote(state: OfficialContactEmailState): string {
+  const when = shortDate(state.check?.checkedAt ?? null);
+  return `Ya buscamos su correo nuevo${when ? ` (${when})` : ''} y no apareció. Puedes enviarlo a revisión sin correo: quien lo revise lo puede completar.`;
 }
 
 export function lastVerificationLabel(state: OfficialContactEmailState): string | null {

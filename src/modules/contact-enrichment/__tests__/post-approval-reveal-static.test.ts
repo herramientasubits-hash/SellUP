@@ -539,9 +539,13 @@ describe('post-approval reveal — el contrato de `use server`', () => {
 
 describe('post-approval reveal — la UI', () => {
   it('el CTA está cableado en la ficha del contacto', () => {
+    // AGENT2A-CONTACT-PAGE-ACTIONS: «Datos de contacto» es una pieza compartida entre la ficha
+    // y la página del contacto; la ficha la monta y el CTA vive dentro.
     const sheet = read(SHEET);
-    assert.match(sheet, /OfficialContactPhoneRevealCta/);
-    assert.match(sheet, /post-approval-reveal-cta/);
+    assert.match(sheet, /<ContactChannelsSection/);
+    const channels = read('src/components/contacts/contact-channels-section.tsx');
+    assert.match(channels, /<OfficialContactPhoneRevealCta/);
+    assert.match(channels, /post-approval-reveal-cta/);
   });
 
   it('el CTA no imprime en consola (AGENT2A-PROD-INCIDENT #279)', () => {

@@ -654,6 +654,12 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
     // escalar). Ninguno nombra `phone` ni `phone_source` — demostrado abajo.
     join('src', 'modules', 'contact-enrichment', 'contact-hubspot-merge.server.ts'),
     join('src', 'modules', 'contact-enrichment', 'legacy-contact-phone-bootstrap.server.ts'),
+    // AGENT2A-CONTACT-APPROVED-REVIEW (Bryan 19-11) — el cambio de empresa se mudó a un runner sin
+    // frontera de acciones (mismos UPDATE: archivo y metadata), y la «Revisión» de un contacto
+    // aprobado cambia su empresa en el mismo contacto (`account_id`, `is_primary`, `metadata`).
+    // Ninguno nombra `phone` ni `phone_source` — demostrado abajo.
+    join('src', 'modules', 'contact-enrichment', 'contact-company-change-runner.server.ts'),
+    join('src', 'modules', 'contact-enrichment', 'official-contact-review-actions.ts'),
   ];
 
   it('sólo los módulos conocidos ESCRIBEN en la tabla `contacts`', () => {
@@ -712,13 +718,24 @@ describe('R1 estático — auditoría de escritores de `contacts.phone`', () => 
       ['modules', 'contact-enrichment', 'official-contact-identity-completion.server.ts'],
       ['modules', 'contact-enrichment', 'contact-hubspot-merge.server.ts'],
       ['modules', 'contact-enrichment', 'legacy-contact-phone-bootstrap.server.ts'],
+      ['modules', 'contact-enrichment', 'contact-company-change-runner.server.ts'],
+      ['modules', 'contact-enrichment', 'official-contact-review-actions.ts'],
     ]) {
       const src = stripComments(readFileSync(join(SRC_DIR, ...file), 'utf8'));
       for (const forbidden of ['phone_source', 'mobile_phone_source', 'mobile_phone:']) {
         assert.equal(src.includes(forbidden), false, `${file.join('/')}: ${forbidden}`);
       }
-      // Los únicos `phone:` permitidos son los `phone: null` de las filas de CANDIDATOS.
-      assert.equal(/\bphone:(?!\s*null\b)/.test(src), false, `${file.join('/')} escribe un teléfono`);
+      // Los únicos `phone:` permitidos son los `phone: null` de las filas de CANDIDATOS y, desde
+      // AGENT2A-CONTACT-PAGE-ACTIONS (Bryan 19-11), el teléfono del PERFIL del candidato de la
+      // empresa nueva en un cambio de empresa: copia el número que el contacto viejo ya tenía a
+      // un candidato «Por revisar». No toca `contacts` (ni su procedencia): eso sigue siendo de la
+      // aprobación, que escribe `phone` junto a `phone_source`.
+      const withoutCandidateProfilePhone = src.replace(/\bphone: input\.phones\?\.\[0\]\?\.number \?\? null,/g, '');
+      assert.equal(
+        /\bphone:(?!\s*null\b)/.test(withoutCandidateProfilePhone),
+        false,
+        `${file.join('/')} escribe un teléfono`,
+      );
     }
   });
 

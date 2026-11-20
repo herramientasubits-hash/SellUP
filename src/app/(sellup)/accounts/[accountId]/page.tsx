@@ -32,7 +32,7 @@ import {
 import { TabsContent } from '@/components/ui/tabs';
 import { getAccountById, getAccountAudit, getActiveUsers } from '@/modules/accounts/actions';
 import { getContactsByAccount, getContactsSummary } from '@/modules/contacts/actions';
-import { ContactsTab } from '@/components/contacts/contacts-tab';
+import { AccountContactsTabClient } from '@/components/contacts/account-contacts-tab-client';
 import { getContactEnrichmentRunsByAccountId } from '@/modules/contact-enrichment/account-run-history-actions';
 import { AccountAgentsRunHistory } from '@/components/contact-enrichment/account-agents-run-history';
 import {
@@ -366,7 +366,8 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
 
         {/* ── Contactos ────────────────────────────────────────── */}
         <TabsContent value="contactos">
-          <ContactsTab
+          {/* AGENT2A-CONTACT-PAGE-ACTIONS — el nombre del contacto abre su panel lateral. */}
+          <AccountContactsTabClient
             accountId={account.id}
             contacts={contacts}
             summary={contactsSummary}
