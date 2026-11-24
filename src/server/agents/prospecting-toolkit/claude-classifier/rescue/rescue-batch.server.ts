@@ -497,6 +497,15 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     },
     // AGENT1-CORPORATE-TREE-8 — la web del grupo de un lote del árbol: la de la empresa de
     // partida y las que comparten dos o más filiales (citibank.com). Otro lote ⇒ [].
+    loadBatchIsCorporateTree: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('metadata')
+        .eq('id', batchId)
+        .maybeSingle();
+      const metadata = (data as { metadata?: Record<string, unknown> | null } | null)?.metadata ?? null;
+      return !!metadata && (metadata.search_mode === 'corporate_tree' || !!metadata.corporate_tree);
+    },
     loadBatchGroupDomains: async (batchId) => {
       const admin = createSupabaseAdminClient();
       const { data } = await admin.from('prospect_batches').select('metadata').eq('id', batchId).maybeSingle();

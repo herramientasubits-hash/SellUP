@@ -158,6 +158,8 @@ export type CorporateTreeBatchCandidate = {
   status: string;
   matched_hubspot_company_id: string | null;
   metadata: Record<string, unknown> | null;
+  /** Revisión 24-11 — para saber si la ficha de HubSpot es exacta (sólo lectura). */
+  duplicate_status?: string | null;
 };
 
 export type CorporateTreeRelationshipRow = {
@@ -1078,6 +1080,32 @@ async function readGroupSignal(
   return { signal, statuses };
 }
 
+function bareDomain(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return normalizeDomain(value)?.replace(/^www\./, '') ?? null;
+}
+
+/**
+ * ¿La ficha de HubSpot es DE ESTA empresa (no una parecida)? Revisión 24-11: Banco de Occidente
+ * (CO) quedó ligado por NOMBRE a la ficha de Banco de Occidente Honduras (bancodeoccidente.hn);
+ * marcar «cliente» por eso sacaría de revisión a otra empresa. Vale: duplicado exacto, o la
+ * coincidencia con ese id tiene la MISMA web que la fila (Banco de Bogotá: bancodebogota.com).
+ */
+export function isProvenHubSpotMatch(candidate: CorporateTreeBatchCandidate, hubspotCompanyId: string): boolean {
+  if (candidate.duplicate_status === 'exact_duplicate') return true;
+  const own = bareDomain(candidate.domain);
+  if (!own) return false;
+  const check = candidate.metadata?.['duplicate_check'];
+  const matches = check && typeof check === 'object' ? (check as Record<string, unknown>)['matches'] : null;
+  if (!Array.isArray(matches)) return false;
+  return matches.some((m) => {
+    if (!m || typeof m !== 'object') return false;
+    const match = m as Record<string, unknown>;
+    if (match.source !== 'hubspot' || String(match.matched_id ?? '') !== hubspotCompanyId) return false;
+    return bareDomain(match.matched_domain) === own || bareDomain(match.matched_website) === own;
+  });
+}
+
 /** Estados de la fila que todavía se pueden sacar de revisión (no lo ya decidido por una persona). */
 const CUSTOMER_MARKABLE_STATUSES: ReadonlySet<string> = new Set(['needs_review', 'duplicate']);
 
@@ -1099,11 +1127,19 @@ async function markGroupCustomers(
   for (const row of rows) {
     if (!row.related_candidate_id || !row.matched_hubspot_company_id) continue;
     if (statuses.get(row.matched_hubspot_company_id) !== 'customer') continue;
-    if (markable.has(row.related_candidate_id)) targets.set(row.related_candidate_id, row.matched_hubspot_company_id);
+    const candidate = markable.get(row.related_candidate_id);
+    if (!candidate) continue;
+    // Sin ficha propia, el id salió de la búsqueda por su web EXACTA (withHubSpotIdsByDomain).
+    const byOwnDomain = !candidate.matched_hubspot_company_id && !!row.related_domain;
+    if (byOwnDomain || isProvenHubSpotMatch(candidate, row.matched_hubspot_company_id)) {
+      targets.set(candidate.id, row.matched_hubspot_company_id);
+    }
   }
   for (const candidate of markable.values()) {
     const id = candidate.matched_hubspot_company_id;
-    if (id && statuses.get(id) === 'customer' && !targets.has(candidate.id)) targets.set(candidate.id, id);
+    if (id && statuses.get(id) === 'customer' && !targets.has(candidate.id) && isProvenHubSpotMatch(candidate, id)) {
+      targets.set(candidate.id, id);
+    }
   }
   if (targets.size === 0) return new Set();
   const marked = await settleBy(

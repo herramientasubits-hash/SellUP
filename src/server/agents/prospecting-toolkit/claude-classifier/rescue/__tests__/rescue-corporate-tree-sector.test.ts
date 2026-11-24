@@ -65,4 +65,11 @@ describe('rescate en el árbol: sin sector pedido', () => {
     assert.match(source, /\.\.\.\(treeOwnWebsite \? \{ sectorNotRequested: true \} : \{\}\)/);
     assert.match(source, /sizeOnlyRescued \|\| treeOwnWebsite/);
   });
+
+  it('un árbol sin webs del grupo también cuenta como árbol (lo lee del lote)', () => {
+    const source = readFileSync(join(__dirname, '../rescue-batch.ts'), 'utf8');
+    assert.match(source, /return ctx\.corporateTree === true \|\| \(ctx\.groupDomains\?\.size \?\? 0\) > 0;/);
+    const server = readFileSync(join(__dirname, '../rescue-batch.server.ts'), 'utf8');
+    assert.match(server, /metadata\.search_mode === 'corporate_tree' \|\| !!metadata\.corporate_tree/);
+  });
 });

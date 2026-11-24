@@ -546,6 +546,8 @@ export function buildLiveCorporateTreeDeps(params: {
         })
         .eq('id', candidateId)
         .in('status', ['needs_review', 'duplicate'])
+        // Revisión 24-11 — lo que una persona ya decidió («Marcar duplicado») no se pisa.
+        .is('reviewed_by', null)
         .select('id, batch_id')
         .maybeSingle();
       if (error) {
@@ -741,7 +743,7 @@ export function buildLiveCorporateTreeDeps(params: {
     loadBatchCandidates: async (batchId) => {
       const { data, error } = await params.supabase
         .from('prospect_candidates')
-        .select('id, name, country_code, domain, industry, status, matched_hubspot_company_id, metadata')
+        .select('id, name, country_code, domain, industry, status, matched_hubspot_company_id, duplicate_status, metadata')
         .eq('batch_id', batchId);
       if (error) {
         logError('load candidates', error);

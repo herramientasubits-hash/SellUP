@@ -31,6 +31,7 @@ import {
   bulkDiscardPendingReviewCandidatesAction,
 } from '@/modules/prospect-review/bulk-review-actions';
 import {
+  bulkReviewMaxIds,
   BULK_REVIEW_ERROR_MESSAGES,
   bulkReviewFailureSummary,
   type BulkReviewResult,
@@ -76,6 +77,8 @@ export function BulkReviewDialog({ mode, rows, onOpenChange, onDone }: BulkRevie
   const composedReason = composeDiscardReason(reasonKey, reasonText);
   const reasonValid = validateDiscardReason(composedReason).ok;
   const count = plural(rows.length, 'prospecto', 'prospectos');
+  const max = mode ? bulkReviewMaxIds(mode) : 0;
+  const tooMany = rows.length > max;
 
   const run = async () => {
     if (!mode || busy) return;
@@ -110,6 +113,11 @@ export function BulkReviewDialog({ mode, rows, onOpenChange, onDone }: BulkRevie
               ? 'SellUp crea cada empresa y la registra en HubSpot, igual que al aprobar una por una. Las que tengan posible duplicado o ya estén en HubSpot se saltan: esas se revisan una por una.'
               : 'Saldrán de la revisión y no se crearán como empresas. El motivo queda guardado en cada una.'}
           </AlertDialogDescription>
+          {tooMany && (
+            <p role="alert" className="text-sm text-destructive">
+              {mode === 'approve' ? 'Para aprobar' : 'Para descartar'} marca como mucho {max} a la vez.
+            </p>
+          )}
         </AlertDialogHeader>
 
         {mode === 'discard' && (
@@ -167,7 +175,7 @@ export function BulkReviewDialog({ mode, rows, onOpenChange, onDone }: BulkRevie
             type="button"
             variant={mode === 'discard' ? 'destructive-solid' : 'default'}
             aria-busy={busy}
-            disabled={busy || (mode === 'discard' && !reasonValid)}
+            disabled={busy || tooMany || (mode === 'discard' && !reasonValid)}
             onClick={() => void run()}
           >
             {busy ? (

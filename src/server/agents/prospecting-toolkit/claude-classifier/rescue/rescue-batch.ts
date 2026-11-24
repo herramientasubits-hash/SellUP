@@ -148,6 +148,11 @@ export type RescueBatchDeps = {
    */
   loadBatchGroupDomains?: (batchId: string) => Promise<string[]>;
   /**
+   * Prod 24-11 — ¿el lote es de la búsqueda en árbol? Aunque no tenga webs del grupo (la
+   * empresa de partida sin web): ahí no hay sector pedido. Ausente o falla = se usa lo de arriba.
+   */
+  loadBatchIsCorporateTree?: (batchId: string) => Promise<boolean>;
+  /**
    * AUDIT-A1-WS7 — lo ya gastado en Claude por el rescate de ESTE lote, sumando
    * todas las corridas (botón, vueltas encadenadas, revisión en línea). `null` = no se
    * pudo leer (fail-open: se usa sólo el gasto de esta corrida). Antes el tope de
@@ -540,6 +545,8 @@ type RescueRunContext = {
    * (Prod 15-10, Bimbo: Bimbo Ecuador, RUC y 1.154 trabajadores, quedó duplicada por grupobimbo.com).
    */
   groupDomains?: ReadonlySet<string>;
+  /** Prod 24-11 — el lote es de la búsqueda en árbol (aunque no tenga webs del grupo). */
+  corporateTree?: boolean;
   /**
    * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — candidatos VIVOS a los que el
    * rescate les agregó su número fiscal oficial: se reclaman al final junto con
@@ -552,7 +559,7 @@ type RescueRunContext = {
 
 /** ¿Es el rescate de un lote del árbol? (tiene las webs del grupo guardadas). */
 function isCorporateTreeRun(ctx: RescueRunContext): boolean {
-  return (ctx.groupDomains?.size ?? 0) > 0;
+  return ctx.corporateTree === true || (ctx.groupDomains?.size ?? 0) > 0;
 }
 
 /** ¿Ya se pagaron todas las búsquedas del sitio permitidas para el lote? */
@@ -1662,6 +1669,9 @@ async function rescueBatchWithClaudeUnlocked(
         d.toLowerCase(),
       ),
     ),
+    corporateTree: deps.loadBatchIsCorporateTree
+      ? await deps.loadBatchIsCorporateTree(params.batchId).catch(() => false)
+      : false,
   };
   const admittedIds: string[] = [];
   // AUDIT-A1-WS7 — tope acumulado por lote (todas las corridas del rescate).

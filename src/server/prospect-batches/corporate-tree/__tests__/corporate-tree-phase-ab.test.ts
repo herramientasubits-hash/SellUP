@@ -849,7 +849,7 @@ describe('D4. Grupo Aval (Prod 24-11): la que HubSpot dice que es cliente sale d
     const marked: Array<[string, string]> = [];
     const run = fakeDeps({
       loadBatchCandidates: async () => [
-        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'needs_review', matched_hubspot_company_id: 'hs-ec', metadata: {} },
+        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'needs_review', matched_hubspot_company_id: 'hs-ec', duplicate_status: 'exact_duplicate', metadata: {} },
       ],
       readGroupHubSpotStatus: async () => new Map([['hs-ec', 'customer' as const]]),
       markHubSpotCustomer: async (candidateId, hubspotCompanyId) => {
@@ -885,6 +885,41 @@ describe('D4. Grupo Aval (Prod 24-11): la que HubSpot dice que es cliente sale d
     const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
     assert.ok(result.ok);
     assert.equal(result.inReview, 1);
+  });
+
+  it('Banco de Occidente (Prod 24-11): ligada por NOMBRE a la ficha de otro país ⇒ no se marca', async () => {
+    const { deps, marked } = customerRun({
+      loadBatchCandidates: async () => [
+        {
+          id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: 'bimbo.com.ec', status: 'needs_review',
+          matched_hubspot_company_id: 'hs-ec', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: 'hs-ec', matched_domain: 'bimbo.hn', matched_website: 'bimbo.hn' }] } },
+        },
+      ],
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(marked, []);
+    assert.equal(result.inReview, 1, 'sigue en revisión: la persona decide');
+  });
+
+  it('Banco de Bogotá (Prod 24-11): posible duplicado pero con la MISMA web ⇒ se marca', async () => {
+    const { deps, marked } = customerRun({
+      loadBatchCandidates: async () => [
+        {
+          id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: 'bimbo.com.ec', status: 'needs_review',
+          matched_hubspot_company_id: 'hs-ec', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: 'hs-ec', matched_domain: 'bimbo.ec', matched_website: 'https://www.bimbo.com.ec/' }] } },
+        },
+      ],
+    });
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.deepEqual(marked, [['c-ec', 'hs-ec']]);
+  });
+
+  it('el servidor no pisa lo que una persona ya marcó como duplicado', () => {
+    const server = readFileSync(join(__dirname, '../corporate-tree-run.server.ts'), 'utf8');
+    assert.match(server, /\.in\('status', \['needs_review', 'duplicate'\]\)\s*\n\s*\/\/[^\n]*\n\s*\.is\('reviewed_by', null\)/);
   });
 
   it('una ya decidida por una persona (aprobada) no se toca', async () => {

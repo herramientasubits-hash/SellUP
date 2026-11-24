@@ -8,10 +8,13 @@
 
 import { approveAndConvertPendingReviewCandidateAction } from './approve-and-convert-actions';
 import { discardPendingReviewCandidateAction } from './discard-actions';
-import { normalizeBulkReviewIds, summarizeBulkReview, type BulkReviewItem, type BulkReviewResult } from './bulk-review-core';
+import { BULK_APPROVE_MAX_IDS, normalizeBulkReviewIds, summarizeBulkReview, type BulkReviewItem, type BulkReviewResult } from './bulk-review-core';
 
-/** Aprobar crea la empresa (y su paso a HubSpot de siempre): de a pocas a la vez. */
-const APPROVE_CONCURRENCY = 2;
+/**
+ * Aprobar crea la empresa (y su paso a HubSpot de siempre): de a UNA, para que dos filas de la
+ * misma empresa no creen dos fichas a la vez (revisión 24-11).
+ */
+const APPROVE_CONCURRENCY = 1;
 const DISCARD_CONCURRENCY = 4;
 
 async function runInPool<T>(
@@ -34,7 +37,7 @@ async function runInPool<T>(
 
 /** Aprueba y convierte en empresa cada prospecto marcado (sin confirmar duplicados por ellos). */
 export async function bulkApprovePendingReviewCandidatesAction(rawIds: unknown): Promise<BulkReviewResult> {
-  const ids = normalizeBulkReviewIds(rawIds);
+  const ids = normalizeBulkReviewIds(rawIds, BULK_APPROVE_MAX_IDS);
   if (!ids.ok) return { ok: false, error: ids.error };
   const items = await runInPool(ids.ids, APPROVE_CONCURRENCY, async (id): Promise<BulkReviewItem> => {
     const result = await approveAndConvertPendingReviewCandidateAction(id);

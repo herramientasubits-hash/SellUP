@@ -38,6 +38,10 @@ const SKELETON_NOUN: Record<ModuleTabId, string> = {
   descartadas: 'empresas descartadas',
 };
 
+// Prod 24-11 — «Aprobar» en masa en Prospectos corre en esta ruta: cada aprobación crea la
+// empresa y su ficha en HubSpot, de a una (hasta 25). Necesita más que el tiempo por defecto.
+export const maxDuration = 300;
+
 export default async function AccountsPage({ searchParams }: PageProps) {
   // «Empresas» aloja sus tres vistas (Empresas / Por revisar / Descartadas), a
   // las que se llega desde el menú lateral: con `?tab=prospectos` se pinta su

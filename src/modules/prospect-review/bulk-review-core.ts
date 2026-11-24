@@ -1,8 +1,14 @@
 // Prod 24-11 — aprobar y descartar en masa en «Por revisar». Parte pura (sin IO): validar
 // los ids que llegan del navegador y resumir lo que pasó con cada uno.
 
-/** Como mucho, prospectos por acción en masa (cada aprobación crea una empresa). */
+/** Como mucho, prospectos por descarte en masa. */
 export const BULK_REVIEW_MAX_IDS = 50;
+/** Aprobar crea cada empresa (y su ficha en HubSpot), de a una: menos por vez. */
+export const BULK_APPROVE_MAX_IDS = 25;
+
+export function bulkReviewMaxIds(mode: 'approve' | 'discard'): number {
+  return mode === 'approve' ? BULK_APPROVE_MAX_IDS : BULK_REVIEW_MAX_IDS;
+}
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,12 +21,15 @@ export type BulkReviewResult =
   | { ok: false; error: BulkReviewError };
 
 /** Ids del navegador: dato no confiable. Únicos, con formato de id, con tope. */
-export function normalizeBulkReviewIds(raw: unknown): { ok: true; ids: string[] } | { ok: false; error: BulkReviewError } {
+export function normalizeBulkReviewIds(
+  raw: unknown,
+  max: number = BULK_REVIEW_MAX_IDS,
+): { ok: true; ids: string[] } | { ok: false; error: BulkReviewError } {
   if (!Array.isArray(raw)) return { ok: false, error: 'invalid_ids' };
   if (raw.some((id) => typeof id !== 'string' || !UUID_PATTERN.test(id))) return { ok: false, error: 'invalid_ids' };
   const ids = [...new Set(raw as string[])];
   if (ids.length === 0) return { ok: false, error: 'empty' };
-  if (ids.length > BULK_REVIEW_MAX_IDS) return { ok: false, error: 'too_many' };
+  if (ids.length > max) return { ok: false, error: 'too_many' };
   return { ok: true, ids };
 }
 
@@ -66,7 +75,7 @@ export function bulkReviewFailureSummary(failed: readonly { reason: string }[]):
 
 export const BULK_REVIEW_ERROR_MESSAGES: Record<BulkReviewError, string> = {
   empty: 'No hay prospectos marcados.',
-  too_many: `Marca como mucho ${BULK_REVIEW_MAX_IDS} prospectos a la vez.`,
+  too_many: `Marca menos prospectos: como mucho ${BULK_APPROVE_MAX_IDS} para aprobar y ${BULK_REVIEW_MAX_IDS} para descartar.`,
   invalid_ids: 'No se pudo leer la selección. Vuelve a marcarlos.',
   invalid_reason: 'Elige un motivo de descarte.',
 };
