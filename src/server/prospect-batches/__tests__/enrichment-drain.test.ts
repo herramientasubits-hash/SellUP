@@ -110,3 +110,16 @@ describe('parseEnrichmentHop', () => {
     assert.equal(parseEnrichmentHop(null), 0);
   });
 });
+
+// ─── Prod 24-11 — margen para relevar antes del límite de Vercel ────────────
+
+import { ENRICHMENT_CHAIN_TIME_BUDGET_MS } from '../enrichment-drain';
+
+describe('margen de la vuelta encadenada', () => {
+  it('deja tiempo para terminar la última ronda (~75 s) y pedir la siguiente antes de los 300 s', () => {
+    const VERCEL_LIMIT_MS = 300_000;
+    const WORST_ROUND_MS = 75_000;
+    const TRIGGER_MS = 10_000;
+    assert.ok(ENRICHMENT_CHAIN_TIME_BUDGET_MS + WORST_ROUND_MS * 2 + TRIGGER_MS < VERCEL_LIMIT_MS);
+  });
+});
