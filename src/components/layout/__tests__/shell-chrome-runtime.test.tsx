@@ -441,6 +441,7 @@ describe('Menú lateral — secciones plegables', () => {
         'Uso de IA y costos',
         'Catálogo de fuentes',
         'Calculadora de ROI',
+        'Cotizador',
       ],
     );
   });

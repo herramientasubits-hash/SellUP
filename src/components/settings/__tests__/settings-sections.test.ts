@@ -14,10 +14,10 @@ import {
 } from '../settings-sections';
 
 describe('getVisibleSettingsSections — permisos', () => {
-  it('un administrador ve las siete secciones', () => {
+  it('un administrador ve las ocho secciones', () => {
     const sections = getVisibleSettingsSections({ isAdmin: true, isActive: true });
 
-    assert.equal(sections.length, 7);
+    assert.equal(sections.length, 8);
     assert.deepEqual(sections, [...SETTINGS_SECTIONS]);
   });
 
@@ -34,7 +34,7 @@ describe('getVisibleSettingsSections — permisos', () => {
   it('las secciones administrativas son las que redirigen a quien no es admin', () => {
     const adminOnly = SETTINGS_SECTIONS.filter((s) => s.access === 'admin').map((s) => s.id);
 
-    assert.deepEqual(adminOnly, ['users', 'notifications', 'providers', 'integrations']);
+    assert.deepEqual(adminOnly, ['users', 'notifications', 'providers', 'integrations', 'quotes']);
   });
 });
 
