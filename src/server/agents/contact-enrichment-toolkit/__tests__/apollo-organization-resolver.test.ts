@@ -210,3 +210,47 @@ describe('resolveApolloOrganization — parámetro documentado por dominio (20-1
     assert.equal('q_organization_domains' in sent[0], false);
   });
 });
+
+describe('resolveApolloOrganization — variantes de nombre sin dominio (caso Merck 24-11)', () => {
+  it('prueba nombre limpio → sin «SAS» → sin país, y para en la primera que encuentra', async () => {
+    const queried: string[] = [];
+    const result = await resolveApolloOrganization(null, 'Merck Sharp  Dohme Colombia SAS', {
+      searchOrganizations: async (params) => {
+        const name = String(params.q_organization_name);
+        queried.push(name);
+        if (name === 'Merck Sharp Dohme') {
+          return okOrgs([org({ id: 'msd-1', name: 'Merck Sharp & Dohme', website_url: 'https://www.msd.com', country: 'United States' })]);
+        }
+        return { ...emptyOrgs(), rawEntries: 0 } as ApolloSearchResult<ApolloOrganization>;
+      },
+    });
+
+    assert.deepEqual(queried, ['Merck Sharp Dohme Colombia SAS', 'Merck Sharp Dohme Colombia', 'Merck Sharp Dohme']);
+    assert.equal(result.resolutionStatus, 'found_by_name');
+    assert.equal(result.organizationId, 'msd-1');
+  });
+
+  it('si la primera variante encuentra, no gasta más búsquedas', async () => {
+    let calls = 0;
+    const result = await resolveApolloOrganization(null, 'Alpina S.A.', {
+      searchOrganizations: async () => {
+        calls += 1;
+        return okOrgs([org({ id: 'alp', name: 'Alpina' })]);
+      },
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.organizationId, 'alp');
+  });
+
+  it('ninguna variante encuentra → not_found', async () => {
+    let calls = 0;
+    const result = await resolveApolloOrganization(null, 'Empresa Inexistente Colombia SAS', {
+      searchOrganizations: async () => {
+        calls += 1;
+        return emptyOrgs();
+      },
+    });
+    assert.equal(calls, 3);
+    assert.equal(result.resolutionStatus, 'not_found');
+  });
+});
