@@ -6446,6 +6446,14 @@ jobs:
       - name: Run bulk company assignment tests
         run: npm run test:bulk-company-assignment
 
+      # SALES-QUOTE-ENGINE-1 - cotizador de Ventas (versiones 2026 y 2027): da
+      # exactamente lo mismo que el cotizador original en ~300 casos de
+      # referencia (precios, minimos, descuentos, planes de creditos).
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run sales quote engine tests
+        run: npm run test:sales-quote
+
       # AGENT1-CORPORATE-TREE-1 - busqueda en arbol de una empresa: Claude busca
       # grupo, filiales y otros paises; solo entra lo que tiene fuente en su
       # busqueda; la web del grupo no aparta a las hermanas; las filas pasan por
