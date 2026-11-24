@@ -5,7 +5,6 @@ import {
   HardDrive,
   Layers,
   Link2,
-  ReceiptText,
   Users,
   type LucideIcon,
 } from "@/icons";
@@ -83,14 +82,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     description: "Conecta HubSpot, Slack y las demás herramientas con las que trabaja el equipo comercial.",
     href: "/settings/integrations",
     icon: Link2,
-    access: "admin",
-  },
-  {
-    id: "quotes",
-    title: "Cotizador",
-    description: "Qué regiones cotiza cada persona en el cotizador de Ventas.",
-    href: "/settings/quotes",
-    icon: ReceiptText,
     access: "admin",
   },
   {

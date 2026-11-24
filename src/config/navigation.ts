@@ -201,7 +201,7 @@ export const mainNavItems: NavItem[] = [
     href: QUOTES_ROUTE,
     icon: ReceiptText,
     // Lo usan todos los roles. Qué países ve cada quien lo decide la página
-    // con sus regiones (Configuración → Cotizador).
+    // con la región de su grupo de SellUp (admin y líderes, todas).
   },
   {
     title: "Configuración",

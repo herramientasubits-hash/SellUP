@@ -5,7 +5,7 @@
  *
  * Hasta el 31 de diciembre de 2026 conviven la 2026 (vigente) y la 2027 (la
  * nueva); desde el 1 de enero solo queda la 2027. Cada versión muestra solo los
- * países de las regiones de quien cotiza.
+ * países de la región de quien cotiza (la de su grupo de SellUp).
  */
 
 import { useState } from "react";
@@ -30,11 +30,13 @@ const VERSION_LABELS: Record<PricingVersion, string> = {
 export interface QuoteClientProps {
   markets: QuoteMarket[];
   seesAllMarkets: boolean;
+  /** El grupo de SellUp del que salió la región (o el suyo, si no dice ninguna). */
+  fromGroup: string | null;
   versions: PricingVersion[];
   defaultVersion: PricingVersion;
 }
 
-export function QuoteClient({ markets, seesAllMarkets, versions, defaultVersion }: QuoteClientProps) {
+export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defaultVersion }: QuoteClientProps) {
   const [version, setVersion] = useState<PricingVersion>(defaultVersion);
   const access = { markets, seesAll: seesAllMarkets };
   const countries2027 = quotableCountries(access, QUOTE_COUNTRIES);
@@ -45,7 +47,7 @@ export function QuoteClient({ markets, seesAllMarkets, versions, defaultVersion 
       title="Cotizador"
       description="Arma la cotización de UBITS con los precios oficiales: productos, descuentos y lo que paga el cliente por año y en el contrato."
       meta={
-        <Badge variant={markets.length === 0 ? "warning" : "neutral"}>
+        <Badge variant={markets.length === 0 ? "warning" : "neutral"} title={fromGroup ? `Por tu grupo: ${fromGroup}` : undefined}>
           {seesAllMarkets
             ? "Todas las regiones"
             : markets.length === 0
@@ -64,8 +66,12 @@ export function QuoteClient({ markets, seesAllMarkets, versions, defaultVersion 
         {header}
         <EmptyState
           icon={Globe}
-          title="Aún no tienes una región asignada"
-          description="El cotizador muestra los países de tu región. Pídele a un admin que te la asigne en Configuración → Cotizador."
+          title="Tu grupo no dice una región"
+          description={
+            fromGroup
+              ? `El cotizador muestra los países de la región de tu grupo, y «${fromGroup}» no nombra ninguna. Pídele a un admin que te ubique en el grupo de tu región (Andina, Chile, México, Centroamérica u Otros) en Configuración → Usuarios y acceso.`
+              : "El cotizador muestra los países de la región de tu grupo y aún no tienes grupo. Pídele a un admin que te ubique en el de tu región en Configuración → Usuarios y acceso."
+          }
         />
       </PageShell>
     );
