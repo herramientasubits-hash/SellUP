@@ -1291,7 +1291,7 @@ export async function writeStructuredSourceCandidatesPreview(
       const recordOriginResolution = resolveCandidateRecordOriginForWriter({
         dryRun,
         candidate: {
-          status: 'needs_review',
+          status: p.candidateStatus,
           duplicate_status: p.duplicateStatus,
           source_primary: input.sourceProvider,
           // Esta ruta no escribe `review_notes` en la fila: declararlo ausente es
@@ -1352,7 +1352,10 @@ export async function writeStructuredSourceCandidatesPreview(
         source_trace: draft.sourceTrace,
         hubspot_trace: p.hubspotTrace,
         commercial_trace: p.commercialTrace,
-        status: 'needs_review', // Forced to review state
+        // Prod 24-11 (EC, 732bc372: AYMESA, cliente en HubSpot, quedó en «Por revisar») —
+        // un cliente sale como `duplicate`, igual que en el escritor común. Antes se
+        // forzaba `needs_review` y se ignoraba `resolveCandidateStatus`.
+        status: p.candidateStatus,
         duplicate_status: p.duplicateStatus,
         // § 6 — la fila declara de qué clase de corrida salió. Sin esto un
         // candidato real de una corrida real no se puede aprobar ni descartar.
