@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DrawerSection } from '@/components/shared/drawer-section';
 import {
   DUPLICATE_VERDICT_BADGE,
+  readHubSpotExCustomer,
   readHubSpotFreeReason,
   resolveDuplicateVerdict,
 } from '@/components/prospects/duplicate-verdict';
@@ -39,14 +40,16 @@ export function CandidateDuplicateStatusSection({
   const hsDupStatus = validationMetaSheet?.hubspot_duplicate_check?.status;
   // Una sola frase: es duplicado / posible duplicado / no lo es / aún no se sabe, y dónde.
   const sourcesChecked = parseDuplicateCheck(candidate.metadata)?.sources_checked;
+  const freeReason = readHubSpotFreeReason(candidate.metadata);
   const verdict = resolveDuplicateVerdict({
     duplicateStatus: candidate.duplicate_status,
     matchedInHubspot: !!candidate.matched_hubspot_company_id,
     matchedInSellup: !!candidate.matched_account_id,
     hubspotChecked: sourcesChecked ? sourcesChecked.includes('hubspot') : null,
-    hubspotFreeReason: readHubSpotFreeReason(candidate.metadata),
+    hubspotFreeReason: freeReason,
+    hubspotExCustomer: readHubSpotExCustomer(candidate.metadata),
   });
-  const hubspotFree = verdict.label === 'Libre en HubSpot';
+  const hubspotFree = freeReason !== null && verdict.kind === 'not_duplicate';
 
   return (
     <DrawerSection

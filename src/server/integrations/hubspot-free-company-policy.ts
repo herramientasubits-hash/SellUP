@@ -38,6 +38,22 @@ export const HUBSPOT_LAST_ACTIVITY_PROPERTIES = [
   'hs_last_sales_activity_timestamp',
 ] as const;
 
+/**
+ * FEEDBACK 24-11 — el churn en el portal de UBITS (leído de /crm/v3/properties/companies,
+ * 24-11): «Estado de la cuenta Auto [Ops|E]» (`estado_de_la_cuenta`) = `Churn` (935
+ * empresas). La etapa NO cambia: 934 de esas 935 siguen en «Cliente», así que mirar sólo
+ * la etapa trataba a cada ex cliente como cliente actual y lo bloqueaba.
+ */
+export const HUBSPOT_ACCOUNT_STATE_PROPERTY = 'estado_de_la_cuenta';
+export const HUBSPOT_CHURN_ACCOUNT_STATE = 'Churn';
+export const HUBSPOT_LAST_CHURN_DATE_PROPERTY = 'fecha_ultimo_churn';
+export const HUBSPOT_CHURN_REASON_PROPERTY = 'razon_de_churn';
+export const HUBSPOT_CHURN_PROPERTIES = [
+  HUBSPOT_ACCOUNT_STATE_PROPERTY,
+  HUBSPOT_LAST_CHURN_DATE_PROPERTY,
+  HUBSPOT_CHURN_REASON_PROPERTY,
+] as const;
+
 /** Propiedades de HubSpot que la regla necesita. */
 export const HUBSPOT_FREE_POLICY_PROPERTIES = [
   'hubspot_owner_id',
@@ -46,6 +62,7 @@ export const HUBSPOT_FREE_POLICY_PROPERTIES = [
   'hs_num_open_deals',
   ...HUBSPOT_LAST_ACTIVITY_PROPERTIES,
   'notes_next_activity_date',
+  ...HUBSPOT_CHURN_PROPERTIES,
 ] as const;
 
 /** Valor interno de la etapa «Cliente» en el portal de UBITS (verificado 15-10). */
@@ -117,15 +134,56 @@ export type HubSpotTakenReason =
   | 'active_owner'
   | 'unknown_owner';
 
+/** Fue cliente de UBITS y se fue (churn): cuándo y por qué, como lo dice HubSpot. */
+export type HubSpotChurnInfo = {
+  /** «Fecha último churn» (AAAA-MM-DD) o `null` si HubSpot no la tiene. */
+  churnedAt: string | null;
+  /** «Razón de Churn Principal» o `null`. */
+  reason: string | null;
+};
+
 export type HubSpotAvailability =
-  | { free: true; reason: HubSpotFreeReason }
-  | { free: false; reason: HubSpotTakenReason };
+  | { free: true; reason: HubSpotFreeReason; churn?: HubSpotChurnInfo }
+  | { free: false; reason: HubSpotTakenReason; churn?: HubSpotChurnInfo };
 
 type PolicyProperties = Partial<Record<(typeof HUBSPOT_FREE_POLICY_PROPERTIES)[number], unknown>>;
 
 function text(value: unknown): string | null {
   if (typeof value === 'number') return String(value);
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** La cuenta está marcada como churn en HubSpot («Estado de la cuenta» = Churn). */
+export function isHubSpotChurnedAccount(properties: Readonly<Record<string, unknown>> | null | undefined): boolean {
+  return text(properties?.[HUBSPOT_ACCOUNT_STATE_PROPERTY]) === HUBSPOT_CHURN_ACCOUNT_STATE;
+}
+
+/** Cuándo y por qué se fue, o `null` si la cuenta no está marcada como churn. */
+export function readHubSpotChurn(properties: Readonly<Record<string, unknown>> | null | undefined): HubSpotChurnInfo | null {
+  if (!isHubSpotChurnedAccount(properties)) return null;
+  const at = parseHubSpotTimestamp(properties?.[HUBSPOT_LAST_CHURN_DATE_PROPERTY]);
+  return {
+    churnedAt: at === null ? null : new Date(at).toISOString().slice(0, 10),
+    reason: text(properties?.[HUBSPOT_CHURN_REASON_PROPERTY]),
+  };
+}
+
+/**
+ * ¿Es cliente ACTUAL? Etapa «Cliente» o «Forecast», o estado de lead «Customer»; pero
+ * una cuenta marcada como churn ya no es cliente aunque siga en «Cliente» (HubSpot no
+ * le cambia la etapa). «Forecast» sí bloquea siempre: hay un negocio en pronóstico.
+ */
+export function isHubSpotCurrentCustomer(properties: Readonly<Record<string, unknown>> | null | undefined): boolean {
+  const lifecycle = text(properties?.lifecyclestage);
+  if (lifecycle === HUBSPOT_FORECAST_LIFECYCLE_VALUE) return true;
+  if (isHubSpotChurnedAccount(properties)) return false;
+  return lifecycle === HUBSPOT_CLIENT_LIFECYCLE_VALUE || text(properties?.hs_lead_status) === 'Customer';
+}
+
+/** Texto corto para la ficha: «Ex cliente de UBITS (churn 2025-03-01 · Pricing & Billing)». */
+export function describeHubSpotChurn(churn: HubSpotChurnInfo): string {
+  const details = [churn.churnedAt ? `churn ${churn.churnedAt}` : 'churn', churn.reason].filter(Boolean);
+  return `Ex cliente de UBITS (${details.join(' · ')})`;
 }
 
 /** Fecha de HubSpot: ISO («2026-10-01T…») o milisegundos («1727740800000»). */
@@ -155,13 +213,26 @@ export function classifyHubSpotCompanyAvailability(
   owners: HubSpotOwnerDirectory,
   now: Date,
 ): HubSpotAvailability {
-  const lifecycle = text(properties.lifecyclestage);
-  const leadStatus = text(properties.hs_lead_status);
-  if ((lifecycle && HUBSPOT_CUSTOMER_LIFECYCLE_VALUES.has(lifecycle)) || leadStatus === 'Customer') {
+  const verdict = classifyAvailabilityIgnoringChurn(properties, owners, now);
+  // Un ex cliente no se bloquea por haber sido cliente: pasa por la misma regla que
+  // cualquier otra ficha (negocio abierto, actividad, dueño) y lleva la marca de churn.
+  const churn = readHubSpotChurn(properties);
+  return churn ? { ...verdict, churn } : verdict;
+}
+
+function classifyAvailabilityIgnoringChurn(
+  properties: PolicyProperties,
+  owners: HubSpotOwnerDirectory,
+  now: Date,
+): HubSpotAvailability {
+  if (isHubSpotCurrentCustomer(properties)) {
     return { free: false, reason: 'customer' };
   }
+  const leadStatus = text(properties.hs_lead_status);
   const openDeals = Number(text(properties.hs_num_open_deals) ?? '0');
-  if ((Number.isFinite(openDeals) && openDeals > 0) || (leadStatus !== null && NOT_FREE_LEAD_STATUSES.has(leadStatus))) {
+  // «Customer» en el estado de lead de un ex cliente es un resto de cuando lo era.
+  const blockingLeadStatus = leadStatus !== null && NOT_FREE_LEAD_STATUSES.has(leadStatus) && leadStatus !== 'Customer';
+  if ((Number.isFinite(openDeals) && openDeals > 0) || blockingLeadStatus) {
     return { free: false, reason: 'open_deal' };
   }
   const lastActivity = latestHubSpotActivity(properties);

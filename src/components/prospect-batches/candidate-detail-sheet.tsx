@@ -81,7 +81,7 @@ import {
   CandidateWebsiteVerificationSection,
 } from './candidate-detail-validation-sections';
 import { useNavAccess } from '@/components/layout/nav-access-context';
-import { readHubSpotFreeReason } from '@/components/prospects/duplicate-verdict';
+import { readHubSpotExCustomer, readHubSpotFreeReason } from '@/components/prospects/duplicate-verdict';
 
 // ── Componente principal ───────────────────────────────────────
 
@@ -735,6 +735,7 @@ export function CandidateDetailSheet({
                 matchedAccountId: candidate.matched_account_id,
                 hubspotChecked: dc?.sources_checked ? dc.sources_checked.includes('hubspot') : null,
                 hubspotFreeReason: readHubSpotFreeReason(candidate.metadata),
+                hubspotExCustomer: readHubSpotExCustomer(candidate.metadata),
                 reviewedAt: candidate.reviewed_at,
                 convertedAccountId: candidate.converted_account_id,
                 needsAssignee: candidate.needs_assignee,

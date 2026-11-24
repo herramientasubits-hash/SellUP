@@ -60,7 +60,7 @@ describe('empresa', () => {
       numberofemployees: '1000',
       identificaci_n_fiscal: '96.123.456-7',
       hubspot_owner_id: '55',
-      lifecyclestage: 'customer',
+      lifecyclestage: '1443029400',
       num_associated_contacts: '3',
     });
     assert.equal(c.name, 'ARCOR Chile');
@@ -73,6 +73,19 @@ describe('empresa', () => {
     assert.equal(c.ownerId, '55');
     assert.equal(c.lifecycle, 'Cliente');
     assert.equal(c.contactsCount, 3);
+  });
+
+  it('en el portal de UBITS `customer` es «Forecast», no «Cliente»', () => {
+    assert.equal(mapHubSpotCompany('2', { lifecyclestage: 'customer' }).lifecycle, 'Forecast');
+  });
+
+  it('un ex cliente (Estado de la cuenta = Churn) no se lee como cliente actual', () => {
+    const c = mapHubSpotCompany('3', {
+      lifecyclestage: '1443029400',
+      estado_de_la_cuenta: 'Churn',
+      fecha_ultimo_churn: '2025-03-01',
+    });
+    assert.equal(c.lifecycle, 'Ex cliente (churn 2025-03-01)');
   });
 
   it('sin nombre usa el dominio; un sitio sin protocolo se vuelve enlace', () => {
