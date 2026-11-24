@@ -765,9 +765,12 @@ const APOLLO_EMPLOYEE_RANGES: string[] = [
  */
 export function mapEmployeeThresholdToApolloRanges(threshold: number | null | undefined): string[] {
   if (threshold == null) return [];
+  // FEEDBACK 24-11 — un rango sirve si su TECHO supera el umbral: con 300, «200,500»
+  // contiene empresas de 300-500 (el filtro final descarta las de menos). Con 200 y 500
+  // el resultado es el mismo de antes.
   return APOLLO_EMPLOYEE_RANGES.filter(range => {
-    const rangeStart = parseInt(range.split(',')[0], 10);
-    return rangeStart >= threshold;
+    const rangeEnd = parseInt(range.split(',')[1], 10);
+    return rangeEnd > threshold;
   });
 }
 
