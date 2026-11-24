@@ -721,7 +721,11 @@ export function CandidatesTableClient({ candidates }: CandidatesTableClientProps
                           showEnrichmentOverride = true;
                         }
 
-                        if (!showEnrichmentOverride) {
+                        if (!showEnrichmentOverride && c.commercial_fit_status === 'customer_blocked') {
+                          // Ya es cliente en HubSpot (Prod 24-11, Banco de Bogotá en el árbol de Grupo Aval).
+                          statusLabel = 'Ya es cliente';
+                          statusTone = 'negative';
+                        } else if (!showEnrichmentOverride) {
                           if (validationMeta && !hasDuplicate) {
                             statusLabel = 'Validado para revisión';
                             statusTone = 'positive';

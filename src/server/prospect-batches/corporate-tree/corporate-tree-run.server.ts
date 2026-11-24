@@ -86,6 +86,9 @@ import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { CORPORATE_TREE_SAVED_DAYS } from './corporate-tree-saved';
 import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeRelationshipRow, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
 
+/** La nota que ve el vendedor en la fila que ya es cliente de UBITS. */
+const CORPORATE_TREE_CUSTOMER_NOTE = 'Ya es cliente de UBITS en HubSpot: no entra a revisión.';
+
 const RELATIONSHIPS_TABLE = 'agent1_company_relationships';
 /** Flujo en Uso de IA: la operación es la de «Claude busca empresas» (agente 1, mismo paso). */
 export const CORPORATE_TREE_USAGE_FLOW = 'corporate_tree_search';
@@ -527,6 +530,42 @@ export function buildLiveCorporateTreeDeps(params: {
       return new Map(entries.filter((e): e is readonly [string, CorporateTreeGroupMemberStatus] => !!e));
     },
 
+    // Prod 24-11 (Grupo Aval): la que HubSpot dice que es CLIENTE sale de «Por revisar».
+    // Escribe sólo en SellUp (HubSpot ya se leyó); nunca toca una fila ya decidida.
+    markHubSpotCustomer: async (candidateId, hubspotCompanyId) => {
+      const { data, error } = await params.supabase
+        .from('prospect_candidates')
+        .update({
+          status: 'duplicate',
+          duplicate_status: 'exact_duplicate',
+          matched_hubspot_company_id: hubspotCompanyId,
+          hubspot_match_status: 'exact_match_customer',
+          commercial_fit_status: 'customer_blocked',
+          review_status: 'blocked_customer',
+          review_notes: CORPORATE_TREE_CUSTOMER_NOTE,
+        })
+        .eq('id', candidateId)
+        .in('status', ['needs_review', 'duplicate'])
+        // Revisión 24-11 — lo que una persona ya decidió («Marcar duplicado») no se pisa.
+        .is('reviewed_by', null)
+        .select('id, batch_id')
+        .maybeSingle();
+      if (error) {
+        logError('mark hubspot customer', error);
+        return false;
+      }
+      if (!data) return false;
+      const { error: auditError } = await params.supabase.from('prospect_candidate_audit').insert({
+        batch_id: data.batch_id,
+        candidate_id: data.id,
+        actor_user_id: params.internalUserId,
+        action_type: 'candidate_updated',
+        details: { sub_action: 'corporate_tree_hubspot_customer', hubspot_company_id: hubspotCompanyId },
+      });
+      if (auditError) logError('mark hubspot customer audit', auditError);
+      return true;
+    },
+
     fillOfficialTaxIds: async (companies) => {
       const lookUp = buildCountrySourceOfficialTaxIdLookup(buildColombiaOfficialSourceResolvers());
       return fillMissingOfficialTaxIds(companies, lookUp);
@@ -704,7 +743,7 @@ export function buildLiveCorporateTreeDeps(params: {
     loadBatchCandidates: async (batchId) => {
       const { data, error } = await params.supabase
         .from('prospect_candidates')
-        .select('id, name, country_code, domain, industry, status, matched_hubspot_company_id, metadata')
+        .select('id, name, country_code, domain, industry, status, matched_hubspot_company_id, duplicate_status, metadata')
         .eq('batch_id', batchId);
       if (error) {
         logError('load candidates', error);

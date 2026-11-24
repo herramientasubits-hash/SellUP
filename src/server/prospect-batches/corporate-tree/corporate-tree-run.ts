@@ -158,6 +158,8 @@ export type CorporateTreeBatchCandidate = {
   status: string;
   matched_hubspot_company_id: string | null;
   metadata: Record<string, unknown> | null;
+  /** Revisión 24-11 — para saber si la ficha de HubSpot es exacta (sólo lectura). */
+  duplicate_status?: string | null;
 };
 
 export type CorporateTreeRelationshipRow = {
@@ -258,6 +260,11 @@ export type CorporateTreeRunDeps = {
    * no vienen. Ausente = no se mira.
    */
   readGroupHubSpotStatus?: (hubspotCompanyIds: readonly string[]) => Promise<ReadonlyMap<string, CorporateTreeGroupMemberStatus>>;
+  /**
+   * La empresa del lote que HubSpot dice que es CLIENTE sale de «Por revisar» como «Ya es
+   * cliente» (escribe sólo en SellUp). `false` si no se pudo. Ausente = quedan como estaban.
+   */
+  markHubSpotCustomer?: (candidateId: string, hubspotCompanyId: string) => Promise<boolean>;
   /**
    * La ficha de HubSpot de una empresa del grupo por su web EXACTA (sólo lectura). Para las
    * que no quedaron ligadas a una ficha porque no entraron al lote (Prod 22-10, Cencosud
@@ -814,8 +821,12 @@ async function runAfterReservation(
     deps,
     sealStartAtMs,
   );
-  const groupSignal = await readGroupSignal(relationshipRows, deps, sealStartAtMs, saved?.hubspotMembers ?? []);
+  const groupRead = await readGroupSignal(relationshipRows, deps, sealStartAtMs, saved?.hubspotMembers ?? []);
+  const groupSignal = groupRead?.signal ?? null;
   const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
+  // Prod 24-11 (Grupo Aval d2bb643b): Banco de Bogotá ya es cliente en HubSpot y quedó en
+  // «Por revisar». La que HubSpot dice que es cliente sale de revisión como «Ya es cliente».
+  const customerIds = await markGroupCustomers(relationshipRows, candidates, groupRead?.statuses ?? null, deps, sealStartAtMs);
   const tagging = Promise.all(
     plan.rows.map(async (row) => {
       const candidate = matched.get(row.key);
@@ -831,7 +842,9 @@ async function runAfterReservation(
         ...(row.foundInApollo ? { found_in_apollo: true } : {}),
         ...(row.parentName ? { parent_name: row.parentName } : {}),
         // Sólo las que el vendedor tiene que trabajar (las de «Por revisar»).
-        ...(groupOpportunity && candidate.status === 'needs_review' ? { group_opportunity: groupOpportunity } : {}),
+        ...(groupOpportunity && candidate.status === 'needs_review' && !customerIds.has(candidate.id)
+          ? { group_opportunity: groupOpportunity }
+          : {}),
       };
       await deps.tagCandidate(candidate.id, { ...(candidate.metadata ?? {}), [CORPORATE_TREE_METADATA_KEY]: tree }).catch(() => undefined);
     }),
@@ -847,7 +860,7 @@ async function runAfterReservation(
   const relationshipsSaved: boolean | 'timeout' = relationships.settled ? relationships.value : 'timeout';
 
   // 6. Sellado y rescate.
-  const inReview = candidates.filter((c) => c.status === 'needs_review').length;
+  const inReview = candidates.filter((c) => c.status === 'needs_review' && !customerIds.has(c.id)).length;
   const treeMetadata = {
     [CORPORATE_TREE_METADATA_KEY]: {
       run_id: runId,
@@ -900,6 +913,7 @@ async function runAfterReservation(
       // Se pidió desde «Buscar de nuevo» (no se miró el árbol guardado): queda dicho en el lote.
       ...(request.refresh ? { refresh_requested: true } : {}),
       ...(groupSignal ? { group_hubspot: groupSignal } : {}),
+      ...(customerIds.size > 0 ? { customers_out_of_review: customerIds.size } : {}),
       unconfirmed_dropped: plan.unconfirmedDropped,
       shared_websites: plan.sharedWebsites,
       write_errors: writes.errors.slice(0, 10),
@@ -1036,7 +1050,7 @@ async function readGroupSignal(
   deadlineAtMs: number,
   /** Las del árbol guardado: se vuelven a leer aunque en esta corrida no quedaran ligadas. */
   savedMembers: readonly CorporateTreeSavedHubSpotMember[] = [],
-): Promise<CorporateTreeGroupSignal | null> {
+): Promise<{ signal: CorporateTreeGroupSignal; statuses: ReadonlyMap<string, CorporateTreeGroupMemberStatus> } | null> {
   if (!deps.readGroupHubSpotStatus) return null;
   const byId = new Map<string, { related_name: string; related_country_code: string | null; isRoot: boolean }>();
   for (const row of rows) {
@@ -1056,13 +1070,88 @@ async function readGroupSignal(
   const read = await settleBy(deps.readGroupHubSpotStatus(ids).catch(() => new Map()), deadlineAtMs, deps.nowMs);
   if (!read.settled || read.value.size === 0) return null;
   const statuses = read.value;
-  return summarizeCorporateTreeGroup(
+  const signal = summarizeCorporateTreeGroup(
     ids.map((id) => ({
       name: byId.get(id)!.related_name,
       countryCode: byId.get(id)!.related_country_code,
       status: statuses.get(id) ?? 'unknown',
     })),
   );
+  return { signal, statuses };
+}
+
+function bareDomain(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return normalizeDomain(value)?.replace(/^www\./, '') ?? null;
+}
+
+/**
+ * ¿La ficha de HubSpot es DE ESTA empresa (no una parecida)? Revisión 24-11: Banco de Occidente
+ * (CO) quedó ligado por NOMBRE a la ficha de Banco de Occidente Honduras (bancodeoccidente.hn);
+ * marcar «cliente» por eso sacaría de revisión a otra empresa. Vale: duplicado exacto, o la
+ * coincidencia con ese id tiene la MISMA web que la fila (Banco de Bogotá: bancodebogota.com).
+ */
+export function isProvenHubSpotMatch(candidate: CorporateTreeBatchCandidate, hubspotCompanyId: string): boolean {
+  if (candidate.duplicate_status === 'exact_duplicate') return true;
+  const own = bareDomain(candidate.domain);
+  if (!own) return false;
+  const check = candidate.metadata?.['duplicate_check'];
+  const matches = check && typeof check === 'object' ? (check as Record<string, unknown>)['matches'] : null;
+  if (!Array.isArray(matches)) return false;
+  return matches.some((m) => {
+    if (!m || typeof m !== 'object') return false;
+    const match = m as Record<string, unknown>;
+    if (match.source !== 'hubspot' || String(match.matched_id ?? '') !== hubspotCompanyId) return false;
+    return bareDomain(match.matched_domain) === own || bareDomain(match.matched_website) === own;
+  });
+}
+
+/** Estados de la fila que todavía se pueden sacar de revisión (no lo ya decidido por una persona). */
+const CUSTOMER_MARKABLE_STATUSES: ReadonlySet<string> = new Set(['needs_review', 'duplicate']);
+
+/**
+ * Las filas del lote cuya ficha de HubSpot es CLIENTE quedan como «Ya es cliente» (fuera de
+ * «Por revisar»). Sólo lectura de HubSpot (ya hecha); escribe sólo en SellUp. Acotado al
+ * sellado. Devuelve los ids marcados.
+ */
+async function markGroupCustomers(
+  rows: readonly CorporateTreeRelationshipRow[],
+  candidates: readonly CorporateTreeBatchCandidate[],
+  statuses: ReadonlyMap<string, CorporateTreeGroupMemberStatus> | null,
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<ReadonlySet<string>> {
+  if (!statuses || statuses.size === 0 || !deps.markHubSpotCustomer) return new Set();
+  const markable = new Map(candidates.filter((c) => CUSTOMER_MARKABLE_STATUSES.has(c.status)).map((c) => [c.id, c]));
+  const targets = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.related_candidate_id || !row.matched_hubspot_company_id) continue;
+    if (statuses.get(row.matched_hubspot_company_id) !== 'customer') continue;
+    const candidate = markable.get(row.related_candidate_id);
+    if (!candidate) continue;
+    // Sin ficha propia, el id salió de la búsqueda por su web EXACTA (withHubSpotIdsByDomain).
+    const byOwnDomain = !candidate.matched_hubspot_company_id && !!row.related_domain;
+    if (byOwnDomain || isProvenHubSpotMatch(candidate, row.matched_hubspot_company_id)) {
+      targets.set(candidate.id, row.matched_hubspot_company_id);
+    }
+  }
+  for (const candidate of markable.values()) {
+    const id = candidate.matched_hubspot_company_id;
+    if (id && statuses.get(id) === 'customer' && !targets.has(candidate.id) && isProvenHubSpotMatch(candidate, id)) {
+      targets.set(candidate.id, id);
+    }
+  }
+  if (targets.size === 0) return new Set();
+  const marked = await settleBy(
+    Promise.all(
+      [...targets].map(async ([candidateId, hubspotCompanyId]) =>
+        (await deps.markHubSpotCustomer!(candidateId, hubspotCompanyId).catch(() => false)) ? candidateId : null,
+      ),
+    ),
+    deadlineAtMs,
+    deps.nowMs,
+  );
+  return new Set(marked.settled ? marked.value.filter((id): id is string => !!id) : []);
 }
 
 /**

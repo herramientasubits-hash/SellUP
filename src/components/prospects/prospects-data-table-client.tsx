@@ -100,6 +100,7 @@ import { PROSPECTOS_TAB_ROUTE } from '@/config/navigation';
 import { TeamFilterUrlButton } from '@/components/shared/scope-filters-client';
 import type { ScopeFilterOptions } from '@/modules/access/commercial-scope-filter-options';
 import { applyAssignedNow, markAssigned, type AssignedNow } from './assigned-now';
+import { BulkReviewDialog, type BulkReviewMode } from './bulk-review-dialog';
 import {
   PROSPECT_CANDIDATE_OPEN_EVENT,
   isCandidateReviewId,
@@ -851,6 +852,13 @@ export function ProspectsDataTableClient({
     [openCandidateDetail, canAssign, corporateTreeMenuItem, router],
   );
 
+  // Prod 24-11 — aprobar / descartar varias de una vez (sólo las que siguen por revisar).
+  const [bulkReview, setBulkReview] = React.useState<{ mode: BulkReviewMode; rows: Row[] } | null>(null);
+  const openBulkReview = React.useCallback((mode: BulkReviewMode, selected: Row[]) => {
+    const eligible = selected.filter(isDiscardEligible);
+    if (eligible.length > 0) setBulkReview({ mode, rows: eligible });
+  }, []);
+
   // ── Bulk actions ──────────────────────────────────────────────
   // Q3F-5AZ.2E-1-UX1 — the selection action bar mirrors the side panel
   // footer's hierarchy exactly (same copy/icons via prospect-review-actions.tsx):
@@ -874,12 +882,17 @@ export function ProspectsDataTableClient({
         id: 'approve',
         label: 'Aprobar',
         icon: CheckCircle2,
-        // Bulk approve is explicitly out of scope: exactly one selected row
-        // opens the drawer with the confirmation armed; 2+ stays disabled.
-        disabled: (rows) => rows.length !== 1,
-        disabledLabel: (rows) =>
-          rows.length > 1 ? 'Aprobación masiva pendiente' : undefined,
-        onClick: (rows) => openCandidateDetail(rows[0], { approveIntent: true }),
+        // Una sola: abre el panel con la confirmación armada. Varias (Prod 24-11): aprobación
+        // en masa de las que siguen por revisar, con su propia confirmación.
+        disabled: (rows) => (rows.length === 1 ? false : !rows.some(isDiscardEligible)),
+        disabledLabel: (rows) => (rows.length > 1 ? 'Ninguna sigue por revisar' : undefined),
+        onClick: (rows) => {
+          if (rows.length === 1) {
+            openCandidateDetail(rows[0], { approveIntent: true });
+            return;
+          }
+          openBulkReview('approve', rows);
+        },
       },
       {
         // Q3F-5AZ.2G-1 — single-selection discard: exactly one eligible row
@@ -890,13 +903,15 @@ export function ProspectsDataTableClient({
         label: DISCARD_ACTION.label,
         icon: DISCARD_ACTION.icon,
         variant: 'destructive',
-        disabled: (rows) => rows.length !== 1 || !isDiscardEligible(rows[0]),
-        disabledLabel: (rows) =>
-          rows.length > 1 ? 'Descarte masivo pendiente' : undefined,
+        disabled: (rows) => !rows.some(isDiscardEligible),
+        disabledLabel: (rows) => (rows.length > 1 ? 'Ninguna sigue por revisar' : undefined),
         onClick: (rows) => {
           if (rows.length === 1 && isDiscardEligible(rows[0])) {
             openCandidateDetail(rows[0], { discardIntent: true });
+            return;
           }
+          // Prod 24-11 — descarte en masa con un solo motivo (p. ej. «Ya es cliente de Ubits»).
+          openBulkReview('discard', rows);
         },
       },
       {
@@ -961,7 +976,7 @@ export function ProspectsDataTableClient({
         },
       },
     ],
-    [openCandidateDetail, canAssign],
+    [openCandidateDetail, openBulkReview, canAssign],
   );
 
   const isSourceFiltered = !!sourceId;
@@ -1192,6 +1207,17 @@ export function ProspectsDataTableClient({
         onAssigned={({ ids, user }) => {
           dataTableRef.current?.clearSelection();
           if (ids.length > 0) setAssignedNow((prev) => markAssigned(prev, ids, user));
+          router.refresh();
+        }}
+      />
+
+      <BulkReviewDialog
+        key={bulkReview ? `${bulkReview.mode}:${bulkReview.rows.map((r) => r.id).join(',')}` : 'closed'}
+        mode={bulkReview?.mode ?? null}
+        rows={bulkReview?.rows ?? []}
+        onOpenChange={(open) => !open && setBulkReview(null)}
+        onDone={() => {
+          dataTableRef.current?.clearSelection();
           router.refresh();
         }}
       />

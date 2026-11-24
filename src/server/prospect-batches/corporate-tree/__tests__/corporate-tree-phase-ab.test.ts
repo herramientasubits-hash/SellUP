@@ -844,6 +844,95 @@ describe('D2. La corrida: el grupo cliente marca a las nuevas como oportunidad t
   });
 });
 
+describe('D4. Grupo Aval (Prod 24-11): la que HubSpot dice que es cliente sale de «Por revisar»', () => {
+  const customerRun = (overrides: Partial<CorporateTreeRunDeps> = {}) => {
+    const marked: Array<[string, string]> = [];
+    const run = fakeDeps({
+      loadBatchCandidates: async () => [
+        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'needs_review', matched_hubspot_company_id: 'hs-ec', duplicate_status: 'exact_duplicate', metadata: {} },
+      ],
+      readGroupHubSpotStatus: async () => new Map([['hs-ec', 'customer' as const]]),
+      markHubSpotCustomer: async (candidateId, hubspotCompanyId) => {
+        marked.push([candidateId, hubspotCompanyId]);
+        return true;
+      },
+      ...overrides,
+    });
+    return { ...run, marked };
+  };
+
+  it('se marca «Ya es cliente», no cuenta en revisión y no lleva la marca de oportunidad', async () => {
+    const { deps, calls, marked } = customerRun();
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(marked, [['c-ec', 'hs-ec']]);
+    assert.equal(result.inReview, 0, 'la cliente no queda «Por revisar»');
+    assert.equal(treeOf(calls).customers_out_of_review, 1);
+    const tag = calls.tagged.get('c-ec')?.corporate_tree as Record<string, unknown>;
+    assert.equal(tag.group_opportunity, undefined);
+  });
+
+  it('una que el grupo trabaja (no cliente) sigue en revisión', async () => {
+    const { deps, marked } = customerRun({ readGroupHubSpotStatus: async () => new Map([['hs-ec', 'active_owner' as const]]) });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(marked, []);
+    assert.equal(result.inReview, 1);
+  });
+
+  it('si no se pudo marcar, sigue contando en revisión (nada se esconde)', async () => {
+    const { deps } = customerRun({ markHubSpotCustomer: async () => false });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.equal(result.inReview, 1);
+  });
+
+  it('Banco de Occidente (Prod 24-11): ligada por NOMBRE a la ficha de otro país ⇒ no se marca', async () => {
+    const { deps, marked } = customerRun({
+      loadBatchCandidates: async () => [
+        {
+          id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: 'bimbo.com.ec', status: 'needs_review',
+          matched_hubspot_company_id: 'hs-ec', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: 'hs-ec', matched_domain: 'bimbo.hn', matched_website: 'bimbo.hn' }] } },
+        },
+      ],
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(marked, []);
+    assert.equal(result.inReview, 1, 'sigue en revisión: la persona decide');
+  });
+
+  it('Banco de Bogotá (Prod 24-11): posible duplicado pero con la MISMA web ⇒ se marca', async () => {
+    const { deps, marked } = customerRun({
+      loadBatchCandidates: async () => [
+        {
+          id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: 'bimbo.com.ec', status: 'needs_review',
+          matched_hubspot_company_id: 'hs-ec', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: 'hs-ec', matched_domain: 'bimbo.ec', matched_website: 'https://www.bimbo.com.ec/' }] } },
+        },
+      ],
+    });
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.deepEqual(marked, [['c-ec', 'hs-ec']]);
+  });
+
+  it('el servidor no pisa lo que una persona ya marcó como duplicado', () => {
+    const server = readFileSync(join(__dirname, '../corporate-tree-run.server.ts'), 'utf8');
+    assert.match(server, /\.in\('status', \['needs_review', 'duplicate'\]\)\s*\n\s*\/\/[^\n]*\n\s*\.is\('reviewed_by', null\)/);
+  });
+
+  it('una ya decidida por una persona (aprobada) no se toca', async () => {
+    const { deps, marked } = customerRun({
+      loadBatchCandidates: async () => [
+        { id: 'c-ec', name: 'Bimbo Ecuador', country_code: 'EC', domain: null, status: 'converted_to_account', matched_hubspot_company_id: 'hs-ec', metadata: {} },
+      ],
+    });
+    await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.deepEqual(marked, []);
+  });
+});
+
 describe('A6. «Buscar de nuevo» desde el aviso', () => {
   it('sólo con árbol guardado, y relanza la misma búsqueda con `refresh`', () => {
     const source = readFileSync(join(__dirname, '../../../../components/prospect-batches/corporate-tree/corporate-tree-flow.tsx'), 'utf8');
