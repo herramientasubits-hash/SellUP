@@ -179,6 +179,7 @@ async function readHubSpot(account: {
       lifecycleStage: check.match?.lifecycleStage ?? null,
       lastActivityDate: check.match?.lastActivityDate ?? null,
       numberOfDeals: check.match?.numberOfDeals ?? null,
+      churn: check.match?.churn ?? null,
     };
   } catch (err) {
     // HubSpot caído no detiene la preparación, pero sin este aviso parecía «sin relación».

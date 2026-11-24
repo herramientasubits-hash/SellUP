@@ -23,7 +23,7 @@
  */
 
 import type { HubSpotAvailability } from '@/server/integrations/hubspot-free-company-policy';
-import { HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
+import { describeHubSpotChurn, HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
 import type { DuplicateCheckResult, DuplicateMatch, HubSpotFreeToTake } from './types';
 
 /** Confianzas del checker de HubSpot que prueban identidad: fiscal oficial y dominio exacto. */
@@ -43,7 +43,7 @@ function markFree(match: DuplicateMatch, free: HubSpotFreeToTake): DuplicateMatc
   return {
     ...match,
     status: 'new_candidate',
-    reason: `Libre en HubSpot (${HUBSPOT_FREE_REASON_LABEL[free.reason]}) — ${match.reason}`,
+    reason: `${free.churn ? `${describeHubSpotChurn(free.churn)} · ` : ''}Libre en HubSpot (${HUBSPOT_FREE_REASON_LABEL[free.reason]}) — ${match.reason}`,
     hubspotFreeToTake: free,
   };
 }
@@ -61,7 +61,12 @@ export function markFreeHubSpotMatchesPure(
     if (!isStrongHubSpotIdentityMatch(match)) continue;
     const { availability, ownerId } = availabilityOf(match);
     if (availability?.free) {
-      freeById.set(match.matchedId as string, { hubspotCompanyId: match.matchedId as string, reason: availability.reason, ownerId });
+      freeById.set(match.matchedId as string, {
+        hubspotCompanyId: match.matchedId as string,
+        reason: availability.reason,
+        ownerId,
+        ...(availability.churn ? { churn: availability.churn } : {}),
+      });
     }
   }
   if (freeById.size === 0) return [...matches];

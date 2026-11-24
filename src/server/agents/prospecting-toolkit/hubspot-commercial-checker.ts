@@ -23,8 +23,11 @@ import { normalizeCompanyName, normalizeDomain } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 import {
+  HUBSPOT_CHURN_PROPERTIES,
   HUBSPOT_CLIENT_LIFECYCLE_VALUE,
   HUBSPOT_FORECAST_LIFECYCLE_VALUE,
+  readHubSpotChurn,
+  type HubSpotChurnInfo,
 } from '@/server/integrations/hubspot-free-company-policy';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -53,6 +56,7 @@ const HS_COMMERCIAL_PROPERTIES = [
   'notes_last_contacted',
   'num_associated_deals',
   'createdate',
+  ...HUBSPOT_CHURN_PROPERTIES,
 ];
 
 const PROSPECT_LIFECYCLE_STAGES = new Set([
@@ -61,14 +65,6 @@ const PROSPECT_LIFECYCLE_STAGES = new Set([
   'marketingqualifiedlead',
   'salesqualifiedlead',
   'opportunity',
-]);
-
-const EX_CUSTOMER_LEAD_STATUSES = new Set([
-  'churned',
-  'lost',
-  'cancelled',
-  'ex-client',
-  'ex_client',
 ]);
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -100,6 +96,8 @@ export type HubSpotExtendedCompanyMatch = {
   lastActivityDate: string | null;
   numberOfEmployees: number | null;
   numberOfDeals: number | null;
+  /** FEEDBACK 24-11 — «Estado de la cuenta» = Churn: cuándo y por qué se fue. */
+  churn?: HubSpotChurnInfo | null;
   matchMethod: HubSpotCompanyMatchMethod;
   matchConfidence: number;
   commercialStatus: HubSpotCompanyCommercialStatus;
@@ -134,6 +132,9 @@ interface HubSpotCommercialProperties {
   notes_last_contacted: string | null;
   num_associated_deals: string | null;
   createdate: string | null;
+  estado_de_la_cuenta?: string | null;
+  fecha_ultimo_churn?: string | null;
+  razon_de_churn?: string | null;
 }
 
 interface HubSpotSearchHit {
@@ -279,6 +280,7 @@ function mapHitToMatch(
     lastActivityDate: p.hs_last_sales_activity_date ?? p.notes_last_contacted ?? null,
     numberOfEmployees: parseNullableInt(p.numberofemployees),
     numberOfDeals: parseNullableInt(p.num_associated_deals),
+    churn: readHubSpotChurn(p as unknown as Record<string, unknown>),
     matchMethod: method,
     matchConfidence: confidence,
     commercialStatus: 'unknown',
@@ -327,6 +329,21 @@ export function classifyHubSpotCommercialMatch(params: {
   const lifecycle = company.lifecycleStage?.toLowerCase().trim() ?? null;
   const leadStatus = company.leadStatus?.toLowerCase().trim() ?? null;
 
+  // FEEDBACK 24-11 — el churn se marca en «Estado de la cuenta» y la etapa sigue en
+  // «Cliente» (934 de 935): se mira ANTES que la etapa. «Forecast» (negocio en
+  // pronóstico) sigue mandando más abajo.
+  if (company.churn && lifecycle !== HUBSPOT_FORECAST_LIFECYCLE_VALUE) {
+    const when = company.churn.churnedAt ? ` el ${company.churn.churnedAt}` : '';
+    const why = company.churn.reason ? ` (${company.churn.reason})` : '';
+    return {
+      hubspotMatchStatus: 'exact_match_ex_customer',
+      commercialStatus: 'ex_customer',
+      recyclableStatus: 'pending_review',
+      reviewFlags: ['hubspot_existing_prospect'],
+      reason: `Ex cliente de UBITS: churn${when}${why}`,
+    };
+  }
+
   // FEEDBACK 17-11 — en el portal de UBITS la etapa «Cliente» es el valor interno
   // `1443029400`; `customer` es «Forecast». Antes sólo se miraba `customer`, así que un
   // cliente real caía en «posible coincidencia» y llegaba a Por revisar.
@@ -348,16 +365,6 @@ export function classifyHubSpotCommercialMatch(params: {
       recyclableStatus: 'not_recyclable',
       reviewFlags: ['hubspot_existing_prospect'],
       reason: 'Negocio en pronóstico en HubSpot (etapa «Forecast»)',
-    };
-  }
-
-  if (leadStatus && EX_CUSTOMER_LEAD_STATUSES.has(leadStatus)) {
-    return {
-      hubspotMatchStatus: 'exact_match_ex_customer',
-      commercialStatus: 'ex_customer',
-      recyclableStatus: 'pending_review',
-      reviewFlags: ['hubspot_existing_prospect'],
-      reason: `Ex-cliente detectado por hs_lead_status="${company.leadStatus}"`,
     };
   }
 

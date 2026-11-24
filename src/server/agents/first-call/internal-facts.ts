@@ -55,6 +55,8 @@ export interface HubSpotRelation {
   lifecycleStage: string | null;
   lastActivityDate: string | null;
   numberOfDeals: number | null;
+  /** FEEDBACK 24-11 — fue cliente y se fue: cuándo y por qué (HubSpot). */
+  churn?: { churnedAt: string | null; reason: string | null } | null;
 }
 
 export interface DecisionMaker {
@@ -180,7 +182,11 @@ function hubspotStatement(hubspot: HubSpotRelation): string | null {
   const base = HUBSPOT_STATEMENTS[hubspot.status];
   if (!base) return null;
   const extras: string[] = [];
-  if (hubspot.lifecycleStage) {
+  if (hubspot.status === 'ex_customer' && hubspot.churn) {
+    // La etapa de un ex cliente sigue diciendo «cliente» en HubSpot: no se repite.
+    if (hubspot.churn.churnedAt) extras.push(`dejó de serlo el ${hubspot.churn.churnedAt}`);
+    if (hubspot.churn.reason) extras.push(`razón del churn: ${hubspot.churn.reason}`);
+  } else if (hubspot.lifecycleStage) {
     extras.push(`etapa «${HUBSPOT_STAGE_LABELS[hubspot.lifecycleStage.toLowerCase()] ?? hubspot.lifecycleStage}»`);
   }
   const activityDay = hubspotActivityDay(hubspot.lastActivityDate);

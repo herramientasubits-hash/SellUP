@@ -32,6 +32,8 @@ export interface ReviewDecisionCandidate {
   hubspotChecked?: boolean | null;
   /** Motivo de «libre en HubSpot» (reciclada, bolsa, sin dueño…), si lo es. */
   hubspotFreeReason?: string | null;
+  /** FEEDBACK 24-11 — «Ex cliente de UBITS (churn …)», si fue cliente y se fue. */
+  hubspotExCustomer?: string | null;
   reviewedAt?: string | null;
   /** Populated once the prospect has been converted — enables the "Ver empresa" CTA. */
   convertedAccountId?: string | null;
@@ -170,6 +172,7 @@ export function resolveReviewDecisionView(candidate: ReviewDecisionCandidate): R
     matchedInSellup: !!candidate.matchedAccountId,
     hubspotChecked: candidate.hubspotChecked ?? null,
     hubspotFreeReason: candidate.hubspotFreeReason ?? null,
+    hubspotExCustomer: candidate.hubspotExCustomer ?? null,
   });
 
   // Q3F-5AZ.2G-1 — discard eligibility is independent of the duplicate signal:
