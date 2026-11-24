@@ -13,6 +13,7 @@
 // Sin dominio, el nombre sigue siendo el único filtro posible.
 
 import { normalizeDomain } from './company-consistency-checker';
+import { cleanCompanySearchName } from './company-search-name-variants';
 
 export interface LushaProspectingCompanyInclude {
   domains?: string[];
@@ -25,6 +26,7 @@ export function buildLushaProspectingCompanyInclude(
 ): LushaProspectingCompanyInclude {
   const domain = normalizeDomain(companyDomain);
   if (domain) return { domains: [domain] };
-  const name = typeof companyName === 'string' ? companyName.trim() : '';
+  // Lusha espera el nombre canónico: sin forma legal ni espacios dobles se parece más a él.
+  const name = cleanCompanySearchName(companyName);
   return name ? { names: [name] } : {};
 }

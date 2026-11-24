@@ -20,6 +20,7 @@ import {
   type ApolloSearchResult,
 } from '@/server/integrations/apollo-client';
 import { searchApolloOrganizationsForPeople } from './apollo-org-search-for-people.server';
+import { buildCompanySearchNameVariants } from './company-search-name-variants';
 
 // ── Tipos ──────────────────────────────────────────────────────
 
@@ -215,44 +216,52 @@ export async function resolveApolloOrganization(
     };
   }
 
-  let nameResult: ApolloSearchResult<ApolloOrganization>;
-  try {
-    nameResult = await searchOrganizations({
-      q_organization_name: normalizedName,
-      per_page: ORG_SEARCH_PER_PAGE,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      organizationId: null,
-      organizationName: null,
-      organizationDomain: null,
-      resolutionStatus: 'error',
-      resolutionMethod: null,
-      candidatesCount: 0,
-      diagnostics: emptyDiagnostics,
-      error: `Error en resolución por nombre: ${msg}`,
-    };
-  }
+  // Sin dominio el nombre crudo suele fallar («Merck Sharp  Dohme Colombia SAS» → 0): se prueban
+  // variantes (espacios normalizados → sin forma legal → sin país) y se para en la primera que
+  // encuentra la ficha. Cada variante es una búsqueda de Apollo, por eso son como mucho tres.
+  const nameVariants = buildCompanySearchNameVariants(normalizedName);
+  let nameRawEntries = 0;
+  for (const variant of nameVariants) {
+    let nameResult: ApolloSearchResult<ApolloOrganization>;
+    try {
+      nameResult = await searchOrganizations({
+        q_organization_name: variant,
+        per_page: ORG_SEARCH_PER_PAGE,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        organizationId: null,
+        organizationName: null,
+        organizationDomain: null,
+        resolutionStatus: 'error',
+        resolutionMethod: null,
+        candidatesCount: 0,
+        diagnostics: emptyDiagnostics,
+        error: `Error en resolución por nombre: ${msg}`,
+      };
+    }
 
-  if (nameResult.success && nameResult.data && nameResult.data.length > 0) {
-    const candidates = nameResult.data;
-    const best = pickBestCandidate(candidates, normalizedDomain, normalizedName);
-    return {
-      organizationId: best.id,
-      organizationName: best.name,
-      organizationDomain: best.website_url,
-      resolutionStatus: 'found_by_name',
-      resolutionMethod: 'name',
-      candidatesCount: candidates.length,
-      diagnostics: {
-        domain_query_results: domainRawEntries,
-        name_query_results: Math.max(candidates.length, rawEntriesOf(nameResult)),
-        selected_organization_id: best.id,
-        selected_organization_name: best.name,
-        selected_organization_domain: best.website_url,
-      },
-    };
+    nameRawEntries += rawEntriesOf(nameResult);
+    if (nameResult.success && nameResult.data && nameResult.data.length > 0) {
+      const candidates = nameResult.data;
+      const best = pickBestCandidate(candidates, normalizedDomain, variant);
+      return {
+        organizationId: best.id,
+        organizationName: best.name,
+        organizationDomain: best.website_url,
+        resolutionStatus: 'found_by_name',
+        resolutionMethod: 'name',
+        candidatesCount: candidates.length,
+        diagnostics: {
+          domain_query_results: domainRawEntries,
+          name_query_results: Math.max(candidates.length, nameRawEntries),
+          selected_organization_id: best.id,
+          selected_organization_name: best.name,
+          selected_organization_domain: best.website_url,
+        },
+      };
+    }
   }
 
   return {
@@ -263,7 +272,7 @@ export async function resolveApolloOrganization(
     resolutionMethod: null,
     candidatesCount: 0,
     // Una página con sólo cuentas sin empresa cobra igual: el conteo crudo lo refleja.
-    diagnostics: { ...emptyDiagnostics, domain_query_results: domainRawEntries, name_query_results: rawEntriesOf(nameResult) },
+    diagnostics: { ...emptyDiagnostics, domain_query_results: domainRawEntries, name_query_results: nameRawEntries },
   };
 }
 
