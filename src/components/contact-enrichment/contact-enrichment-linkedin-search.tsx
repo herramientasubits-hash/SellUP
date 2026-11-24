@@ -193,8 +193,13 @@ interface ContactEnrichmentLinkedinSearchProps {
   ref?: React.Ref<ContactEnrichmentChatWizardHandle>;
   onBusyChange?: (busy: boolean) => void;
   placeholder: string;
-  /** Las otras formas de buscar, encima de la caja cuando no hay una búsqueda en curso. */
+  /** «Cambiar forma de buscar», encima de la caja cuando no hay una búsqueda en curso. */
   modeOptions?: React.ReactNode;
+  /**
+   * Dueña 24-11 — el perfil pegado en «Contactos de una empresa» con «Buscar a esta persona»:
+   * se busca solo al entrar, sin volver a pegarlo.
+   */
+  initialInput?: string | null;
 }
 
 export function ContactEnrichmentLinkedinSearch({
@@ -203,6 +208,7 @@ export function ContactEnrichmentLinkedinSearch({
   onBusyChange,
   placeholder,
   modeOptions,
+  initialInput,
 }: ContactEnrichmentLinkedinSearchProps) {
   const router = useRouter();
   const [messages, setMessages] = React.useState<AgentChatMessage[]>(() => [
@@ -284,6 +290,16 @@ export function ContactEnrichmentLinkedinSearch({
     setMessages((prev) => [...prev, message('user', userMessageFor(raw))]);
     await runSearch(raw);
   }
+
+  // Lo que llega de «Buscar a esta persona» se busca una sola vez (también en StrictMode).
+  const initialSentRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const raw = initialInput?.trim();
+    if (!raw || initialSentRef.current === raw) return;
+    initialSentRef.current = raw;
+    setMessages((prev) => [...prev, message('user', userMessageFor(raw))]);
+    void runSearch(raw);
+  }, [initialInput]);
 
   async function handleRetry() {
     const raw = lastInputRef.current;

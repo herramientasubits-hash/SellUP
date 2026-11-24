@@ -1,24 +1,39 @@
 'use client';
 
-// Agente 2A — Las formas de buscar contactos, como opciones bajo la conversación (Bryan 17-11).
+// Agente 2A — Las formas de buscar contactos.
 //
-// Antes eran dos botones de la cabecera (HubSpot y LinkedIn). Ahora son opciones como el
-// «¿Qué tipo de prospectos quieres encontrar?» del Agente 1, pero OPCIONALES: si el usuario no
-// elige nada y escribe una empresa, Rumbo sigue como siempre. Cada modo las muestra encima de su
-// caja cuando está libre (al empezar y al terminar una búsqueda) y sin el modo en que ya está.
-// Elegir una empieza esa conversación limpia; «Nueva conversación» vuelve a «Por empresa».
-// Sin atajos de teclado: en el Agente 2 las opciones se eligen tocándolas.
+// Bryan 17-11: dejaron de ser botones de la cabecera y pasaron a ser opciones bajo la
+// conversación, OPCIONALES (la caja aceptaba una empresa sin elegir nada).
+//
+// Dueña 24-11: eso confundía. La caja dejaba escribir antes de elegir, alguien pegaba un perfil de
+// LinkedIn en «Contactos de una empresa» y la búsqueda no servía; y al elegir una opción aparecía
+// otra lista «¿Prefieres otra forma de buscar?». Ahora el panel guía como la búsqueda de empresas
+// (Agente 1): primero «¿Cómo quieres buscar contactos?» con las opciones numeradas y la caja
+// APAGADA; elegida una, se enciende la caja de esa forma y abajo sólo queda «Volver» para cambiar.
 
 import * as React from 'react';
-import { ChatQuestionPanel, type ChatQuestionOptionDetail } from '@/components/chat';
+import { ArrowLeft } from '@/icons';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { AgentChatTimeline, useProgressiveReveal } from '@/components/agent-chat';
+import type { AgentChatMessage } from '@/components/agent-chat';
+import { ChatComposer, ChatQuestionPanel, type ChatQuestionOptionDetail } from '@/components/chat';
 
 /**
- * Los modos del panel. «Por empresa» (`single`) es el de siempre; los otros dos se eligen en
- * las opciones de abajo y se dejan con «Nueva conversación» o eligiendo otra opción.
+ * Las formas de buscar. «Por empresa» (`single`) es el asistente de siempre; las tres se eligen
+ * en el primer paso del panel.
  */
 export type EnrichmentPanelMode = 'single' | 'hubspot_id_batch' | 'linkedin';
 
-export const SEARCH_MODE_OPTIONS_TITLE = '¿Prefieres otra forma de buscar?';
+export const SEARCH_MODE_QUESTION = '¿Cómo quieres buscar contactos?';
+
+export const SEARCH_MODE_GREETING = 'Hola. Te ayudo a encontrar contactos para prospectar.';
+
+/** Lo que dice la caja mientras no se ha elegido una forma de buscar. */
+export const SEARCH_MODE_CHOOSER_PLACEHOLDER = 'Elige primero cómo quieres buscar';
+
+/** El mismo «Volver» de las preguntas de la búsqueda de empresas (Agente 1). */
+export const SEARCH_MODE_BACK_LABEL = 'Volver';
 
 /** Nombre de cada modo: la opción, y el subtítulo del panel cuando está activo. */
 export const SEARCH_MODE_LABEL: Record<EnrichmentPanelMode, string> = {
@@ -28,50 +43,101 @@ export const SEARCH_MODE_LABEL: Record<EnrichmentPanelMode, string> = {
 };
 
 export const SEARCH_MODE_DESCRIPTION: Record<EnrichmentPanelMode, string> = {
-  single: 'Escribe su nombre, dominio o HubSpot ID y busco sus contactos.',
+  single: 'Escribe el nombre, dominio o HubSpot ID de la empresa y busco sus contactos.',
   hubspot_id_batch: 'Hasta 10 HubSpot IDs de empresa, separados por coma o uno por fila.',
-  linkedin: 'Su perfil de LinkedIn, su correo o su ID de contacto en HubSpot. Antes de gastar créditos reviso si ya lo tenemos.',
+  linkedin: 'El perfil de LinkedIn de la persona, su correo o su ID de contacto en HubSpot. Antes de gastar créditos reviso si ya lo tenemos.',
 };
 
 /** Orden fijo de las opciones. */
 const MODE_ORDER: readonly EnrichmentPanelMode[] = ['single', 'hubspot_id_batch', 'linkedin'];
 
-/** Las opciones que se ofrecen estando en `current`: todas menos esa (LinkedIn, sólo con su bandera). */
-export function searchModeOptionsFor(current: EnrichmentPanelMode, linkedinEnabled: boolean): EnrichmentPanelMode[] {
-  return MODE_ORDER.filter((mode) => mode !== current && (mode !== 'linkedin' || linkedinEnabled));
+/** Las formas de buscar que se ofrecen (LinkedIn, sólo con su bandera). */
+export function searchModeOptionsFor(linkedinEnabled: boolean): EnrichmentPanelMode[] {
+  return MODE_ORDER.filter((mode) => mode !== 'linkedin' || linkedinEnabled);
 }
 
-interface SearchModeOptionsProps {
-  current: EnrichmentPanelMode;
+export function isEnrichmentPanelMode(value: string): value is EnrichmentPanelMode {
+  return MODE_ORDER.some((mode) => mode === value);
+}
+
+const CHOOSER_MESSAGES: AgentChatMessage[] = [
+  { id: 'mode-greeting', role: 'assistant', content: SEARCH_MODE_GREETING },
+  { id: 'mode-question', role: 'assistant', content: SEARCH_MODE_QUESTION },
+];
+
+interface SearchModeChooserProps {
   linkedinEnabled: boolean;
+  /** Falso mientras llega la bandera de LinkedIn: así las opciones no cambian a la vista. */
+  optionsReady?: boolean;
   onSelect: (mode: EnrichmentPanelMode) => void;
 }
 
-export function SearchModeOptions({ current, linkedinEnabled, onSelect }: SearchModeOptionsProps) {
+/**
+ * El primer paso del panel: la pregunta con las formas de buscar y la caja apagada hasta elegir.
+ * Las opciones se eligen tocándolas o con su número (la caja está apagada: no hay con qué chocar).
+ */
+export function SearchModeChooser({ linkedinEnabled, optionsReady = true, onSelect }: SearchModeChooserProps) {
+  const { visibleCount, isRevealing } = useProgressiveReveal(CHOOSER_MESSAGES.length);
   const options = React.useMemo<ChatQuestionOptionDetail[]>(
     () =>
-      searchModeOptionsFor(current, linkedinEnabled).map((mode) => ({
+      searchModeOptionsFor(linkedinEnabled).map((mode) => ({
         value: mode,
         label: SEARCH_MODE_LABEL[mode],
         description: SEARCH_MODE_DESCRIPTION[mode],
       })),
-    [current, linkedinEnabled],
+    [linkedinEnabled],
   );
-  if (options.length === 0) return null;
+
   return (
-    <div data-testid="search-mode-options">
-      <ChatQuestionPanel
-        aria-label="Otras formas de buscar contactos"
-        title={SEARCH_MODE_OPTIONS_TITLE}
-        options={options}
-        keyboardShortcuts={false}
-        onBack={null}
-        className="pb-3"
-        onAnswer={(value) => {
-          const mode = MODE_ORDER.find((candidate) => candidate === value);
-          if (mode) onSelect(mode);
-        }}
-      />
+    <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="search-mode-chooser">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+        <AgentChatTimeline messages={CHOOSER_MESSAGES} visibleCount={visibleCount} isTyping={isRevealing} />
+      </div>
+      <div className="shrink-0 px-4 pb-4 pt-2">
+        {!isRevealing && optionsReady && (
+          <div className="mb-3" data-testid="search-mode-options">
+            <ChatQuestionPanel
+              aria-label="Formas de buscar contactos"
+              title={SEARCH_MODE_QUESTION}
+              options={options}
+              onBack={null}
+              onAnswer={(value) => {
+                if (isEnrichmentPanelMode(value)) onSelect(value);
+              }}
+            />
+          </div>
+        )}
+        <ChatComposer
+          compact
+          value=""
+          onChange={() => {}}
+          onSend={() => {}}
+          placeholder={SEARCH_MODE_CHOOSER_PLACEHOLDER}
+          disabled
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * «Volver» a elegir la forma de buscar, encima de la caja de cada modo cuando está libre. Mismo
+ * botón que el «Volver» de las preguntas del Agente 1 (`ChatQuestionPanel`).
+ */
+export function SearchModeBackLink({ onBack, className }: { onBack: () => void; className?: string }) {
+  return (
+    <div className={cn('flex justify-end', className)}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onBack}
+        aria-label="Volver a elegir cómo buscar contactos"
+        data-testid="search-mode-back"
+      >
+        <ArrowLeft aria-hidden="true" />
+        {SEARCH_MODE_BACK_LABEL}
+      </Button>
     </div>
   );
 }

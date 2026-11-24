@@ -307,12 +307,49 @@ describe('Panel del agente · Un contacto por LinkedIn, correo o ID de HubSpot',
     });
   }
 
-  it('al terminar vuelven a salir las otras formas de buscar (sin la actual)', async () => {
+  it('un perfil de persona pegado en «Contactos de una empresa» ofrece buscarla y la busca sin volver a pegarlo', async () => {
+    rtl.render(<Shell />);
+    const options = await rtl.screen.findByTestId('search-mode-options');
+    rtl.fireEvent.click(rtl.within(options).getByRole('button', { name: /Contactos de una empresa/ }));
+    await rtl.screen.findByText(/dime el nombre, dominio o HubSpot ID/);
+    const box = rtl.within(rtl.screen.getByTestId('chat-panel')).getByRole('textbox') as HTMLTextAreaElement;
+    await rtl.waitFor(() => assert.equal(box.disabled, false));
+    rtl.fireEvent.change(box, { target: { value: FAKE_URL } });
+    rtl.fireEvent.keyDown(box, { key: 'Enter', code: 'Enter' });
+
+    await rtl.screen.findByText(/es el perfil de LinkedIn de una persona, no de una empresa/);
+    assert.equal(rtl.screen.queryByText(FAKE_URL), null, 'el chat no repite el perfil');
+    assert.equal(mockSearch.mock.callCount(), 0, 'no se busca nada antes de aceptar');
+
+    rtl.fireEvent.click(await rtl.screen.findByTestId('contact-enrichment-search-as-person'));
+    await rtl.screen.findByTestId('linkedin-contact-search');
+    await rtl.waitFor(() => assert.equal(mockSearch.mock.callCount(), 1));
+    assert.equal(mockSearch.mock.calls[0]?.arguments[0], FAKE_URL);
+    await rtl.screen.findByTestId('linkedin-preview', undefined, { timeout: 5000 });
+  });
+
+  it('el enlace de un contacto de HubSpot pegado en «Contactos de una empresa» se busca como contacto', async () => {
+    const link = 'https://app.hubspot.com/contacts/123456/record/0-1/987654321';
+    rtl.render(<Shell />);
+    const options = await rtl.screen.findByTestId('search-mode-options');
+    rtl.fireEvent.click(rtl.within(options).getByRole('button', { name: /Contactos de una empresa/ }));
+    await rtl.screen.findByText(/dime el nombre, dominio o HubSpot ID/);
+    const box = rtl.within(rtl.screen.getByTestId('chat-panel')).getByRole('textbox') as HTMLTextAreaElement;
+    await rtl.waitFor(() => assert.equal(box.disabled, false));
+    rtl.fireEvent.change(box, { target: { value: link } });
+    rtl.fireEvent.keyDown(box, { key: 'Enter', code: 'Enter' });
+
+    await rtl.screen.findByText(/es de un contacto de HubSpot, no de una empresa/);
+    rtl.fireEvent.click(await rtl.screen.findByTestId('contact-enrichment-search-as-person'));
+    await rtl.screen.findByTestId('linkedin-contact-search');
+    await rtl.waitFor(() => assert.equal(mockSearch.mock.callCount(), 1));
+    assert.equal(mockSearch.mock.calls[0]?.arguments[0], link);
+  });
+
+  it('al terminar se puede cambiar la forma de buscar, sin otra lista de opciones', async () => {
     await openModeAndSend();
     await rtl.screen.findByTestId('linkedin-preview', undefined, { timeout: 5000 });
-    const options = await rtl.screen.findByTestId('search-mode-options', undefined, { timeout: 5000 });
-    assert.ok(rtl.within(options).getByRole('button', { name: /Contactos de una empresa/ }));
-    assert.ok(rtl.within(options).getByRole('button', { name: /Varias empresas por HubSpot ID/ }));
-    assert.equal(rtl.within(options).queryByRole('button', { name: /Un contacto por LinkedIn/ }), null);
+    await rtl.screen.findByTestId('search-mode-back', undefined, { timeout: 5000 });
+    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
   });
 });
