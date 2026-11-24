@@ -452,15 +452,23 @@ function isUnassessedPilotCandidate(row: ClassifiableCandidateRow): boolean {
  * sin tamaño y sin `target_completeness`, así que el rescate no las miraba: 8 de 10 del
  * lote quedaron «tamaño sin confirmar» (40 así en Prod). Claude las revisa como al resto.
  */
-export function isFreeSourceUnknownSize(row: ClassifiableCandidateRow): boolean {
+export function isFreeSourceUnknownSize(
+  row: ClassifiableCandidateRow,
+  /** Umbral de la búsqueda (200 o lo que pidió la persona). */
+  requestedMinEmployees: number = DEFAULT_ICP_MIN_EMPLOYEES,
+): boolean {
   if (row.source_primary !== 'public_source') return false;
   if (row.metadata?.target_completeness) return false;
   if (typeof row.employee_count === 'number' && Number.isFinite(row.employee_count)) return false;
-  const official = officialSizeSignal({
-    countryCode: row.country_code,
-    fromFreeLayer: true,
-    sizeUnfiltered: isSizeUnfiltered(row.metadata),
-  });
+  // Prod 24-11 (EC, 732bc372): Ecuador mide «100+»; si se pidieron 350, eso no alcanza.
+  const official = withRequestedMinEmployees(
+    officialSizeSignal({
+      countryCode: row.country_code,
+      fromFreeLayer: true,
+      sizeUnfiltered: isSizeUnfiltered(row.metadata),
+    }),
+    requestedMinEmployees,
+  );
   if (official.measured) return false;
   const status = (row.metadata?.icp_size_gate as { size_status?: unknown } | undefined)?.size_status;
   return status === undefined || status === null || status === 'unknown';
@@ -485,7 +493,7 @@ export function needsCandidateRescue(
   row: ClassifiableCandidateRow,
   nowMs: number,
   /** Lote del piloto «Claude busca empresas» (`metadata.claude_company_search`). */
-  options: { includeUnassessed?: boolean } = {},
+  options: { includeUnassessed?: boolean; requestedMinEmployees?: number } = {},
 ): boolean {
   if (row.status !== 'needs_review') return false;
   if (!row.website && !row.domain) return false;
@@ -501,7 +509,7 @@ export function needsCandidateRescue(
   }
   if (isLushaSectorReview(row)) return true;
   if (options.includeUnassessed && isUnassessedPilotCandidate(row)) return true;
-  if (isFreeSourceUnknownSize(row)) return true;
+  if (isFreeSourceUnknownSize(row, options.requestedMinEmployees)) return true;
   return failedConditions(row.metadata).some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
 }
 
@@ -1614,11 +1622,14 @@ async function rescueBatchWithClaudeUnlocked(
       : false);
   const startedMs = deps.nowMs();
   const onlyFreeSource = params.onlyFreeSourceMissingDomain === true;
+  const requestedMinEmployees = resolveRequestedMinEmployees(
+    deps.loadBatchAdditionalCriteria ? await deps.loadBatchAdditionalCriteria(params.batchId).catch(() => null) : null,
+  );
   const storedSizeDiscards = onlyFreeSource ? new Set<string>() : await discardStoredSmallSizes(candidates, deps);
   const work: WorkItem[] = [
     ...(onlyFreeSource ? [] : candidates)
       .filter((row) => !storedSizeDiscards.has(row.id))
-      .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed }))
+      .filter((row) => needsCandidateRescue(row, startedMs, { includeUnassessed, requestedMinEmployees }))
       .map((row) => ({ kind: 'candidate' as const, row })),
     ...dispositions
       .filter((row) => !onlyFreeSource || isFreeSourceMissingDomainDisposition(row))
@@ -1631,9 +1642,6 @@ async function rescueBatchWithClaudeUnlocked(
   // AGENT1-DELIVERY-CAP-HARD-1 — si no se puede leer, el rescate sigue como antes.
   const freeSlots = deps.deliverySlots ? await deps.deliverySlots(params.batchId).catch(() => null) : null;
   const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
-  const requestedMinEmployees = resolveRequestedMinEmployees(
-    deps.loadBatchAdditionalCriteria ? await deps.loadBatchAdditionalCriteria(params.batchId).catch(() => null) : null,
-  );
   const ctx: RescueRunContext = {
     fiscalIdentityCandidateIds: [],
     batchId: params.batchId,

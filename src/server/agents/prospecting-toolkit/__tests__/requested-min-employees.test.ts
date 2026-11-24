@@ -69,3 +69,23 @@ describe('rangos de Apollo con el umbral pedido', () => {
     assert.equal(mapEmployeeThresholdToApolloRanges(500)[0], '500,1000');
   });
 });
+
+describe('Prod 24-11 (EC, 732bc372) — la palabra entre el número y el «o más»', () => {
+  it('lee «350 empleados o más» como 350', () => {
+    assert.equal(extractMinEmployeesFromCriteria('350 empleados o más'), 350);
+    assert.equal(resolveRequestedMinEmployees('350 empleados o más'), 350);
+  });
+
+  it('acepta las variantes con la palabra en medio', () => {
+    assert.equal(extractMinEmployeesFromCriteria('de 400 colaboradores en adelante'), 400);
+    assert.equal(extractMinEmployeesFromCriteria('500 trabajadores como mínimo'), 500);
+    assert.equal(extractMinEmployeesFromCriteria('300 empelados para arriba'), 300);
+    assert.equal(extractMinEmployeesFromCriteria('1,000 employees or more'), 1000);
+  });
+
+  it('no confunde topes ni rangos con mínimos', () => {
+    assert.equal(extractMinEmployeesFromCriteria('menos de 500 empleados'), null);
+    assert.equal(extractMinEmployeesFromCriteria('500 empleados como máximo'), null);
+    assert.equal(extractMinEmployeesFromCriteria('empresas de 350 empleados'), null);
+  });
+});
