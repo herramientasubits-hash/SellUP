@@ -833,10 +833,10 @@ describe('la migración 128 — su contrato', () => {
     // colección oficial con la procedencia `legacy_incumbent` (unknown, manual), para que la 128 deje
     // de rechazarlo. No edita la 128 ni ninguna migración de la cadena: la 128 se vuelve a llamar
     // tal cual. Sin tabla, columna ni vocabulario nuevos. AUTORADA y NO APLICADA.
-    assert.equal(files[files.length - 1], '169_bootstrap_legacy_contact_phone_incumbent.sql');
+    assert.equal(files[files.length - 1], '170_sales_quotes.sql');
     const numbers = files.map((f) => Number.parseInt(f.slice(0, 3), 10));
-    assert.equal(Math.max(...numbers), 169);
-    assert.equal(files.length, 169,  'techo y conteo coinciden: ni un hueco');
+    assert.equal(Math.max(...numbers), 170);
+    assert.equal(files.length, 170,  'techo y conteo coinciden: ni un hueco');
   });
 
   it('no edita ninguna migración anterior de la cadena de teléfono', () => {

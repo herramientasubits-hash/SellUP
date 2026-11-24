@@ -1194,9 +1194,9 @@ describe('CUT-L7 §§ 5, 23, 29, 40, 43 — alcance, fidelidad y cableado', () =
     for (const foreign of ['CUT-L7', 'shared_fiscal_identity', 'provider_seen_entities']) {
       assert.equal(pilotLimits.includes(foreign), false, `la 160 nombra ${foreign}: dejaría de ser ajena a CUT-L7`);
     }
-    // Ninguna 161 o superior, se llame como se llame.
+    // Ninguna 171 o superior, se llame como se llame. SALES-QUOTE-3 declara la 170 (cotizaciones y aprobadores del cotizador de Ventas: dos tablas nuevas, sólo service_role; sin teléfonos, contactos, presupuesto ni HubSpot). NO APLICADA.
     assert.equal(
-      migrations.filter((f) => /^(1[7-9]\d)_/.test(f)).length,
+      migrations.filter((f) => /^(17[1-9]|1[89]\d)_/.test(f)).length,
       0,
     );
   });

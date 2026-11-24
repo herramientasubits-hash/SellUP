@@ -615,9 +615,11 @@ describe('4O-E4.1 estático — alcance', () => {
       // contactos, presupuesto ni HubSpot); no ASIGNA `mobile_phone`.
       // GROWTH-BULK-SEARCH-1 mueve el techo a la 159 (búsquedas masivas de Growth; sin teléfonos ni
       // contactos); no ASIGNA `mobile_phone`.
-      // La 165 (avisos de Slack configurables e historial de boletines) fue el techo anterior.
-      169,
-      'la 169 (contacto legacy → colección oficial: una función nueva, procedencia legacy_incumbent) es la última',
+      // La 165 (avisos de Slack configurables e historial de boletines) fue el techo anterior,
+      // y luego la 169 (contacto legacy → colección oficial). SALES-QUOTE-3 mueve el techo a la 170
+      // (cotizaciones y aprobadores del cotizador: dos tablas nuevas, sólo service_role); no ASIGNA `mobile_phone`.
+      170,
+      'la 170 (cotizaciones del cotizador de Ventas: dos tablas nuevas, sin teléfonos) es la última',
     );
   });
 

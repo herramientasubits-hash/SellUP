@@ -103,7 +103,7 @@ export function ModalShell({
           </DialogHeader>
         )}
 
-        <div data-slot="modal-shell-body" className="py-2">
+        <div data-slot="modal-shell-body" className="min-w-0 py-2">
           {children}
         </div>
 

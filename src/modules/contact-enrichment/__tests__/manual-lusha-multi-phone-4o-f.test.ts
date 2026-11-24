@@ -1231,7 +1231,7 @@ describe('4O-F · § 36 — las deudas fuera de alcance siguen abiertas', () => 
     // AGENT1-CORPORATE-TREE-PHASE-C mueve el techo a la 157 (columnas de nivel en agent1_company_relationships; sin teléfonos, contactos, presupuesto ni HubSpot):
     // tres columnas nuevas (`parent_name`, `parent_relationship_id`, `depth`) y un índice. AUTORADA y NO APLICADA.
     // Dueña 13-11 mueve el techo a la 166 (RLS por alcance comercial; sin teléfonos). AUTORIZADA y NO APLICADA.
-    assert.equal(numbered[numbered.length - 1], 169, '4O-F reutiliza la 111 sin crear SQL nuevo');
+    assert.equal(numbered[numbered.length - 1], 170, '4O-F reutiliza la 111 sin crear SQL nuevo');
   });
 
   // AGENT2A-PHONE-REVEAL-4O-H3 — este guarda se INVIERTE, no se borra.
