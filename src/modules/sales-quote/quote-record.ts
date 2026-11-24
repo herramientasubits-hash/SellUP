@@ -124,6 +124,7 @@ export function buildQuoteRecord(raw: unknown): QuoteRecordOutcome {
     );
     const input = normalizeQuote2027Input({ ...payload.input, manualDiscounts } as Quote2027Input);
     const result = quote2027(input);
+    if (result.blockedByOperations) return { ok: false, error: 'Más de 10.000 licencias: Aprendizaje se cotiza con Operaciones, no aquí.' };
     if (result.lines.length === 0) return { ok: false, error: 'La cotización no tiene productos: escribe las licencias o elige un plan.' };
     const needsApproval = result.belowMinimum.length > 0;
     const approval = needsApproval ? buildApprovalDraft(input, result, clientName ?? '') : null;

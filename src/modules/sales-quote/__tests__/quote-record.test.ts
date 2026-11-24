@@ -49,6 +49,15 @@ describe('guardar una cotización 2027', () => {
     if (outcome.ok) assert.deepEqual(Object.keys((outcome.record.input as { manualDiscounts: object }).manualDiscounts), []);
   });
 
+  it('🔴 más de 10.000 licencias no se guarda (Aprendizaje se cotiza con Operaciones)', () => {
+    const outcome = buildQuoteRecord({
+      ...base2027,
+      input: { ...base2027.input, licenses: 15_000, selection: { tier: 'basic', packs: 0 } },
+    });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.match(outcome.error, /Operaciones/);
+  });
+
   it('sin productos no se guarda', () => {
     const outcome = buildQuoteRecord({ ...base2027, input: defaultQuote2027Input() });
     assert.equal(outcome.ok, false);

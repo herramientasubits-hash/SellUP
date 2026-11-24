@@ -30,11 +30,18 @@ import { getMyQuoteAccess } from './quote-markets.server';
 import { buildQuoteRecord, initialQuoteStatus, type QuoteStatus, type StoredQuoteResult } from './quote-record';
 import { availablePricingVersions, type PricingVersion } from './version';
 
+/** La tabla no existe: falta aplicar la migración 170 (42P01 de Postgres o PGRST205 de PostgREST). */
+const isMissingTable = (error: { code?: string | null } | null | undefined) =>
+  error?.code === '42P01' || error?.code === 'PGRST205';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (value: unknown): value is string => typeof value === 'string' && UUID_PATTERN.test(value);
+
 const nameOf = (user: { full_name?: string | null; email?: string | null } | null | undefined) =>
   user?.full_name || user?.email || 'Alguien';
 
-function cleanNote(note: string | null | undefined): string | null {
-  const trimmed = (note ?? '').trim();
+function cleanNote(note: unknown): string | null {
+  const trimmed = (typeof note === 'string' ? note : '').trim();
   return trimmed ? trimmed.slice(0, 500) : null;
 }
 
@@ -93,7 +100,7 @@ export async function saveSalesQuote(payload: unknown): Promise<SaveQuoteResult>
     console.error('[quotes] save failed:', error?.message.slice(0, 200));
     return {
       ok: false,
-      error: error?.code === '42P01' ? 'Falta preparar la base de datos (migración 170). Avisa al equipo.' : 'No pudimos guardar la cotización. Vuelve a probar.',
+      error: isMissingTable(error) ? 'Falta preparar la base de datos (migración 170). Avisa al equipo.' : 'No pudimos guardar la cotización. Vuelve a probar.',
     };
   }
 
@@ -118,6 +125,7 @@ export async function saveSalesQuote(payload: unknown): Promise<SaveQuoteResult>
 // ── Cancelar una solicitud propia ────────────────────────────────────────────
 
 export async function cancelSalesQuote(quoteId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isUuid(quoteId)) return { ok: false, error: 'No encontramos la cotización.' };
   const me = await getCurrentActiveUser();
   if (!me) return { ok: false, error: 'Tu sesión expiró o tu acceso no está activo.' };
   const admin = createSupabaseAdminClient();
@@ -143,7 +151,8 @@ export async function decideSalesQuote(input: {
 }): Promise<{ success: boolean; error?: string }> {
   const me = await getCurrentActiveUser();
   if (!me) return { success: false, error: 'Tu sesión expiró o tu acceso no está activo.' };
-  if (input.decision !== 'approve' && input.decision !== 'reject') return { success: false, error: 'Decisión no válida.' };
+  if (input?.decision !== 'approve' && input?.decision !== 'reject') return { success: false, error: 'Decisión no válida.' };
+  if (!isUuid(input.quoteId)) return { success: false, error: 'No encontramos la cotización.' };
   const isAdmin = await isCurrentUserAdmin();
   const admin = createSupabaseAdminClient();
 
@@ -262,7 +271,7 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
     .order('created_at', { ascending: false })
     .limit(LIST_LIMIT);
   if (mineResult.error) {
-    if (mineResult.error.code === '42P01') return { ...EMPTY_BOARD, storageMissing: true };
+    if (isMissingTable(mineResult.error)) return { ...EMPTY_BOARD, storageMissing: true };
     console.error('[quotes] board:', mineResult.error.message.slice(0, 200));
     return EMPTY_BOARD;
   }
@@ -281,7 +290,8 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
         .neq('created_by', me.id)
         .order('created_at')
         .limit(LIST_LIMIT)
-    : { data: [] as QuoteDbRow[] };
+    : { data: [] as QuoteDbRow[], error: null };
+  if (pendingResult.error) console.error('[quotes] pendientes por aprobar:', pendingResult.error.message.slice(0, 200));
 
   // Las de su gente: admin, todas; manager y líder, su equipo en cascada.
   let teamRows: QuoteDbRow[] | null = null;
@@ -292,7 +302,9 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
     if (isAdmin || scope?.canViewAll || (teamIds && teamIds.length > 0)) {
       let query = admin.from('sales_quotes').select(QUOTE_COLUMNS).neq('created_by', me.id).order('created_at', { ascending: false }).limit(LIST_LIMIT);
       if (teamIds && !isAdmin && !scope?.canViewAll) query = query.in('created_by', teamIds);
-      teamRows = ((await query).data ?? []) as QuoteDbRow[];
+      const teamResult = await query;
+      if (teamResult.error) console.error('[quotes] cotizaciones del equipo:', teamResult.error.message.slice(0, 200));
+      teamRows = (teamResult.data ?? []) as QuoteDbRow[];
     } else {
       teamRows = [];
     }
@@ -349,7 +361,7 @@ export interface QuoteAccountOption {
 /** Empresas que la persona puede ver (RLS de su sesión), por nombre. */
 export async function searchQuoteAccounts(query: string): Promise<QuoteAccountOption[]> {
   const me = await getCurrentActiveUser();
-  const text = query.trim().replace(/[%_,()]/g, ' ').slice(0, 80);
+  const text = (typeof query === 'string' ? query : '').trim().replace(/[%_,()]/g, ' ').slice(0, 80);
   if (!me || text.length < 2) return [];
   const supabase = await createClient();
   const { data } = await supabase
@@ -383,7 +395,7 @@ export async function getQuoteApproverSettings(): Promise<QuoteApproverSettingsR
     admin.from('sales_quote_approvers').select('account_type, user_id, role'),
     admin.from('internal_users').select('id, full_name, email').eq('access_status', 'active').order('full_name'),
   ]);
-  if (rowsResult.error) return { ok: false, reason: rowsResult.error.code === '42P01' ? 'missing_table' : 'error' };
+  if (rowsResult.error) return { ok: false, reason: isMissingTable(rowsResult.error) ? 'missing_table' : 'error' };
   if (usersResult.error) return { ok: false, reason: 'error' };
   const rows = (rowsResult.data ?? []) as Array<{ account_type: QuoteAccountType; user_id: string; role: 'approver' | 'cc' }>;
   const byType = {} as QuoteApproverSettings['byType'];
@@ -414,9 +426,10 @@ export async function setQuoteApprovers(input: {
   ccIds: string[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!(await isCurrentUserAdmin())) return { ok: false, error: 'Solo un admin elige quién aprueba.' };
-  if (!ACCOUNT_TYPES.includes(input.accountType)) return { ok: false, error: 'Tipo de cuenta no válido.' };
-  const approverIds = [...new Set(input.approverIds.filter(Boolean))];
-  const ccIds = [...new Set(input.ccIds.filter((id) => id && !approverIds.includes(id)))];
+  if (!ACCOUNT_TYPES.includes(input?.accountType)) return { ok: false, error: 'Tipo de cuenta no válido.' };
+  if (!Array.isArray(input.approverIds) || !Array.isArray(input.ccIds)) return { ok: false, error: 'Lista de personas no válida.' };
+  const approverIds = [...new Set(input.approverIds.filter(isUuid))];
+  const ccIds = [...new Set(input.ccIds.filter((id) => isUuid(id) && !approverIds.includes(id)))];
   const all = [...approverIds, ...ccIds];
   if (all.length > 50) return { ok: false, error: 'Máximo 50 personas por tipo de cuenta.' };
 
@@ -428,16 +441,28 @@ export async function setQuoteApprovers(input: {
   }
   const actor = await getCurrentActiveUser();
 
-  const { error: deleteError } = await admin.from('sales_quote_approvers').delete().eq('account_type', input.accountType);
-  if (deleteError) {
-    return { ok: false, error: deleteError.code === '42P01' ? 'Falta aplicar la migración 170.' : 'No pudimos guardar. Vuelve a probar.' };
-  }
+  // Primero se guarda la lista nueva y después se quita lo que salió: si algo
+  // falla a mitad, la lista nunca queda vacía (y la aprobación no cae a los admins).
   if (all.length > 0) {
-    const { error } = await admin.from('sales_quote_approvers').insert([
-      ...approverIds.map((id) => ({ account_type: input.accountType, user_id: id, role: 'approver', created_by: actor?.id ?? null })),
-      ...ccIds.map((id) => ({ account_type: input.accountType, user_id: id, role: 'cc', created_by: actor?.id ?? null })),
-    ]);
-    if (error) return { ok: false, error: 'No pudimos guardar la lista. Revísala y vuelve a guardar.' };
+    const { error } = await admin.from('sales_quote_approvers').upsert(
+      [
+        ...approverIds.map((id) => ({ account_type: input.accountType, user_id: id, role: 'approver', created_by: actor?.id ?? null })),
+        ...ccIds.map((id) => ({ account_type: input.accountType, user_id: id, role: 'cc', created_by: actor?.id ?? null })),
+      ],
+      { onConflict: 'account_type,user_id' },
+    );
+    if (error) {
+      return { ok: false, error: isMissingTable(error) ? 'Falta aplicar la migración 170.' : 'No pudimos guardar la lista. Vuelve a probar.' };
+    }
+  }
+  let removal = admin.from('sales_quote_approvers').delete().eq('account_type', input.accountType);
+  if (all.length > 0) removal = removal.not('user_id', 'in', `(${all.join(',')})`);
+  const { error: deleteError } = await removal;
+  if (deleteError) {
+    return {
+      ok: false,
+      error: isMissingTable(deleteError) ? 'Falta aplicar la migración 170.' : 'Guardamos a las personas nuevas, pero no pudimos quitar a las que salieron. Vuelve a guardar.',
+    };
   }
   revalidatePath('/settings/quotes');
   revalidatePath(QUOTES_PATH);

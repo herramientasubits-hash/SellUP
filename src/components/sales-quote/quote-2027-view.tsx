@@ -333,7 +333,14 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
           result.lines.length > 0 && (
             <>
               <CopyButton text={summaryText} label="Copiar resumen" />
-              <QuoteSavePanel version="2027" input={input} clientName={clientName} needsApproval={needsApproval} onSaved={onSaved} />
+              <QuoteSavePanel
+                version="2027"
+                input={input}
+                clientName={clientName}
+                needsApproval={needsApproval}
+                disabled={result.blockedByOperations}
+                onSaved={onSaved}
+              />
             </>
           )
         }

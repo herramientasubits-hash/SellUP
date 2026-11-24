@@ -85,32 +85,35 @@ interface NotificationRow {
 }
 
 async function notify(admin: SupabaseClient, rows: NotificationRow[]): Promise<void> {
-  // Una por una: el índice que evita duplicados es parcial (031) y PostgREST no
-  // lo acepta como `onConflict`; un 23505 sólo significa «ya se avisó».
-  for (const row of rows) {
-    const { error } = await admin.from('user_notifications').insert({
-      recipient_internal_user_id: row.recipient,
-      notification_type: row.type,
-      title: row.title,
-      message: row.message,
-      action_label: 'Ver cotización',
-      action_url: row.url,
-      entity_type: 'sales_quote',
-      entity_id: row.quoteId,
-    });
-    if (error && error.code !== '23505') {
-      console.error('[quotes] notification failed:', error.message.slice(0, 200));
-    }
-    if (!error) {
-      await notifySlackUsers(
-        [row.recipient],
-        { title: row.title, message: row.message, actionLabel: 'Ver cotización', actionUrl: row.url },
-        {
-          key: row.type === 'sales_quote_approval_requested' || row.type === 'sales_quote_approval_cc' ? 'quote_requests' : 'quote_decisions',
-          extraButtons: row.withButtons ? quoteDecisionButtons(row.quoteId) : undefined,
-        },
-      );
-    }
+  // Cada aviso por separado (en paralelo): el índice que evita duplicados es
+  // parcial (031) y PostgREST no lo acepta como `onConflict`; un 23505 sólo
+  // significa «ya se avisó».
+  await Promise.all(rows.map((row) => notifyOne(admin, row)));
+}
+
+async function notifyOne(admin: SupabaseClient, row: NotificationRow): Promise<void> {
+  const { error } = await admin.from('user_notifications').insert({
+    recipient_internal_user_id: row.recipient,
+    notification_type: row.type,
+    title: row.title,
+    message: row.message,
+    action_label: 'Ver cotización',
+    action_url: row.url,
+    entity_type: 'sales_quote',
+    entity_id: row.quoteId,
+  });
+  if (error && error.code !== '23505') {
+    console.error('[quotes] notification failed:', error.message.slice(0, 200));
+  }
+  if (!error) {
+    await notifySlackUsers(
+      [row.recipient],
+      { title: row.title, message: row.message, actionLabel: 'Ver cotización', actionUrl: row.url },
+      {
+        key: row.type === 'sales_quote_approval_requested' || row.type === 'sales_quote_approval_cc' ? 'quote_requests' : 'quote_decisions',
+        extraButtons: row.withButtons ? quoteDecisionButtons(row.quoteId) : undefined,
+      },
+    );
   }
 }
 
@@ -135,11 +138,11 @@ export async function notifyQuoteApprovalRequested(
     const client = input.clientName || 'un cliente sin nombre';
     const lines = input.belowMinimumCount === 1 ? 'una línea queda' : `${input.belowMinimumCount} líneas quedan`;
     const summary = `${client} · ${input.countryName} · contrato de ${usd(input.contractTotal)}. En esta cotización ${lines} bajo el mínimo.`;
-    const approverIds = new Set(approvers.map((person) => person.id));
+    // Nadie aprueba lo suyo: quien pidió no cuenta como aprobador.
+    const deciders = approvers.filter((person) => person.id !== input.requesterId);
+    const approverIds = new Set(deciders.map((person) => person.id));
     await notify(admin, [
-      ...approvers
-        .filter((person) => person.id !== input.requesterId)
-        .map((person) => ({
+      ...deciders.map((person) => ({
           recipient: person.id,
           type: 'sales_quote_approval_requested' as const,
           title: `${input.requesterName} pide aprobar un descuento`,
@@ -163,14 +166,14 @@ export async function notifyQuoteApprovalRequested(
         type: 'sales_quote_approval_sent',
         title: 'Pediste aprobar un descuento',
         message:
-          approvers.length > 0
-            ? `Le avisamos a ${approvers.map((person) => person.name).join(', ')}. Te contamos cuando decidan.`
-            : 'No hay aprobadores activos: avísale a un administrador.',
+          deciders.length > 0
+            ? `Le avisamos a ${deciders.map((person) => person.name).join(', ')}. Te contamos cuando decidan.`
+            : 'No hay otra persona que pueda aprobarla: pídele a un administrador que elija aprobadores en Configuración → Cotizador.',
         quoteId: input.quoteId,
         url: MY_QUOTES_URL,
       },
     ]);
-    return approvers.map((person) => person.name);
+    return deciders.map((person) => person.name);
   } catch (error) {
     console.error('[quotes] request notification failed:', error instanceof Error ? error.message.slice(0, 200) : String(error));
     return [];
