@@ -84,7 +84,10 @@ import {
 } from '@/server/prospect-batches/country-source-discovery/country-source-official-tax-id';
 import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import { CORPORATE_TREE_SAVED_DAYS } from './corporate-tree-saved';
-import { APOLLO_QUOTA_EXHAUSTED, settleBy, type CorporateTreeRelationshipRow, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
+import { APOLLO_QUOTA_EXHAUSTED, provenSellUpHubSpotIds, settleBy, type CorporateTreeRelationshipRow, type CorporateTreeBatchCandidate, type CorporateTreeRunDeps, type CorporateTreeStage } from './corporate-tree-run';
+
+/** Filas de SellUp que se miran como mucho al buscar la ficha de HubSpot de las webs del árbol. */
+const SELLUP_HUBSPOT_ID_MAX_ROWS = 200;
 
 /** La nota que ve el vendedor en la fila que ya es cliente de UBITS. */
 const CORPORATE_TREE_CUSTOMER_NOTE = 'Ya es cliente de UBITS en HubSpot: no entra a revisión.';
@@ -516,6 +519,34 @@ export function buildLiveCorporateTreeDeps(params: {
     // abierto, actividad reciente, dueño activo). Nunca escribe.
     // FASE D — SÓLO lectura: la ficha de HubSpot por la web exacta de una empresa del grupo.
     findHubSpotIdsByDomain: (domain) => searchHubSpotCompanyIdsByExactDomain(domain),
+    // Prod 24-11 — la ficha de HubSpot que SellUp ya comprobó para esa web. Mira TODO SellUp
+    // (como «Ya en SellUp», migración 166) y sólo devuelve ids; nunca escribe.
+    findSellUpHubSpotIdsByDomain: async (domains) => {
+      if (domains.length === 0) return new Map();
+      const everyone = createSupabaseAdminClient();
+      const [candidates, accounts] = await Promise.all([
+        everyone
+          .from('prospect_candidates')
+          .select('id, name, country_code, domain, status, matched_hubspot_company_id, duplicate_status, metadata')
+          .in('domain', [...domains])
+          .not('matched_hubspot_company_id', 'is', null)
+          .limit(SELLUP_HUBSPOT_ID_MAX_ROWS),
+        everyone
+          .from('accounts')
+          .select('domain, hubspot_company_id')
+          .in('domain', [...domains])
+          .not('hubspot_company_id', 'is', null)
+          .is('archived_at', null)
+          .limit(SELLUP_HUBSPOT_ID_MAX_ROWS),
+      ]);
+      if (candidates.error) logError('sellup hubspot ids (candidates)', candidates.error);
+      if (accounts.error) logError('sellup hubspot ids (accounts)', accounts.error);
+      return provenSellUpHubSpotIds(
+        domains,
+        (candidates.data ?? []) as CorporateTreeBatchCandidate[],
+        (accounts.data ?? []) as { domain: string | null; hubspot_company_id: string | null }[],
+      );
+    },
 
     readGroupHubSpotStatus: async (ids) => {
       const hubspotLimit = limiter(GROUP_HUBSPOT_CONCURRENCY);

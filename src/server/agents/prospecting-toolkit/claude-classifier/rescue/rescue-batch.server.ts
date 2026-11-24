@@ -506,6 +506,19 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
       const metadata = (data as { metadata?: Record<string, unknown> | null } | null)?.metadata ?? null;
       return !!metadata && (metadata.search_mode === 'corporate_tree' || !!metadata.corporate_tree);
     },
+    // Prod 24-11 (Multibank) — webs que el árbol del lote ya ligó a una ficha de HubSpot.
+    loadBatchTreeHubSpotDomains: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('agent1_company_relationships')
+        .select('related_domain')
+        .eq('batch_id', batchId)
+        .not('related_domain', 'is', null)
+        .not('matched_hubspot_company_id', 'is', null)
+        .limit(300);
+      return (data ?? [])
+        .map((rel) => String((rel as { related_domain?: unknown }).related_domain ?? ''))
+        .filter(Boolean);
+    },
     loadBatchGroupDomains: async (batchId) => {
       const admin = createSupabaseAdminClient();
       const { data } = await admin.from('prospect_batches').select('metadata').eq('id', batchId).maybeSingle();
