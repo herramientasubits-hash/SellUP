@@ -66,3 +66,47 @@ describe('drainEnrichmentJobs', () => {
     assert.deepEqual(r, { rounds: 1, processed: 3, succeeded: 3, stoppedBy: 'worker_error' });
   });
 });
+
+// ─── FEEDBACK 24-11 — vueltas encadenadas ────────────────────────────────────
+
+import {
+  decideEnrichmentContinuation,
+  ENRICHMENT_CHAIN_MAX_HOPS,
+  parseEnrichmentHop,
+} from '../enrichment-drain';
+
+describe('decideEnrichmentContinuation', () => {
+  it('pide otra vuelta si el vaciado se quedó sin tiempo con trabajo hecho', () => {
+    assert.deepEqual(
+      decideEnrichmentContinuation({ rounds: 5, processed: 15, succeeded: 12, stoppedBy: 'time_budget' }, 0),
+      { continue: true, nextHop: 1 },
+    );
+    assert.deepEqual(
+      decideEnrichmentContinuation({ rounds: 20, processed: 60, succeeded: 60, stoppedBy: 'max_rounds' }, 3),
+      { continue: true, nextHop: 4 },
+    );
+  });
+
+  it('para con la cola vacía, con error del worker o sin trabajo', () => {
+    assert.deepEqual(decideEnrichmentContinuation({ rounds: 2, processed: 3, succeeded: 3, stoppedBy: 'queue_empty' }, 0), { continue: false });
+    assert.deepEqual(decideEnrichmentContinuation({ rounds: 0, processed: 0, succeeded: 0, stoppedBy: 'worker_error' }, 0), { continue: false });
+    assert.deepEqual(decideEnrichmentContinuation({ rounds: 1, processed: 0, succeeded: 0, stoppedBy: 'time_budget' }, 0), { continue: false });
+  });
+
+  it('no encadena más allá del tope', () => {
+    assert.deepEqual(
+      decideEnrichmentContinuation({ rounds: 5, processed: 15, succeeded: 15, stoppedBy: 'time_budget' }, ENRICHMENT_CHAIN_MAX_HOPS),
+      { continue: false },
+    );
+  });
+});
+
+describe('parseEnrichmentHop', () => {
+  it('lee { hop } y cae a 0 con cualquier otra cosa', () => {
+    assert.equal(parseEnrichmentHop({ hop: 4 }), 4);
+    assert.equal(parseEnrichmentHop({ hop: -1 }), 0);
+    assert.equal(parseEnrichmentHop({ hop: 1.5 }), 0);
+    assert.equal(parseEnrichmentHop({ hop: ENRICHMENT_CHAIN_MAX_HOPS + 1 }), 0);
+    assert.equal(parseEnrichmentHop(null), 0);
+  });
+});
