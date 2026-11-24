@@ -14,6 +14,7 @@
  */
 
 import type { ResolvedWizardExecution } from './wizard-execution-types';
+import { extractMinEmployeesFromCriteria } from '@/server/agents/prospecting-toolkit/requested-min-employees';
 
 // ─── Versión ──────────────────────────────────────────────────────────────────
 
@@ -134,15 +135,8 @@ export function parseAdditionalCriteriaTokens(text: string | null | undefined): 
  * Retorna null si no se detecta umbral numérico.
  */
 export function extractEmployeeThresholdFromText(text: string | null | undefined): number | null {
-  if (!text?.trim()) return null;
-  const cleaned = normalizeText(text);
-  // "más de 200" / "200+" / "mas de 200 empleados" / "over 200"
-  const match = cleaned.match(/(?:mas\s+de|more\s+than|over|al?\s+menos|at\s+least)\s+(\d+)|(\d+)\s*\+/);
-  if (match) {
-    const n = parseInt(match[1] ?? match[2] ?? '', 10);
-    if (!isNaN(n) && n > 0) return n;
-  }
-  return null;
+  // FEEDBACK 24-11 — una sola lectura del número para todo el flujo (ignora «más de 90 días»).
+  return extractMinEmployeesFromCriteria(text);
 }
 
 // ─── NormalizedWizardContext ──────────────────────────────────────────────────

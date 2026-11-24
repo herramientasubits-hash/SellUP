@@ -503,6 +503,13 @@ describe('H — «Competidoras pequeñas» (decisión de la dueña 21-10)', () =
   it('H4: el piso de 200 del escritor no se tocó (sigue para lo que va a HubSpot)', async () => {
     const { readFile } = await import('node:fs/promises');
     const writer = await readFile('src/server/agents/prospecting-toolkit/candidate-writer.ts', 'utf8');
-    assert.match(writer, /threshold: 200,/);
+    // FEEDBACK 24-11 — el umbral sale de `resolveRequestedMinEmployees`: el piso sigue en
+    // 200 (sólo SUBE si la persona pide «más de N empleados»), nunca baja.
+    assert.match(writer, /threshold: batchRequestedMinEmployees,/);
+    const { resolveRequestedMinEmployees } = await import(
+      '@/server/agents/prospecting-toolkit/requested-min-employees'
+    );
+    assert.equal(resolveRequestedMinEmployees(null), 200);
+    assert.equal(resolveRequestedMinEmployees('más de 50 empleados'), 200);
   });
 });

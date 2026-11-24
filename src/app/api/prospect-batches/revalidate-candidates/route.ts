@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { validateImportedCandidatesBatch } from '@/modules/prospect-batches/actions';
 import { canActOnBatch } from '@/modules/access/record-scope.server';
+import { triggerEnrichmentContinuation } from '@/server/prospect-batches/enrichment-chain.server';
 
 // AUDIT-HARDENING-1 — la revalidación recorre las filas con búsquedas de NIT y de
 // HubSpot (la misma validación que la importación, que ya tiene 300 s): es la vía
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json({ error: result.error ?? 'Error en revalidación' }, { status: 422 });
     }
+
+    // FEEDBACK 24-11 — la revalidación encola enriquecimiento pero nadie lo corría:
+    // se pide una vuelta del vaciado (responde al instante; nunca lanza).
+    after(() => triggerEnrichmentContinuation(0));
 
     return NextResponse.json({ success: true, batchId });
   } catch (err) {
