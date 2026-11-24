@@ -26,6 +26,8 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   postHubSpotCompanySearch,
@@ -147,5 +149,44 @@ describe('AGENT2A-PROD-INCIDENT — techo de espera de HubSpot company search', 
       HUBSPOT_COMPANY_SEARCH_URL.includes('/objects/companies/search'),
       'el endpoint debe seguir siendo el de búsqueda, no uno de escritura',
     );
+  });
+});
+
+describe('Prod 24-11 (árbol de Grupo Aval c41b56d4) — HubSpot dice «demasiadas peticiones»', () => {
+  const noWait = { sleep: async () => undefined, random: () => 0 };
+  const status = (code: number) =>
+    Promise.resolve({ ok: code < 400, status: code, headers: new Headers(), json: async () => ({ results: [] }) } as unknown as Response);
+
+  it('un 429 se reintenta y la respuesta buena llega al llamador', async () => {
+    const seen: number[] = [];
+    const answers = [429, 429, 200];
+    const fetchFn = (async () => {
+      const code = answers[seen.length];
+      seen.push(code);
+      return status(code);
+    }) as unknown as typeof fetch;
+    const res = await postHubSpotCompanySearch(FAKE_TOKEN, FAKE_BODY, 1_000, { ...noWait, fetchFn });
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, [429, 429, 200]);
+  });
+
+  it('cada reintento lleva su propio techo de espera', async () => {
+    const signals: AbortSignal[] = [];
+    const answers = [429, 200];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return status(answers[signals.length - 1]);
+    }) as unknown as typeof fetch;
+    await postHubSpotCompanySearch(FAKE_TOKEN, FAKE_BODY, 1_000, { ...noWait, fetchFn });
+    assert.equal(signals.length, 2);
+    assert.notEqual(signals[0], signals[1]);
+  });
+
+  it('un error de HubSpot ya no se lee como «no hay empresa» en la búsqueda por web ni por nombre', () => {
+    const source = readFileSync(join(__dirname, '../hubspot-company-search.ts'), 'utf8');
+    assert.doesNotMatch(source, /if \(!response\.ok\) return \[\];/);
+    assert.equal(source.match(/if \(!response\.ok\) throw new HubSpotCompanySearchError\(response\.status\);/g)?.length, 2);
+    // La búsqueda por web del árbol convierte ese error en «HubSpot no contestó» (null).
+    assert.match(source, /return \(await searchCompaniesByDomain\(token, clean\)\)\.map\(\(c\) => c\.id\);\s*\} catch \{\s*return null;/);
   });
 });
