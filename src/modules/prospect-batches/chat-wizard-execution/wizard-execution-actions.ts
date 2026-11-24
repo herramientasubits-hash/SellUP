@@ -275,6 +275,7 @@ import { checkConfiguredProviderLimit, checkProviderQuotaAvailable } from '@/mod
 import { resolveApolloSeenDomainExclusion } from '@/modules/prospect-batches/provider-seen/apollo-seen-domain-exclusion';
 import { buildWizardShortfallReasons } from './wizard-shortfall-reasons';
 import { resolveTavilyFirstMaxRounds } from './wizard-run-time-plan';
+import { resolveRequestedMinEmployees } from '@/server/agents/prospecting-toolkit/requested-min-employees';
 
 // ── Dependency injection boundary ─────────────────────────────────────────────
 // All I/O dependencies are injected here. The public server action provides real
@@ -2626,7 +2627,9 @@ export async function executeProspectWizardGeneration(
     additionalCriteria: req.additionalCriteriaRaw,
     systemControls: {
       targetCount: WIZARD_SYSTEM_CONTROLS.targetCount,
-      minimumEmployees: WIZARD_SYSTEM_CONTROLS.minimumEmployees,
+      // FEEDBACK 24-11 (FIGARANTIAS) — «más de 300 empleados» en el criterio libre sube
+      // el piso del ICP (nunca lo baja): Apollo y el filtro final usan ese número.
+      minimumEmployees: resolveRequestedMinEmployees(req.additionalCriteriaRaw),
       employeeThresholdMode: WIZARD_SYSTEM_CONTROLS.employeeThresholdMode,
     },
   };

@@ -397,7 +397,7 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
     loadReviewCandidates: async (batchId) => {
       const { data, error } = await createSupabaseAdminClient()
         .from('prospect_candidates')
-        .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata, tax_identifier')
+        .select('id, industry_id, industry, source_primary, name, website, domain, country_code, country, status, metadata, tax_identifier, employee_count')
         .eq('batch_id', batchId)
         .eq('status', 'needs_review');
       if (error) throw new Error(`candidates_read_failed:${error.message}`);
@@ -448,6 +448,16 @@ export function buildLiveRescueBatchDeps(triggeredBy: string | null): RescueBatc
         .maybeSingle();
       const id = (data as { metadata?: { industry_id?: unknown } } | null)?.metadata?.industry_id;
       return typeof id === 'string' && id ? id : null;
+    },
+    // FEEDBACK 24-11 — «más de 300 empleados» escrito en la búsqueda: umbral del rescate.
+    loadBatchAdditionalCriteria: async (batchId) => {
+      const { data } = await createSupabaseAdminClient()
+        .from('prospect_batches')
+        .select('metadata->additional_criteria')
+        .eq('id', batchId)
+        .maybeSingle();
+      const raw = (data as { additional_criteria?: unknown } | null)?.additional_criteria;
+      return typeof raw === 'string' && raw.trim() ? raw : null;
     },
     loadSectorMismatchDiscards: async (batchId) => {
       const admin = createSupabaseAdminClient();

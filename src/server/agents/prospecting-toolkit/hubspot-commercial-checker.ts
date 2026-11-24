@@ -19,7 +19,7 @@ import type {
   ReviewFlag,
   RecyclableStatus,
 } from './structured-candidate-types';
-import { normalizeCompanyName } from './normalization';
+import { normalizeCompanyName, normalizeDomain } from './normalization';
 import { buildFiscalLookupNeedles } from './fiscal-identity';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 import {
@@ -510,8 +510,10 @@ export async function checkHubSpotCompanyCommercialStatus(input: {
     }
 
     // 2. Dominio exacto
+    // FEEDBACK 24-11 (FIGARANTIAS) — el buscador gratuito pasa la WEB («https://figarantias.com»)
+    // como dominio y HubSpot buscaba ese texto exacto: nunca coincidía. Se reduce al dominio.
     if (!bestMatch && input.domain) {
-      const domain = input.domain.toLowerCase().replace(/^www\./, '').trim();
+      const domain = normalizeDomain(input.domain) ?? '';
       if (domain.length > 3) {
         const hits = await searchByDomainCommercial(token, domain);
         if (hits.length > 0) {
@@ -523,7 +525,10 @@ export async function checkHubSpotCompanyCommercialStatus(input: {
 
     // 3. Nombre normalizado — fallback
     if (!bestMatch && input.name.trim().length >= 3) {
-      const hits = await searchByNameCommercial(token, input.name.trim());
+      // FEEDBACK 24-11 — «FIGARANTIAS SAS» no encontraba «FIGARANTIAS»: se busca sin el
+      // sufijo legal (la puntuación de abajo compara igual, sin sufijo).
+      const nameQuery = normalizeCompanyName(input.name);
+      const hits = await searchByNameCommercial(token, nameQuery.length >= 3 ? nameQuery : input.name.trim());
       if (hits.length > 0) {
         const inputNorm = normalizeCompanyName(input.name);
         const scored = hits.map((h) => {

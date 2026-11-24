@@ -40,6 +40,7 @@ import {
   enrichImportRowsWithOfficialSources,
 } from '@/server/prospect-batches/import-official-source-enrichment';
 import { drainEnrichmentJobs } from '@/server/prospect-batches/enrichment-drain';
+import { continueEnrichmentIfQueued } from '@/server/prospect-batches/enrichment-chain.server';
 import { AUTO_ENRICH_CONFIG } from '@/modules/prospect-batches/auto-enrich-config';
 import {
   IMPORT_QUALITY_GATES_METADATA_KEY,
@@ -713,6 +714,9 @@ export async function POST(request: NextRequest) {
         ? async () => {
             const drain = await drainEnrichmentJobs();
             console.info('[create-import-batch] post-import enrichment drain:', drain);
+            // FEEDBACK 24-11 — si el vaciado se quedó sin tiempo, la cola sigue en otra
+            // función (antes quedaba «Enriquecimiento pendiente» para siempre).
+            await continueEnrichmentIfQueued(drain, 0);
           }
         : null;
     scheduleClaudeRescueAfterImport({

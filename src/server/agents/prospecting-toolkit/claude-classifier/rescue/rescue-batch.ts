@@ -57,7 +57,8 @@ import {
 import { BANKED_MARKER, buildDispositionBankItem } from './rescue-bank';
 import { resolveMacroIndustryKey } from '@/modules/macro-industry-catalog/macro-industry-resolution';
 import type { CompanyBankDepositItem } from '@/server/prospect-batches/company-bank/company-bank-types';
-import { isSizeUnfiltered, officialSizeSignal } from './official-size-signal';
+import { isSizeUnfiltered, officialSizeSignal, type OfficialSizeSignal } from './official-size-signal';
+import { resolveRequestedMinEmployees } from '../../requested-min-employees';
 import {
   lookUpRescueOfficialIdentity,
   withRescueOfficialIdentity,
@@ -134,6 +135,8 @@ export type RescueBatchDeps = {
   loadDispositions: (batchId: string) => Promise<RescuableDispositionRow[]>;
   /** Macroindustria PEDIDA en la búsqueda (`prospect_batches.metadata.industry_id`). */
   loadBatchIndustryId: (batchId: string) => Promise<string | null>;
+  /** FEEDBACK 24-11 — criterio libre del lote (`metadata.additional_criteria`), para el tamaño pedido. */
+  loadBatchAdditionalCriteria?: (batchId: string) => Promise<string | null>;
   /**
    * ¿Claude buscó empresas en este lote (`metadata.claude_company_search`)? Esas filas no
    * traen completitud: se revisan también (AGENT1-CLAUDE-COMPANY-SEARCH-AUTO-1).
@@ -443,6 +446,41 @@ function isUnassessedPilotCandidate(row: ClassifiableCandidateRow): boolean {
   return status === undefined || status === null || status === 'unknown';
 }
 
+/**
+ * FEEDBACK 24-11 (FIGARANTIAS SAS, lote d546272c) — las empresas del buscador gratuito
+ * de un país cuya fuente NO mide tamaño (Colombia: ranking por ventas) llegan a revisión
+ * sin tamaño y sin `target_completeness`, así que el rescate no las miraba: 8 de 10 del
+ * lote quedaron «tamaño sin confirmar» (40 así en Prod). Claude las revisa como al resto.
+ */
+export function isFreeSourceUnknownSize(row: ClassifiableCandidateRow): boolean {
+  if (row.source_primary !== 'public_source') return false;
+  if (row.metadata?.target_completeness) return false;
+  if (typeof row.employee_count === 'number' && Number.isFinite(row.employee_count)) return false;
+  const official = officialSizeSignal({
+    countryCode: row.country_code,
+    fromFreeLayer: true,
+    sizeUnfiltered: isSizeUnfiltered(row.metadata),
+  });
+  if (official.measured) return false;
+  const status = (row.metadata?.icp_size_gate as { size_status?: unknown } | undefined)?.size_status;
+  return status === undefined || status === null || status === 'unknown';
+}
+
+/** ¿La persona pidió un tamaño mayor que el piso del ICP («más de 300 empleados»)? */
+function requestedAboveIcp(requestedMinEmployees: number): boolean {
+  return requestedMinEmployees > DEFAULT_ICP_MIN_EMPLOYEES;
+}
+
+/**
+ * FEEDBACK 24-11 — si la persona pidió más que el umbral de la fuente oficial (p. ej.
+ * 300 en Chile, donde el SII sólo garantiza 100+), lo medido ya no alcanza: Claude
+ * decide el tamaño contra lo pedido. Sin pedido explícito, nada cambia.
+ */
+function withRequestedMinEmployees(signal: OfficialSizeSignal, requestedMinEmployees: number): OfficialSizeSignal {
+  if (!requestedAboveIcp(requestedMinEmployees) || requestedMinEmployees <= signal.minEmployees) return signal;
+  return { measured: false, minEmployees: requestedMinEmployees };
+}
+
 export function needsCandidateRescue(
   row: ClassifiableCandidateRow,
   nowMs: number,
@@ -463,6 +501,7 @@ export function needsCandidateRescue(
   }
   if (isLushaSectorReview(row)) return true;
   if (options.includeUnassessed && isUnassessedPilotCandidate(row)) return true;
+  if (isFreeSourceUnknownSize(row)) return true;
   return failedConditions(row.metadata).some((f) => (CLASSIFIABLE_FAILED_CONDITIONS as readonly string[]).includes(f));
 }
 
@@ -473,6 +512,8 @@ function sizeAlreadyConfirmed(metadata: Record<string, unknown> | null): boolean
 
 type RescueRunContext = {
   batchId: string;
+  /** FEEDBACK 24-11 — umbral de tamaño de la búsqueda (200 o lo que pidió la persona). */
+  requestedMinEmployees: number;
   triggeredBy: string | null;
   catalog: readonly ClassifierCatalogIndustry[];
   active: ActiveAnthropicModel;
@@ -573,12 +614,17 @@ async function rescueCandidate(
   await logUsage(result, ctx.batchId, ctx.triggeredBy, deps);
 
   // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
-  const official = officialSizeSignal({
-    countryCode: row.country_code,
-    fromFreeLayer: row.source_primary === 'public_source',
-    sizeUnfiltered: isSizeUnfiltered(row.metadata),
-  });
-  const minEmployees = official.measured ? official.minEmployees : readIcpThreshold(row.metadata);
+  const official = withRequestedMinEmployees(
+    officialSizeSignal({
+      countryCode: row.country_code,
+      fromFreeLayer: row.source_primary === 'public_source',
+      sizeUnfiltered: isSizeUnfiltered(row.metadata),
+    }),
+    ctx.requestedMinEmployees,
+  );
+  const minEmployees = official.measured
+    ? official.minEmployees
+    : Math.max(readIcpThreshold(row.metadata), requestedAboveIcp(ctx.requestedMinEmployees) ? ctx.requestedMinEmployees : 0);
   const decided = decideRescue(result, {
     icpMinEmployees: minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry ?? null,
@@ -1109,11 +1155,14 @@ async function rescueDisposition(
   const cost = searchCost + (result.usage?.estimatedCostUsd ?? 0);
 
   // SOURCES-FREE-LAYER-OFFICIAL-SIZE-1 — tamaño ya medido por la fuente oficial.
-  const official = officialSizeSignal({
-    countryCode: row.country_code,
-    fromFreeLayer: row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true,
-    sizeUnfiltered: isSizeUnfiltered(row.evidence),
-  });
+  const official = withRequestedMinEmployees(
+    officialSizeSignal({
+      countryCode: row.country_code,
+      fromFreeLayer: row.round_origin === 'free_source' || row.evidence?.tax_identifier_present === true,
+      sizeUnfiltered: isSizeUnfiltered(row.evidence),
+    }),
+    ctx.requestedMinEmployees,
+  );
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
@@ -1582,9 +1631,13 @@ async function rescueBatchWithClaudeUnlocked(
   // AGENT1-DELIVERY-CAP-HARD-1 — si no se puede leer, el rescate sigue como antes.
   const freeSlots = deps.deliverySlots ? await deps.deliverySlots(params.batchId).catch(() => null) : null;
   const requestedCatalogIndustry = catalog.find((i) => i.industryId === requestedIndustryId) ?? null;
+  const requestedMinEmployees = resolveRequestedMinEmployees(
+    deps.loadBatchAdditionalCriteria ? await deps.loadBatchAdditionalCriteria(params.batchId).catch(() => null) : null,
+  );
   const ctx: RescueRunContext = {
     fiscalIdentityCandidateIds: [],
     batchId: params.batchId,
+    requestedMinEmployees,
     triggeredBy: params.triggeredBy,
     catalog,
     active,

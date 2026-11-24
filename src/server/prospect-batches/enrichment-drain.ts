@@ -66,3 +66,46 @@ export async function drainEnrichmentJobs(
     if (stats.processedCount === 0) return { rounds, processed, succeeded, stoppedBy: 'queue_empty' };
   }
 }
+
+// ─── Vueltas encadenadas ──────────────────────────────────────────────────────
+
+/**
+ * FEEDBACK 24-11 — «Enriquecimiento pendiente» que nunca termina. Prod 24-11: 155
+ * trabajos `pending` con 0 intentos (17-11 y 24-11). Cada vaciado cabe ~45 s dentro de
+ * la importación y procesa los más viejos primero, así que la importación del 24-11
+ * gastó su vaciado en el lote del 17-11 y la suya quedó entera en cola. El cron
+ * `/api/cron/enrich` no puede ser la red de seguridad: el plan Hobby de Vercel sólo
+ * admite dos crons DIARIOS y ya están ocupados.
+ *
+ * Por eso, como el rescate con Claude, cuando un vaciado se queda sin tiempo con
+ * trabajo en cola pide la siguiente vuelta en una función NUEVA, hasta vaciar la cola.
+ */
+
+/** Plazo para EMPEZAR rondas en una vuelta encadenada (la función tiene 300 s). */
+export const ENRICHMENT_CHAIN_TIME_BUDGET_MS = 180_000;
+/** Rondas por vuelta encadenada (cada ronda reclama `workerBatchSize` trabajos). */
+export const ENRICHMENT_CHAIN_MAX_ROUNDS = 80;
+/** Tope de vueltas seguidas: una cola que no se vacía no puede encadenarse para siempre. */
+export const ENRICHMENT_CHAIN_MAX_HOPS = 30;
+
+export type EnrichmentContinuationDecision = { continue: true; nextHop: number } | { continue: false };
+
+/**
+ * ¿Pedir otra vuelta? Sólo si esta vuelta trabajó y se cortó por tiempo o rondas (queda
+ * cola). Si la cola se vació, si el worker falló o si se llegó al tope, no.
+ */
+export function decideEnrichmentContinuation(
+  result: EnrichmentDrainResult,
+  hopsDone: number,
+): EnrichmentContinuationDecision {
+  const cutShort = result.stoppedBy === 'time_budget' || result.stoppedBy === 'max_rounds';
+  if (!cutShort || result.processed === 0) return { continue: false };
+  if (hopsDone >= ENRICHMENT_CHAIN_MAX_HOPS) return { continue: false };
+  return { continue: true, nextHop: hopsDone + 1 };
+}
+
+/** Cuerpo de la petición de la siguiente vuelta: `{ hop }` (0 si falta o es inválido). */
+export function parseEnrichmentHop(body: unknown): number {
+  const hop = (body as { hop?: unknown } | null)?.hop;
+  return typeof hop === 'number' && Number.isInteger(hop) && hop >= 0 && hop <= ENRICHMENT_CHAIN_MAX_HOPS ? hop : 0;
+}

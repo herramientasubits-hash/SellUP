@@ -28,6 +28,8 @@ export type ClassifiableCandidateRow = {
   metadata: Record<string, unknown> | null;
   /** Número fiscal ya puesto (si lo hay): el rescate no lo vuelve a buscar. */
   tax_identifier?: string | null;
+  /** Empleados ya conocidos (registro oficial, proveedor). `null` = sin tamaño. */
+  employee_count?: number | null;
 };
 
 function failedConditions(metadata: Record<string, unknown> | null): string[] {

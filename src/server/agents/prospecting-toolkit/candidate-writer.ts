@@ -170,6 +170,7 @@ import {
   resolveIcpSizeGateWriterAction,
 } from './icp-size-gate';
 import type { IcpSizeGateBatchSummary } from './icp-size-gate';
+import { resolveRequestedMinEmployees } from './requested-min-employees';
 import {
   resolveEmployeeSizeForIcpGate,
   extractHubSpotMatchedEmployees,
@@ -1614,6 +1615,11 @@ export async function writeProspectingCandidates(
     const raw = (extraBatchMetadata as Record<string, unknown> | null)?.['additional_criteria'];
     return typeof raw === 'string' ? raw : null;
   })();
+  /**
+   * FEEDBACK 24-11 (FIGARANTIAS) — el umbral de tamaño de ESTA búsqueda: 200 o lo que
+   * pidió la persona («más de 300 empleados»). Antes el filtro final usaba siempre 200.
+   */
+  const batchRequestedMinEmployees = resolveRequestedMinEmployees(batchAdditionalCriteria);
 
   /**
    * AGENT1-SUBINDUSTRY-FAIL-CLOSED-TARGET-INTEGRITY-1 § 3 — subindustrias que la
@@ -2939,7 +2945,7 @@ export async function writeProspectingCandidates(
       candidateCompanySize: extractCandidateCompanySize(candidate),
       matchedHubspotEmployees: extractHubSpotMatchedEmployees(hubspotMatch?.raw),
       officialRegistryWorkforce: extractOfficialRegistryWorkforce(candidate),
-      threshold: 200,
+      threshold: batchRequestedMinEmployees,
     });
     const icpSizeGateResult = evaluateIcpSizeGate(resolvedEmployeeSize.icpInput);
     const icpSizeGateAction = resolveIcpSizeGateWriterAction(icpSizeGateResult);
@@ -4778,7 +4784,7 @@ export async function writeProspectingCandidates(
           }
         : {}),
       icp_size_gate_summary: {
-        threshold: 200,
+        threshold: batchRequestedMinEmployees,
         pass_count: icpSizeGateData.passCount,
         needs_validation_count: icpSizeGateData.needsValidationCount,
         blocked_count: icpSizeGateData.blockedCount,
