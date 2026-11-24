@@ -35,6 +35,7 @@ import {
   resolveApolloOrganization,
   type ApolloOrgResolutionResult,
 } from './apollo-organization-resolver';
+import { cleanCompanySearchName } from './company-search-name-variants';
 
 /**
  * Sentinel reason for the "no real Apollo call was made" branch (missing
@@ -361,9 +362,11 @@ function buildOrgFilter(input: ApolloPeopleAdapterInput): { filter: OrgFilter; d
   if (domain) {
     return { filter: { q_organization_domains: [domain] }, desc: `dominio=${domain}` };
   }
+  // Sin dominio: nombre comercial limpio (sin «SAS», sin espacios dobles), no la razón social cruda.
+  const name = cleanCompanySearchName(input.companyName);
   return {
-    filter: { q_organization_name: input.companyName.trim() },
-    desc: `nombre=${input.companyName.trim()}`,
+    filter: { q_organization_name: name },
+    desc: `nombre=${name}`,
   };
 }
 
@@ -396,7 +399,7 @@ function buildAttemptPlansWithOrgId(
   organizationId: string,
   personLocations?: string[],
 ): AttemptPlan[] {
-  const name = input.companyName?.trim() ?? '';
+  const name = cleanCompanySearchName(input.companyName);
   const orgDesc = `org_id=${organizationId}`;
   const locationSuffix = personLocations ? `; location=${personLocations[0]}` : '';
   const locationParams = personLocations ? { person_locations: personLocations } : {};
@@ -496,7 +499,7 @@ function buildAttemptPlansLegacy(input: ApolloPeopleAdapterInput, perPage: numbe
   ];
 
   // Capas por nombre (solo cuando las previas usaron dominio).
-  const name = input.companyName?.trim();
+  const name = cleanCompanySearchName(input.companyName);
   const usedDomain = !!input.companyDomain?.trim();
   if (name && usedDomain) {
     const byName: SearchPeopleParams = { q_organization_name: name, page: 1, per_page: perPage, ...locationParams };

@@ -186,7 +186,8 @@ describe('searchApolloPeopleForCompany — legacy (sin org_id)', () => {
       },
     );
 
-    assert.equal(captured[0].q_organization_name, 'Corp SA');
+    // Sin dominio se manda el nombre comercial limpio (sin forma legal), no la razón social cruda.
+    assert.equal(captured[0].q_organization_name, 'Corp');
     assert.equal(captured[0].q_organization_domains, undefined);
   });
 
