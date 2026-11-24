@@ -14,6 +14,8 @@ export type NotificationKey =
   | 'assignments'
   | 'credit_requests'
   | 'credit_decisions'
+  | 'quote_requests'
+  | 'quote_decisions'
   | 'run_finished'
   | 'cost_alerts'
   | 'provider_blocked'
@@ -61,6 +63,22 @@ export const NOTIFICATION_CATALOG: readonly NotificationDefinition[] = [
     group: 'avisos',
     label: 'Respuesta a tu solicitud de créditos',
     description: 'Cuando pides más créditos y cuando deciden tu solicitud.',
+    roles: ALL,
+    defaultOn: ALL,
+  },
+  {
+    key: 'quote_requests',
+    group: 'avisos',
+    label: 'Cotizaciones para aprobar',
+    description: 'A quien aprueba descuentos del cotizador (o va en copia), con botones para aprobar o rechazar.',
+    roles: ALL,
+    defaultOn: ALL,
+  },
+  {
+    key: 'quote_decisions',
+    group: 'avisos',
+    label: 'Respuesta a tu cotización',
+    description: 'Cuando pides aprobación de un descuento y cuando la aprueban o la rechazan.',
     roles: ALL,
     defaultOn: ALL,
   },

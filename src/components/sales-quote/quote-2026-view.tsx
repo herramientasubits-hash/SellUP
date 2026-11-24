@@ -36,6 +36,7 @@ import { findQuoteCountry, type QuoteCountry } from "@/modules/sales-quote/marke
 import { yearsLabel } from "@/modules/sales-quote/shared";
 import { CopyButton, CreditPlanPicker, LinePrice, OtherTermsTable, ProductRow, QuoteConditions, QuoteSummary } from "./quote-parts";
 import { LmsAiEstimator } from "./quote-estimators";
+import { QuoteSavePanel } from "./quote-save-panel";
 
 const MODULE_DESCRIPTIONS: Record<Module2026, string> = {
   assessments: "Evaluaciones de competencias.",
@@ -44,12 +45,21 @@ const MODULE_DESCRIPTIONS: Record<Module2026, string> = {
   encuestas: "Encuestas de clima y pulso.",
 };
 
-export function Quote2026View({ countries }: { countries: readonly QuoteCountry[] }) {
-  const [input, setInput] = useState<Quote2026Input>(() => ({
-    ...defaultQuote2026Input(),
-    country: countries[0]?.code ?? "CO",
-  }));
-  const [clientName, setClientName] = useState("");
+interface Quote2026ViewProps {
+  countries: readonly QuoteCountry[];
+  /** «Duplicar»: arranca con una cotización guardada. */
+  initialInput?: Quote2026Input;
+  initialClientName?: string;
+  onSaved: () => void;
+}
+
+export function Quote2026View({ countries, initialInput, initialClientName = "", onSaved }: Quote2026ViewProps) {
+  const [input, setInput] = useState<Quote2026Input>(() =>
+    initialInput && countries.some((country) => country.code === initialInput.country)
+      ? initialInput
+      : { ...(initialInput ?? defaultQuote2026Input()), country: countries[0]?.code ?? "CO" },
+  );
+  const [clientName, setClientName] = useState(initialClientName);
   const [useLocalCurrency, setUseLocalCurrency] = useState(false);
   const result = useMemo(() => quote2026(input), [input]);
   const money = moneyContextFor(input.country, useLocalCurrency);
@@ -281,7 +291,14 @@ export function Quote2026View({ countries }: { countries: readonly QuoteCountry[
         years={input.years}
         money={money}
         warnings={result.warnings}
-        actions={main.lines.length > 0 && <CopyButton text={summaryText} label="Copiar resumen" variant="default" />}
+        actions={
+          main.lines.length > 0 && (
+            <>
+              <CopyButton text={summaryText} label="Copiar resumen" />
+              <QuoteSavePanel version="2026" input={input} clientName={clientName} needsApproval={false} disabled={result.blocked} onSaved={onSaved} />
+            </>
+          )
+        }
         footnote={
           main.lines.length > 0
             ? `${formatQuotePercent(listOverOne)} por debajo del precio de lista. En esta versión ningún precio baja del mínimo.`

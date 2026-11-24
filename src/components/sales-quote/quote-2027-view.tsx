@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { buildApprovalDraft } from "@/modules/sales-quote/approval-draft";
 import { CREDIT_PACK_2027 } from "@/modules/sales-quote/credits";
 import {
   LICENSE_RANGE,
@@ -35,17 +34,23 @@ import { findQuoteCountry, type QuoteCountry } from "@/modules/sales-quote/marke
 import { yearsLabel } from "@/modules/sales-quote/shared";
 import { CopyButton, CreditPlanPicker, LinePrice, OtherTermsTable, ProductRow, QuoteConditions, QuoteSummary } from "./quote-parts";
 import { LmsAiEstimator, SelectionEstimator, SelectionRoiPanel } from "./quote-estimators";
+import { QuoteSavePanel } from "./quote-save-panel";
 
 interface Quote2027ViewProps {
   countries: readonly QuoteCountry[];
+  /** «Duplicar»: arranca con una cotización guardada. */
+  initialInput?: Quote2027Input;
+  initialClientName?: string;
+  onSaved: () => void;
 }
 
-export function Quote2027View({ countries }: Quote2027ViewProps) {
-  const [input, setInput] = useState<Quote2027Input>(() => ({
-    ...defaultQuote2027Input(),
-    country: countries[0]?.code ?? "CO",
-  }));
-  const [clientName, setClientName] = useState("");
+export function Quote2027View({ countries, initialInput, initialClientName = "", onSaved }: Quote2027ViewProps) {
+  const [input, setInput] = useState<Quote2027Input>(() =>
+    initialInput && countries.some((country) => country.code === initialInput.country)
+      ? initialInput
+      : { ...(initialInput ?? defaultQuote2027Input()), country: countries[0]?.code ?? "CO" },
+  );
+  const [clientName, setClientName] = useState(initialClientName);
   const [useLocalCurrency, setUseLocalCurrency] = useState(false);
   const result = useMemo(() => quote2027(input), [input]);
   const money = moneyContextFor(input.country, useLocalCurrency);
@@ -127,7 +132,6 @@ export function Quote2027View({ countries }: Quote2027ViewProps) {
     `Total por año: ${formatQuoteMoney(result.totals.afterPerYear, money, { withCode: true })}.`,
     `Total del contrato: ${formatQuoteMoney(result.totals.contract, money, { withCode: true })}.`,
   ].join("\n");
-  const approval = buildApprovalDraft(input, result, clientName);
 
   const selectionInvestment = result.lines
     .filter((line) => line.id === "hiring" || line.id === "hiring_topup")
@@ -328,14 +332,14 @@ export function Quote2027View({ countries }: Quote2027ViewProps) {
         actions={
           result.lines.length > 0 && (
             <>
-              <CopyButton text={summaryText} label="Copiar resumen" variant={needsApproval ? "outline" : "default"} />
-              {needsApproval && <CopyButton text={`Asunto: ${approval.subject}\n\n${approval.body}`} label="Copiar solicitud de aprobación" variant="default" />}
+              <CopyButton text={summaryText} label="Copiar resumen" />
+              <QuoteSavePanel version="2027" input={input} clientName={clientName} needsApproval={needsApproval} onSaved={onSaved} />
             </>
           )
         }
         footnote={
           needsApproval
-            ? `${result.belowMinimum.length === 1 ? "Una línea queda" : `${result.belowMinimum.length} líneas quedan`} bajo el mínimo: envía la solicitud a quien aprueba descuentos.`
+            ? `${result.belowMinimum.length === 1 ? "Una línea queda" : `${result.belowMinimum.length} líneas quedan`} bajo el mínimo: al pedir aprobación le llega a quien aprueba ese tipo de cuenta, en SellUp y por Slack.`
             : undefined
         }
       />

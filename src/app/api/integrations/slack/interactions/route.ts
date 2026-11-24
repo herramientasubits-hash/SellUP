@@ -11,6 +11,8 @@ import { isValidSlackSignature } from '@/server/slack-assistant/signature';
 import { handleSlackActionClick, type SlackBlockActionPayload } from '@/server/slack-assistant/execute-action.server';
 import { handleCreditDecisionClick } from '@/server/slack-assistant/credit-decision.server';
 import { CREDIT_APPROVE_ACTION_ID, CREDIT_REJECT_ACTION_ID } from '@/modules/notifications/credit-approval-slack';
+import { QUOTE_APPROVE_ACTION_ID, QUOTE_REJECT_ACTION_ID } from '@/modules/notifications/quote-approval-slack';
+import { handleQuoteDecisionClick } from '@/server/slack-assistant/quote-decision.server';
 import { slackIdentityMismatch, slackPayloadIdentity } from '@/server/slack-assistant/events';
 import { getSlackWorkspaceIdentity } from '@/server/services/slack-connection';
 
@@ -47,6 +49,16 @@ export async function POST(request: Request): Promise<Response> {
       // Solicitud de créditos: decide quien pulsa (si es aprobador), con su sesión.
       after(() =>
         handleCreditDecisionClick({
+          actionId: clicked.action_id,
+          value: clicked.value,
+          clickerSlackId: payload.user?.id ?? '',
+          responseUrl: payload.response_url ?? '',
+        }),
+      );
+    } else if (clicked?.action_id === QUOTE_APPROVE_ACTION_ID || clicked?.action_id === QUOTE_REJECT_ACTION_ID) {
+      // Descuento del cotizador: decide quien pulsa (si es aprobador), con su sesión.
+      after(() =>
+        handleQuoteDecisionClick({
           actionId: clicked.action_id,
           value: clicked.value,
           clickerSlackId: payload.user?.id ?? '',

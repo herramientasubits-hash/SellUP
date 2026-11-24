@@ -717,7 +717,8 @@ describe('4O-H0.5 estático — el alcance declarado', () => {
       // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
       // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
-      '169_bootstrap_legacy_contact_phone_incumbent.sql',
+      // Cotizador de Ventas (170): dos tablas nuevas (sales_quotes y sales_quote_approvers), sólo service_role; no toca teléfonos, contactos, candidatos, presupuesto ni HubSpot. NO APLICADA.
+      '170_sales_quotes.sql',
       'H0.5 no añade esquema: `phone_source` y `manual` ya existen desde la 094',
     );
     for (const agent2 of [

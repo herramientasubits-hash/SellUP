@@ -361,6 +361,8 @@ describe('4O-E2 § 1 · la migración nueva y solo ella', () => {
       '168_record_comments.sql',
       // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
       '169_bootstrap_legacy_contact_phone_incumbent.sql',
+      // Cotizador de Ventas (170): dos tablas nuevas (sales_quotes y sales_quote_approvers), sólo service_role; no toca teléfonos, contactos, candidatos, presupuesto ni HubSpot. NO APLICADA.
+      '170_sales_quotes.sql',
     ]);
   });
 

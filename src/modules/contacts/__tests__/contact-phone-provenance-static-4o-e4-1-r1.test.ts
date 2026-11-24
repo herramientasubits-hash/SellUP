@@ -447,7 +447,8 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // Revisión 16-11 mueve el techo a la 167 (candado por búsqueda del rescate con IA; sin tablas ni teléfonos). NO APLICADA.
       // Comentarios y alertas (168): tabla nueva sólo de servidor; sin teléfonos, presupuesto ni HubSpot. NO APLICADA.
       // Contacto legacy → colección oficial (169): UNA función nueva que mete el escalar del contacto a contact_phones con procedencia legacy_incumbent (unknown, manual); no edita la cadena 109–131, sin tabla, columna ni vocabulario nuevos; sin presupuesto ni HubSpot. NO APLICADA.
-      '169_bootstrap_legacy_contact_phone_incumbent.sql',
+      // Cotizador de Ventas (170): dos tablas nuevas (sales_quotes y sales_quote_approvers), sólo service_role; no toca teléfonos, contactos, candidatos, presupuesto ni HubSpot. NO APLICADA.
+      '170_sales_quotes.sql',
       'R1 es sin migración: el techo lo movieron 4O-H2, 4O-H3, el catálogo macro, la supresión nativa, la contabilidad de presupuesto, el tramo 129–132 de Agente 2, la 133 de BR-SOURCE CUT D, la 134 del compacto de BR y la 135 de la valla de Lusha (AGENT1-LUSHA-CUT-L3, renumerada desde la 134), la 136 del historial de intentos seguros de Lusha, la 137 de la auditoría administrativa del presupuesto del Wizard, la 138 de la disposición durable de descartes de Prospectos, la 139 de la cola durable de continuaciones de ronda de Apollo, la 140 del reclamo global de identidad de empresa, la 141 de la ampliación de tipos fiscales con EIN y NIF, la 142 del banco de empresas, la 143 del progreso en vivo de la corrida, la 144 de varias ejecuciones activas por usuario en la reserva del piloto, la 145 de la asignación de prospectos a otra persona, la 146 de la ampliación de tipos fiscales con RIF, la 147 de las dimensiones de las consultas a proveedores, la 148 de las asociaciones entre empresas de la búsqueda en árbol, la 149 de la forma de búsqueda del uso de IA desde la metadata del lote, la 150 de quién le vende a cada entidad pública, la 151 del endurecimiento de claim_enrichment_jobs y la 152 del cruce NIT/dominio/LinkedIn de los reclamos de identidad, no este hito',
     );
     for (const agent2 of [
@@ -538,14 +539,15 @@ describe('R1 estático — sin vocabulario ni esquema nuevos', () => {
       // ventana prohibida sube a la 157 y superiores.
       // AGENT1-CORPORATE-TREE-PHASE-C declara la 157 (columnas de nivel en agent1_company_relationships),
       // así que la ventana prohibida sube a la 158 y superiores.
-      numbered.some((f) => /^(1[7-9]\d)/.test(f)),
+      // SALES-QUOTE-3 declara la 170 (cotizaciones y aprobadores del cotizador de Ventas: dos tablas nuevas, sólo service_role; sin teléfonos, contactos, presupuesto ni HubSpot). NO APLICADA. La ventana prohibida sube a la 171 y superiores.
+      numbered.some((f) => /^(17[1-9]|1[89]\d)/.test(f)),
       false,
       // La 120 (Fase 1), la 121 (contabilidad) y la 122 («Buscar más números»)
       // (AGENT1-LUSHA-BUDGET-OVERSPEND-FIX-1) son AUTORIZADAS y están declaradas arriba;
       // lo que esta guarda sigue impidiendo es que alguien cuele una POR ENCIMA del último
       // hito conocido sin declararla.
       // AGENT3-FIRST-CALL-1 declara la 153 (fichas y paquetes de primera llamada del Agente 3).
-      'ninguna migración 170 o superior',
+      'ninguna migración 171 o superior',
     );
   });
 
