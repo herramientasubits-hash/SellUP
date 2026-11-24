@@ -28,6 +28,8 @@ interface ContactEnrichmentWizardProps {
   modeOptions?: React.ReactNode;
   /** «Buscarlas como lote» cuando se pegan varios HubSpot IDs (Bryan 17-11). */
   onSearchAsBatch?: (raw: string) => void;
+  /** «Buscar a esta persona» cuando se pega un perfil de LinkedIn de persona (dueña 24-11). */
+  onSearchAsPerson?: (raw: string) => void;
 }
 
 export function ContactEnrichmentWizard({
@@ -39,6 +41,7 @@ export function ContactEnrichmentWizard({
   placeholder,
   modeOptions,
   onSearchAsBatch,
+  onSearchAsPerson,
 }: ContactEnrichmentWizardProps = {}) {
   return (
     <ContactEnrichmentChatWizard
@@ -50,6 +53,7 @@ export function ContactEnrichmentWizard({
       placeholder={placeholder}
       modeOptions={modeOptions}
       onSearchAsBatch={onSearchAsBatch}
+      onSearchAsPerson={onSearchAsPerson}
     />
   );
 }

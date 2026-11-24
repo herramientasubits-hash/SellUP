@@ -15,10 +15,10 @@ export const CONTACTOS_RUMBO_TOPICS: readonly HelpTopic[] = [
     requiere: ['ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING'],
     contenido: [
       '*Dónde:* en la ficha de la empresa «Buscar contactos con Rumbo IA», o en Contactos → «Buscar contactos» (también desde Empresas y el Flujo de prospección).',
-      '*Pasos:* escribe nombre, dominio, correo o ID de HubSpot de la empresa → elige la coincidencia (o créala a mano) → «Confirmar empresa» → «Buscar contactos con IA». Corre en segundo plano (Centro de procesos).',
+      '*Pasos:* elige «Contactos de una empresa» → escribe nombre, dominio, correo o ID de HubSpot de la empresa → elige la coincidencia (o créala a mano) → «Confirmar empresa» → «Buscar contactos con IA». Corre en segundo plano (Centro de procesos).',
       '*Orden de búsqueda:* primero lo gratis (HubSpot y contactos ya conocidos, si están activos), luego Apollo y, sólo si Apollo no deja candidatos, el sitio de la empresa y Lusha como respaldo.',
       '*Resultado:* los candidatos quedan en Contactos › «Por revisar» (los de HubSpot ya completos se aprueban solos). Nada se crea ni se escribe en HubSpot sin tu aprobación. Te aviso por Slack cuando termina.',
-      '*Varias empresas:* en el panel, bajo la conversación, elige «Varias empresas por HubSpot ID» (hasta 10 IDs, separados por coma o uno por fila). Si pegas varios IDs directamente, Rumbo te ofrece «Buscarlas como lote».',
+      '*Varias empresas:* al abrir el panel elige «Varias empresas por HubSpot ID» (hasta 10 IDs, separados por coma o uno por fila). Si pegas varios IDs directamente, Rumbo te ofrece «Buscarlas como lote».',
     ].join('\n'),
     etiquetas: [
       { texto: 'Buscar contactos con Rumbo IA', archivo: RUMBO },
@@ -27,6 +27,7 @@ export const CONTACTOS_RUMBO_TOPICS: readonly HelpTopic[] = [
       { texto: 'Buscar contactos con IA', archivo: 'src/components/contact-enrichment/contact-enrichment-chat-wizard.tsx' },
       { texto: 'Por revisar', archivo: CONTACTS_SIDEBAR },
       { texto: 'Varias empresas por HubSpot ID', archivo: 'src/components/contact-enrichment/search-mode-options.tsx' },
+      { texto: 'Contactos de una empresa', archivo: 'src/components/contact-enrichment/search-mode-options.tsx' },
       { texto: 'Buscarlas como lote', archivo: 'src/components/contact-enrichment/contact-enrichment-chat-reducer.ts' },
     ],
   },
@@ -38,7 +39,7 @@ export const CONTACTOS_RUMBO_TOPICS: readonly HelpTopic[] = [
     ruta: '/contacts',
     requiere: ['CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED', 'ENABLE_CONTACT_ENRICHMENT_AUTOMATIC_ROUTING'],
     contenido: [
-      '*Dónde:* en el panel de búsqueda de contactos, bajo la conversación, elige «Un contacto por LinkedIn, correo o ID de HubSpot». Pega el enlace de LinkedIn, el correo o el ID del contacto en HubSpot.',
+      '*Dónde:* al abrir el panel de búsqueda de contactos elige «Un contacto por LinkedIn, correo o ID de HubSpot» (si pegas el perfil de una persona en «Contactos de una empresa», Rumbo te ofrece «Buscar a esta persona»). Pega el enlace de LinkedIn, el correo o el ID del contacto en HubSpot.',
       '*Por LinkedIn:* mira primero en SellUp (si ya está, 0 créditos), luego Apollo y, si Apollo no tiene datos, Lusha.',
       '*Por correo:* SellUp → HubSpot (gratis) → Apollo → Lusha.',
       '*Por ID de HubSpot:* sólo SellUp y HubSpot, 0 créditos. Si ya está aprobado o fue rechazado, sólo te lo avisa; si no está en SellUp, lo trae de HubSpot.',
@@ -46,6 +47,8 @@ export const CONTACTOS_RUMBO_TOPICS: readonly HelpTopic[] = [
     ].join('\n'),
     etiquetas: [
       { texto: 'Un contacto por LinkedIn, correo o ID de HubSpot', archivo: 'src/components/contact-enrichment/search-mode-options.tsx' },
+      { texto: 'Contactos de una empresa', archivo: 'src/components/contact-enrichment/search-mode-options.tsx' },
+      { texto: 'Buscar a esta persona', archivo: 'src/components/contact-enrichment/contact-enrichment-chat-reducer.ts' },
       { texto: 'Por revisar', archivo: CONTACTS_SIDEBAR },
     ],
   },

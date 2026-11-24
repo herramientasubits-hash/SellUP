@@ -13,8 +13,11 @@ import type {
   ContactEnrichmentInitialCompany,
   ExtraCompanyData,
   ExtraDataPrefill,
+  PersonLinkSource,
 } from './contact-enrichment-chat-types';
 import { parseCompanyPageUrl } from '@/modules/contact-enrichment/company-page-url';
+import { normalizeLinkedinProfileUrl } from '@/modules/contact-enrichment/linkedin-profile-url';
+import { isHubSpotContactUrl } from '@/modules/contact-enrichment/contact-search-input';
 import { HUBSPOT_ID_BATCH_MAX_IDS, parseHubSpotIdBatchInput } from '@/modules/contact-enrichment/hubspot-id-batch-core';
 import {
   contactCountLines,
@@ -214,6 +217,46 @@ export function batchOfferMessage(count: number): string {
 
 export function batchTooManyMessage(count: number): string {
   return `Pegaste ${count} HubSpot IDs distintos. Como lote puedo buscar hasta ${HUBSPOT_ID_BATCH_MAX_IDS} empresas a la vez: divide la lista y pega hasta ${HUBSPOT_ID_BATCH_MAX_IDS}.`;
+}
+
+/** Lo que se ve en el chat en vez del enlace pegado (dato personal: no se repite). */
+export const PERSON_LINK_USER_MESSAGE: Record<PersonLinkSource, string> = {
+  linkedin: 'Perfil de LinkedIn enviado.',
+  hubspot: 'Enlace de contacto de HubSpot enviado.',
+};
+
+export const PERSON_OFFER_BUTTON_LABEL = 'Buscar a esta persona';
+
+const PERSON_LINK_WHAT: Record<PersonLinkSource, string> = {
+  linkedin: 'Ese enlace es el perfil de LinkedIn de una persona, no de una empresa.',
+  hubspot: 'Ese enlace es de un contacto de HubSpot, no de una empresa.',
+};
+
+/** Dueña 24-11 — se pegó el enlace de una persona donde se espera una empresa. */
+export function personOfferMessage(canSearch: boolean, source: PersonLinkSource = 'linkedin'): string {
+  const what = PERSON_LINK_WHAT[source];
+  return canSearch
+    ? `${what} Aquí busco los contactos de una empresa, pero puedo buscar a esta persona con «Un contacto por LinkedIn, correo o ID de HubSpot».\n\nSi preferías otra cosa, escribe la empresa abajo.`
+    : `${what} Aquí busco los contactos de una empresa: escribe abajo el nombre, el dominio o el HubSpot ID de su empresa.`;
+}
+
+/**
+ * ¿Lo escrito es el perfil de LinkedIn de una PERSONA (`/in/…`, también los formatos viejos
+ * `/pub/` y de Sales Navigator)? Las páginas de empresa (`/company/…`) siguen siendo empresas.
+ */
+export function isPersonLinkedinProfile(query: string): boolean {
+  const result = normalizeLinkedinProfileUrl(query);
+  return result.ok || result.reason === 'unsupported_profile_format';
+}
+
+/**
+ * ¿Lo escrito es el enlace de una PERSONA (perfil de LinkedIn o contacto de HubSpot)? Antes se
+ * buscaba como empresa: «Rosario Gómez Yáñez» o el dominio «app.hubspot.com».
+ */
+export function personLinkSource(query: string): PersonLinkSource | null {
+  if (isPersonLinkedinProfile(query)) return 'linkedin';
+  if (isHubSpotContactUrl(query)) return 'hubspot';
+  return null;
 }
 
 export function batchOfferButtonLabel(count: number): string {
@@ -604,6 +647,7 @@ export function isComposerUnlocked(state: Pick<ContactEnrichmentChatState, 'step
   if (state.step === 'error') return true;
   // Bryan 17-11: con la oferta de lote a la vista se puede escribir otra empresa.
   if (state.step === 'offer_batch') return true;
+  if (state.step === 'offer_person') return true;
   return state.step === 'done' && state.automaticResult !== null;
 }
 
@@ -712,6 +756,24 @@ export function contactEnrichmentChatReducer(
         ...appendMessages(state, [
           { role: 'user', content: query },
           { role: 'assistant', content: batchTooManyMessage(action.count), tone: 'warning' },
+        ]),
+      };
+    }
+
+    case 'OFFER_PERSON': {
+      return {
+        ...state,
+        step: 'offer_person',
+        query: '',
+        errorMessage: null,
+        personOffer: { raw: action.query, canSearch: action.canSearch, source: action.source },
+        ...appendMessages(state, [
+          { role: 'user', content: PERSON_LINK_USER_MESSAGE[action.source] },
+          {
+            role: 'assistant',
+            content: personOfferMessage(action.canSearch, action.source),
+            tone: action.canSearch ? undefined : 'warning',
+          },
         ]),
       };
     }

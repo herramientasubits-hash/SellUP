@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Check, Layers, PenLine, Search, Sparkles } from "@/icons";
+import { Check, Layers, PenLine, Search, Sparkles, UserSearch } from "@/icons";
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,8 @@ import {
   contactEnrichmentChatReducer,
   createInitialContactEnrichmentChatState,
   batchOfferButtonLabel,
+  personLinkSource,
+  PERSON_OFFER_BUTTON_LABEL,
   buildExtraDataResolveInput,
   buildResolveInput,
   classifyCompanyQuery,
@@ -85,6 +87,7 @@ export function composerPlaceholder(step: ContactEnrichmentChatStep, awaitCompan
     case 'done':
       return 'Enriquecimiento preparado';
     case 'offer_batch':
+    case 'offer_person':
       return NEXT_COMPANY_PLACEHOLDER;
     case 'error':
       return 'Corrige el problema para continuar';
@@ -158,6 +161,11 @@ interface ContactEnrichmentChatWizardProps {
    * (la pantalla suelta) lo escrito se busca como siempre.
    */
   onSearchAsBatch?: (raw: string) => void;
+  /**
+   * Dueña 24-11 — «Buscar a esta persona»: se pegó un perfil de LinkedIn de persona en «Por
+   * empresa». Sin él (bandera de LinkedIn apagada o pantalla suelta) sólo se explica el error.
+   */
+  onSearchAsPerson?: (raw: string) => void;
 }
 
 export function ContactEnrichmentChatWizard({
@@ -169,6 +177,7 @@ export function ContactEnrichmentChatWizard({
   placeholder,
   modeOptions,
   onSearchAsBatch,
+  onSearchAsPerson,
 }: ContactEnrichmentChatWizardProps = {}) {
   const [state, dispatch] = React.useReducer(
     contactEnrichmentChatReducer,
@@ -231,6 +240,14 @@ export function ContactEnrichmentChatWizard({
       awaitedRunRef.current = null;
       setSearch(null);
       dispatch({ type: 'NEXT_COMPANY' });
+    }
+
+    // Dueña 24-11: el enlace de una persona (perfil de LinkedIn o contacto de HubSpot) no es una
+    // empresa: antes se buscaba «Rosario Gómez Yáñez» o «app.hubspot.com». Se ofrece buscarla.
+    const personSource = personLinkSource(query);
+    if (personSource) {
+      dispatch({ type: 'OFFER_PERSON', query, canSearch: Boolean(onSearchAsPerson), source: personSource });
+      return;
     }
 
     // Bryan 17-11: varios HubSpot IDs no son una empresa: se ofrece buscarlos como lote.
@@ -554,6 +571,17 @@ export function ContactEnrichmentChatWizard({
               >
                 <Layers className="h-4 w-4" aria-hidden />
                 {batchOfferButtonLabel(state.batchOffer.ids.length)}
+              </Button>
+            )}
+
+            {state.step === 'offer_person' && state.personOffer?.canSearch && onSearchAsPerson && (
+              <Button
+                className="w-full"
+                onClick={() => onSearchAsPerson(state.personOffer!.raw)}
+                data-testid="contact-enrichment-search-as-person"
+              >
+                <UserSearch className="h-4 w-4" aria-hidden />
+                {PERSON_OFFER_BUTTON_LABEL}
               </Button>
             )}
 

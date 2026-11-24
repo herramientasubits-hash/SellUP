@@ -29,6 +29,7 @@ export type ContactEnrichmentChatStep =
   | 'searching_apollo' // querying Apollo for real candidates (Hito 17A.3A) — legacy manual path, no longer wired to the wizard CTA
   | 'searching_lusha' // querying Lusha for contacts (17B.4K) — legacy manual path, no longer wired to the wizard CTA
   | 'offer_batch' // pegó varios HubSpot IDs: se ofrece «Buscarlas como lote» (composer open) — Bryan 17-11
+  | 'offer_person' // pegó el perfil de LinkedIn de una persona: se ofrece buscarla (composer open) — dueña 24-11
   | 'error'; // controlled error
 
 // ── Automatic routing result (AGENT2-ROUTING-WIRE-1) ──────────────────────────
@@ -188,7 +189,12 @@ export interface ContactEnrichmentChatState {
   extraDataPrefill?: ExtraDataPrefill;
   /** Bryan 17-11 — los HubSpot IDs pegados en «Por empresa» que se ofrecen buscar como lote. */
   batchOffer?: { raw: string; ids: string[] } | null;
+  /** Dueña 24-11 — el perfil de LinkedIn de una persona pegado en «Por empresa». */
+  personOffer?: { raw: string; canSearch: boolean; source: PersonLinkSource } | null;
 }
+
+/** De dónde es el enlace de una persona pegado en «Contactos de una empresa». */
+export type PersonLinkSource = 'linkedin' | 'hubspot';
 
 /** Lo que ya se sabe de la empresa al pedir nombre, país y dominio. */
 export interface ExtraDataPrefill {
@@ -212,6 +218,7 @@ export type ContactEnrichmentChatAction =
   | { type: 'NEXT_COMPANY' }
   | { type: 'OFFER_BATCH'; query: string; ids: string[] }
   | { type: 'BATCH_TOO_MANY'; query: string; count: number }
+  | { type: 'OFFER_PERSON'; query: string; canSearch: boolean; source: PersonLinkSource }
   | { type: 'RESOLVED_NONE_NEEDS_DATA'; prefill: ExtraDataPrefill }
   | { type: 'RESOLVED_MANUAL'; candidate: CompanyCandidate; skippedHubSpot: boolean }
   | { type: 'RESOLVED_SINGLE'; candidate: CompanyCandidate; skippedHubSpot: boolean }
