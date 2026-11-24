@@ -26,6 +26,11 @@ export type CorporateTreeGroupSignal = {
   customers: { name: string; countryCode: string | null }[];
   /** Negocio abierto, actividad de venta reciente o agendada, o dueño activo: alguien de UBITS ya lo trabaja. */
   worked: { name: string; countryCode: string | null }[];
+  /**
+   * Prod 24-11 (Multibank) — fichas de HubSpot del grupo que están LIBRES (sin actividad de venta
+   * reciente): se pueden prospectar. El panel no las muestra como «Ya en HubSpot» sin más.
+   */
+  freeHubSpotIds?: string[];
 };
 
 /** Como mucho, fichas del grupo que se leen en HubSpot por corrida. */
@@ -73,7 +78,15 @@ export function readCorporateTreeGroupSignal(raw: unknown): CorporateTreeGroupSi
         countryCode: typeof item.countryCode === 'string' && /^[A-Z]{2}$/.test(item.countryCode) ? item.countryCode : null,
       }));
   const checked = typeof record.checked === 'number' && Number.isFinite(record.checked) && record.checked >= 0 ? Math.round(record.checked) : 0;
-  return { checked, customers: list(record.customers), worked: list(record.worked) };
+  const freeHubSpotIds = (Array.isArray(record.freeHubSpotIds) ? record.freeHubSpotIds : [])
+    .filter((id): id is string => typeof id === 'string' && /^\d{1,20}$/.test(id))
+    .slice(0, CORPORATE_TREE_GROUP_HUBSPOT_MAX_READS);
+  return {
+    checked,
+    customers: list(record.customers),
+    worked: list(record.worked),
+    ...(freeHubSpotIds.length > 0 ? { freeHubSpotIds } : {}),
+  };
 }
 
 function namesOf(items: readonly { name: string }[]): string {

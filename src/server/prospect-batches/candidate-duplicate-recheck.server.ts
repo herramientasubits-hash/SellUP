@@ -32,6 +32,37 @@ interface CandidateRow {
   metadata: Record<string, unknown> | null;
 }
 
+/** La empresa está en HubSpot pero LIBRE (sin actividad de venta reciente): se puede prospectar. */
+export const DUPLICATE_RECHECK_FREE_MESSAGE =
+  'Revisado: está en HubSpot pero libre (sin actividad de venta reciente). Al aprobar se enlaza a esa ficha.';
+
+/**
+ * `metadata.hubspot_free_pool` como lo deja el escritor del Agente 1: al aprobar se enlaza esa
+ * ficha (nunca se crea otra) y se le cambia el dueño si sigue libre. Sin ficha libre, se quita
+ * una marca vieja (la empresa ya no está libre o ya no está en HubSpot).
+ */
+export function withRecheckFreePool(
+  meta: Record<string, unknown>,
+  result: CandidateDuplicateResult,
+): Record<string, unknown> {
+  const free = result.hubspot_duplicate_check.free_to_take ?? null;
+  if (!free) {
+    if (!('hubspot_free_pool' in meta)) return meta;
+    const rest = { ...meta };
+    delete rest.hubspot_free_pool;
+    return rest;
+  }
+  return {
+    ...meta,
+    hubspot_free_pool: {
+      company_id: free.company_id,
+      reason: free.reason,
+      owner_id: free.owner_id,
+      ...(free.ex_customer ? { ex_customer: free.ex_customer } : {}),
+    },
+  };
+}
+
 /**
  * `metadata.duplicate_check` con lo que la revisión encontró, en el formato que ya lee
  * la ficha (fuentes consultadas + coincidencias por fuente).
@@ -68,8 +99,24 @@ export function buildRecheckDuplicateMetadata(
       reason: hs.matched_by,
     });
   }
+  // Prod 24-11 (Multibank) — la ficha LIBRE de HubSpot queda a la vista: no es duplicado,
+  // pero tampoco «no hay otra empresa igual en HubSpot».
+  const free = hs.free_to_take ?? null;
+  if (free) {
+    matches.push({
+      source: 'hubspot',
+      // Como el escritor: una ficha libre va con `new_candidate` (las tablas no la cuentan como duplicado).
+      status: 'new_candidate',
+      confidence: hs.confidence,
+      matched_name: hs.matched_company_name,
+      matched_domain: hs.matched_domain,
+      matched_website: hs.matched_website,
+      matched_id: free.company_id,
+      reason: free.reason,
+    });
+  }
   return {
-    summary,
+    summary: free && summary === DUPLICATE_RECHECK_MESSAGES.no_match ? DUPLICATE_RECHECK_FREE_MESSAGE : summary,
     sources_checked: hubspotRead ? ['sellup', 'hubspot'] : ['sellup'],
     matches,
     rechecked_at: new Date().toISOString(),
@@ -124,7 +171,7 @@ export async function recheckCandidateDuplicates(
       matched_account_id: outcome.matchedAccountId,
       matched_hubspot_company_id: outcome.matchedHubSpotCompanyId,
       confidence_score: outcome.confidenceScore,
-      metadata: { ...meta, duplicate_check: buildRecheckDuplicateMetadata(result, message) },
+      metadata: { ...withRecheckFreePool(meta, result), duplicate_check: buildRecheckDuplicateMetadata(result, message) },
       updated_at: new Date().toISOString(),
     })
     .eq('id', candidateId);

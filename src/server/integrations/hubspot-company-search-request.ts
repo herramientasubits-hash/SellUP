@@ -17,6 +17,8 @@
  * Solo lectura: nunca escribe en HubSpot.
  */
 
+import { fetchHubSpotWithRetry, type HubSpotRetryOptions } from './hubspot-rate-limit';
+
 /**
  * Techo de espera de UNA búsqueda de empresas en HubSpot.
  *
@@ -42,16 +44,24 @@ export async function postHubSpotCompanySearch(
   token: string,
   body: unknown,
   timeoutMs: number = HUBSPOT_COMPANY_SEARCH_TIMEOUT_MS,
+  retry: HubSpotRetryOptions = {},
 ): Promise<Response> {
-  return await fetch(HUBSPOT_COMPANY_SEARCH_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
+  // Prod 24-11 (árbol de Grupo Aval c41b56d4): con varias búsquedas a la vez HubSpot contesta
+  // 429 y Corficolombiana y Multibank quedaron sin su ficha. Se reintenta como el chequeo de
+  // duplicados; cada intento con su propio techo de espera.
+  return await fetchHubSpotWithRetry(
+    HUBSPOT_COMPANY_SEARCH_URL,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+    timeoutMs,
+    retry,
+  );
 }
 
 /**

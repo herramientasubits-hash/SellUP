@@ -1145,13 +1145,15 @@ async function readGroupSignal(
   const read = await settleBy(deps.readGroupHubSpotStatus(ids).catch(() => new Map()), deadlineAtMs, deps.nowMs);
   if (!read.settled || read.value.size === 0) return null;
   const statuses = read.value;
-  const signal = summarizeCorporateTreeGroup(
+  const summary = summarizeCorporateTreeGroup(
     ids.map((id) => ({
       name: byId.get(id)!.related_name,
       countryCode: byId.get(id)!.related_country_code,
       status: statuses.get(id) ?? 'unknown',
     })),
   );
+  const freeHubSpotIds = ids.filter((id) => statuses.get(id) === 'free');
+  const signal = freeHubSpotIds.length > 0 ? { ...summary, freeHubSpotIds } : summary;
   return { signal, statuses };
 }
 

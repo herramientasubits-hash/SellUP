@@ -121,6 +121,14 @@ export function preferredHubSpotCompanyCountry(
   return country || null;
 }
 
+/** HubSpot contestó con error (429, 5xx, 401…): no se sabe si la empresa existe. */
+export class HubSpotCompanySearchError extends Error {
+  constructor(readonly status: number) {
+    super(`hubspot_company_search_${status}`);
+    this.name = 'HubSpotCompanySearchError';
+  }
+}
+
 async function searchCompaniesByDomain(
   token: string,
   domain: string
@@ -143,7 +151,9 @@ async function searchCompaniesByDomain(
 
   const response = await postHubSpotCompanySearch(token, body);
 
-  if (!response.ok) return [];
+  // Prod 24-11 — un error de HubSpot NO es «no hay empresa»: los llamadores lo tratan como
+  // «HubSpot no disponible» (antes, un 429 dejaba a una empresa de HubSpot como nueva).
+  if (!response.ok) throw new HubSpotCompanySearchError(response.status);
 
   const data = await response.json();
   return (data.results ?? []).map(
@@ -174,7 +184,9 @@ async function searchCompaniesByName(
 
   const response = await postHubSpotCompanySearch(token, body);
 
-  if (!response.ok) return [];
+  // Prod 24-11 — un error de HubSpot NO es «no hay empresa»: los llamadores lo tratan como
+  // «HubSpot no disponible» (antes, un 429 dejaba a una empresa de HubSpot como nueva).
+  if (!response.ok) throw new HubSpotCompanySearchError(response.status);
 
   const data = await response.json();
   return (data.results ?? []).map(
