@@ -232,13 +232,16 @@ describe('row menu / context menu — Aprobar opens the drawer, never approves d
   });
 });
 
-describe('selection action bar — single-selection Aprobar, bulk approve out of scope', () => {
-  it('disables Aprobar unless exactly one row is selected', () => {
-    assert.ok(TABLE_SRC.includes('rows.length !== 1'));
+describe('selection action bar — one row opens the drawer, several go to the bulk confirmation (Prod 24-11)', () => {
+  it('a single selected row still opens the drawer with the approve intent', () => {
+    assert.ok(TABLE_SRC.includes('rows.length === 1'));
+    assert.ok(TABLE_SRC.includes('approveIntent: true'));
   });
 
-  it('shows the "Aprobación masiva pendiente" copy for 2+ selected rows', () => {
-    assert.ok(TABLE_SRC.includes('Aprobación masiva pendiente'));
+  it('2+ selected rows open the bulk confirmation, only with rows still in review', () => {
+    assert.ok(TABLE_SRC.includes("openBulkReview('approve', rows)"));
+    assert.ok(TABLE_SRC.includes("openBulkReview('discard', rows)"));
+    assert.ok(TABLE_SRC.includes('selected.filter(isDiscardEligible)'));
   });
 });
 

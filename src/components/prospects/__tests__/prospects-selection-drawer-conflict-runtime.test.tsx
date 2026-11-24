@@ -363,23 +363,22 @@ describe('ProspectsDataTableClient — selection bar action hierarchy (matches s
     );
   });
 
-  it('disables Aprobar with "Aprobación masiva pendiente", keeps Descartar disabled, and keeps Marcar duplicado disabled for 2+ selected rows', async () => {
+  it('2+ selected rows: Aprobar and Descartar open the bulk confirmation (Prod 24-11), never the side panel; Marcar duplicado stays single', async () => {
     renderTable();
     selectRowCheckbox(0);
     selectRowCheckbox(1);
 
     const aprobarBtn = railAction('Aprobar');
-    assert.equal(isBlocked(aprobarBtn), true, 'no bulk approve for 2+ rows');
-
+    assert.equal(isBlocked(aprobarBtn), false, 'bulk approve is available for 2+ eligible rows');
     const descartarBtn = railAction('Descartar');
-    assert.equal(isBlocked(descartarBtn), true);
+    assert.equal(isBlocked(descartarBtn), false, 'bulk discard is available for 2+ eligible rows');
 
-    // Blocked means inert, not just dimmed: clicking never opens the side panel
-    // nor arms an intent.
-    fireEvent.click(aprobarBtn);
+    // Descartar en masa abre SU confirmación (con motivo), nunca el panel lateral.
     fireEvent.click(descartarBtn);
-    assert.equal(detailSheetProps.open, false, 'a blocked bulk action must not open the side panel');
-    assert.ok(screen.getByText(SELECTION_CHIP), 'the selection stays as it was');
+    assert.equal(detailSheetProps.open, false, 'a bulk action must not open the side panel');
+    assert.ok(await screen.findByText('¿Descartar 2 prospectos?'), 'the bulk discard confirmation opens');
+    assert.ok(screen.getByText('Motivo de descarte'), 'and asks for the reason');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
 
     // «Ver detalle» only makes sense for one row: with 2+ it leaves the rail.
     assert.equal(screen.queryByRole('button', { name: 'Ver detalle' }), null);

@@ -83,6 +83,12 @@ export type RescueContext = {
    * Sólo sirve para REASIGNAR la industria: no resuelve la condición de tamaño de la meta.
    */
   sizePassedIcpGate?: boolean;
+  /**
+   * Búsqueda en árbol (Prod 24-11, Grupo Aval: AV Villas con su web encontrada se quedó en
+   * Descartadas): no hay sector pedido, vale el parentesco con el grupo. Un sector sin
+   * confirmar no la frena; un tamaño comprobado bajo el mínimo sí la descarta.
+   */
+  sectorNotRequested?: boolean;
 };
 
 /**
@@ -349,7 +355,7 @@ export function decideRescue(result: CompanyClassificationResult, ctx: RescueCon
   // el sector (Prod 06-10, EC×Tec 0ef658fd: Cartimex, Computron, Movilcelistic con web
   // correcta). Pasa a revisión con el aviso de sector sin confirmar.
   const sizeWarning = size === 'unknown' && !ctx.sizeAlreadyConfirmed && sizeBelowMinUnconfirmed(result, ctx);
-  if (sector !== 'pass' && size !== 'pass' && !ctx.officialSizeMeasured && !linkedinConfirmed) {
+  if (sector !== 'pass' && size !== 'pass' && !ctx.officialSizeMeasured && !linkedinConfirmed && !ctx.sectorNotRequested) {
     return {
       kind: 'unchanged',
       why: 'sector_unknown',
