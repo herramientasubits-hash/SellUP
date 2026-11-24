@@ -8,6 +8,7 @@ import {
   Database,
   LayoutDashboard,
   MessageSquare,
+  ReceiptText,
   Settings,
   Target,
   Users,
@@ -125,6 +126,9 @@ export const GROWTH_ROUTE = "/growth";
 /** Calculadora de ROI de UBITS, solo el ejercicio de proyección de venta. */
 export const ROI_CALCULATOR_ROUTE = "/roi-calculator";
 
+/** Cotizador de Ventas (precios oficiales 2026 y 2027). */
+export const QUOTES_ROUTE = "/quotes";
+
 /** A dónde va un enlace antiguo `/settings/source-catalog/<…>`, con sus parámetros. */
 export function legacySourceCatalogRedirect(
   path: readonly string[] | undefined,
@@ -191,6 +195,13 @@ export const mainNavItems: NavItem[] = [
     icon: Calculator,
     // Herramienta de venta: la usan los comerciales, así que es pública. Los
     // supuestos del modelo solo los edita un admin (la página lo resuelve).
+  },
+  {
+    title: "Cotizador",
+    href: QUOTES_ROUTE,
+    icon: ReceiptText,
+    // Lo usan todos los roles. Qué países ve cada quien lo decide la página
+    // con la región de su grupo de SellUp (admin y líderes, todas).
   },
   {
     title: "Configuración",

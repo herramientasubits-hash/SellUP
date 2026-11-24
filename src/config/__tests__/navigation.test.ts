@@ -19,6 +19,7 @@ import {
   getVisibleNavItems,
   PROSPECTOS_TAB_ROUTE,
   GROWTH_ROUTE,
+  QUOTES_ROUTE,
   ROI_CALCULATOR_ROUTE,
   SOURCE_CATALOG_ROUTE,
   type NavAccessContext,
@@ -86,6 +87,14 @@ describe('navigation visibility — getVisibleNavItems', () => {
     assert.ok(visible.includes(ROI_CALCULATOR_ROUTE), 'Calculadora de ROI must be visible for seller_bd');
     const routes = hrefs(mainNavItems);
     assert.equal(routes.indexOf(ROI_CALCULATOR_ROUTE), routes.indexOf(SOURCE_CATALOG_ROUTE) + 1);
+  });
+
+  it('the Cotizador is public and sits right after the ROI calculator', () => {
+    for (const ctx of [sellerCtx, managerCtx, leadCtx, adminCtx, { isAdmin: false, roleKey: 'growth' }]) {
+      assert.ok(hrefs(getVisibleNavItems(mainNavItems, ctx)).includes(QUOTES_ROUTE), 'Cotizador must be visible');
+    }
+    const routes = hrefs(mainNavItems);
+    assert.equal(routes.indexOf(QUOTES_ROUTE), routes.indexOf(ROI_CALCULATOR_ROUTE) + 1);
   });
 
   it('commercial_manager and commercial_lead see Uso de IA (their team, dueña 12-11) but not Configuración', () => {
