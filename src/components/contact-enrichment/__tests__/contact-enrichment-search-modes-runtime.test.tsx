@@ -1,18 +1,17 @@
 /**
- * AGENT2A — Modos de búsqueda del panel del agente y «Nueva conversación».
+ * AGENT2A — Formas de buscar del panel del agente y «Nueva conversación».
  *
- * Bryan 17-11: los modos ya no son botones de la cabecera; son opciones bajo la conversación,
- * como en el Agente 1, opcionales y sin atajos de teclado.
+ * Dueña 24-11: el panel guía como la búsqueda de empresas (Agente 1). Antes la caja dejaba
+ * escribir sin elegir y bajo cada modo salía otra lista «¿Prefieres otra forma de buscar?».
  *
  * Contrato RUNTIME:
  *   - la cabecera no tiene botones de modo;
- *   - en «Por empresa» las opciones son el lote y (sólo con la bandera
- *     CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED) el contacto puntual; sin números de atajo;
- *   - elegir una opción empieza esa conversación limpia y ofrece las OTRAS (con «Contactos de
- *     una empresa» para volver);
- *   - pulsar un número no elige nada;
- *   - la caja dice lo que se espera en cada modo;
- *   - «Nueva conversación» abre SIEMPRE en «Por empresa» con la caja vacía;
+ *   - el primer paso pregunta «¿Cómo quieres buscar contactos?» con las formas numeradas (el
+ *     contacto puntual sólo con CONTACT_ENRICHMENT_LINKEDIN_SEARCH_ENABLED) y la caja APAGADA;
+ *   - se elige tocando la opción o con su número; elegida, se enciende la caja de esa forma;
+ *   - dentro de un modo no hay otra lista de opciones: sólo «Cambiar forma de buscar», que vuelve
+ *     a la pregunta;
+ *   - «Nueva conversación» vuelve a la pregunta con la caja vacía y apagada;
  *   - con un lote en curso, «Nueva conversación» lo cancela: no se inicia ninguna empresa más
  *     y el reporte queda como «Cancelado».
  *
@@ -137,6 +136,7 @@ afterEach(() => {
 });
 
 const COMPANY_PLACEHOLDER = 'Nombre o dominio de la empresa';
+const CHOOSER_PLACEHOLDER = 'Elige primero cómo quieres buscar';
 const BATCH_OPTION = /Varias empresas por HubSpot ID/;
 const LINKEDIN_OPTION = /Un contacto por LinkedIn, correo o ID de HubSpot/;
 const COMPANY_OPTION = /Contactos de una empresa/;
@@ -151,7 +151,7 @@ async function options(): Promise<HTMLElement> {
 
 async function chooseOption(name: RegExp) {
   const panel = await options();
-  rtl.fireEvent.click(rtl.within(panel).getByRole('button', { name }));
+  rtl.fireEvent.click(await rtl.within(panel).findByRole('button', { name }));
 }
 
 /** Deja llegar la respuesta de la bandera. */
@@ -159,18 +159,37 @@ async function settleFlag() {
   await new Promise((resolve) => setTimeout(resolve, 20));
 }
 
+/** El primer paso: la pregunta con sus opciones y la caja vacía y apagada. */
+async function expectChooserWithLockedBox() {
+  const panel = await options();
+  assert.match(panel.textContent ?? '', /¿Cómo quieres buscar contactos\?/);
+  assert.ok(rtl.within(panel).getByRole('button', { name: COMPANY_OPTION }));
+  assert.ok(rtl.within(panel).getByRole('button', { name: BATCH_OPTION }));
+  assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
+  assert.equal(rtl.screen.queryByTestId('linkedin-contact-search'), null);
+  assert.equal(textbox().disabled, true, 'sin elegir no se puede escribir');
+  assert.equal(textbox().getAttribute('placeholder'), CHOOSER_PLACEHOLDER);
+  assert.equal(textbox().value, '');
+}
+
 async function expectCompanyModeWithEmptyBox() {
   await rtl.screen.findByText(/dime el nombre, dominio o HubSpot ID/);
   assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
   assert.equal(rtl.screen.queryByTestId('linkedin-contact-search'), null);
   await rtl.waitFor(() => assert.equal(textbox().getAttribute('placeholder'), COMPANY_PLACEHOLDER));
+  await rtl.waitFor(() => assert.equal(textbox().disabled, false));
   assert.equal(textbox().value, '');
-  const panel = await options();
-  assert.ok(rtl.within(panel).getByRole('button', { name: BATCH_OPTION }));
-  assert.equal(rtl.within(panel).queryByRole('button', { name: COMPANY_OPTION }), null);
+  assert.equal(rtl.screen.queryByTestId('search-mode-options'), null, 'sin otra lista de opciones');
+  assert.ok(await rtl.screen.findByTestId('search-mode-back'));
 }
 
-describe('Panel del agente · modos de búsqueda como opciones (Bryan 17-11)', () => {
+async function openCompanyMode() {
+  rtl.render(<Shell />);
+  await chooseOption(COMPANY_OPTION);
+  await expectCompanyModeWithEmptyBox();
+}
+
+describe('Panel del agente · primero se elige la forma de buscar (dueña 24-11)', () => {
   it('la cabecera ya no tiene los botones de HubSpot ni de LinkedIn', async () => {
     linkedinFlag = true;
     rtl.render(<Shell />);
@@ -180,109 +199,111 @@ describe('Panel del agente · modos de búsqueda como opciones (Bryan 17-11)', (
     assert.equal(rtl.screen.queryByTestId('chat-panel-linkedin-search'), null);
   });
 
-  it('con la bandera apagada sólo se ofrece el lote', async () => {
+  it('al abrir pregunta cómo buscar y la caja está apagada hasta elegir', async () => {
+    rtl.render(<Shell />);
+    await expectChooserWithLockedBox();
+  });
+
+  it('con la bandera apagada se ofrecen una empresa y el lote', async () => {
     rtl.render(<Shell />);
     await settleFlag();
     const panel = await options();
-    assert.match(panel.textContent ?? '', /¿Prefieres otra forma de buscar\?/);
+    assert.ok(rtl.within(panel).getByRole('button', { name: COMPANY_OPTION }));
     assert.ok(rtl.within(panel).getByRole('button', { name: BATCH_OPTION }));
     assert.equal(rtl.within(panel).queryByRole('button', { name: LINKEDIN_OPTION }), null);
   });
 
-  it('con la bandera encendida se ofrecen el lote y el contacto puntual, sin números de atajo', async () => {
+  it('con la bandera encendida se ofrecen las tres, numeradas como en la búsqueda de empresas', async () => {
     linkedinFlag = true;
     rtl.render(<Shell />);
     const panel = await options();
-    await rtl.waitFor(() => assert.ok(rtl.within(panel).getByRole('button', { name: LINKEDIN_OPTION })));
-    const buttons = rtl.within(panel).getAllByRole('button', { name: /HubSpot/ });
-    assert.equal(buttons.length, 2);
-    assert.equal(panel.querySelector('kbd'), null, 'sin atajos no se muestran números');
+    assert.ok(rtl.within(panel).getByRole('button', { name: LINKEDIN_OPTION }));
+    assert.equal(panel.querySelectorAll('kbd').length, 3, 'cada opción muestra su número');
   });
 
-  it('el modo «Por empresa» pide nombre o dominio y ofrece las otras formas', async () => {
-    rtl.render(<Shell />);
-    await expectCompanyModeWithEmptyBox();
-  });
-
-  it('pulsar un número no elige ninguna opción (el Agente 2 no tiene atajos)', async () => {
-    linkedinFlag = true;
+  it('pulsar el número de una opción la elige', async () => {
     rtl.render(<Shell />);
     await options();
-    await settleFlag();
-    textbox().blur();
-    rtl.fireEvent.keyDown(window, { key: '1' });
     rtl.fireEvent.keyDown(window, { key: '2' });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
-    assert.equal(rtl.screen.queryByTestId('linkedin-contact-search'), null);
+    await rtl.screen.findByTestId('hubspot-id-batch');
   });
 
-  it('«Varias empresas por HubSpot ID» abre el lote con su caja y ofrece volver a una empresa', async () => {
+  it('«Contactos de una empresa» enciende la caja de la empresa, sin otra lista de opciones', async () => {
+    await openCompanyMode();
+  });
+
+  it('«Cambiar forma de buscar» vuelve a la pregunta con la caja apagada', async () => {
+    await openCompanyMode();
+    rtl.fireEvent.change(textbox(), { target: { value: 'Acme' } });
+    rtl.fireEvent.click(rtl.screen.getByTestId('search-mode-back'));
+    await expectChooserWithLockedBox();
+  });
+
+  it('«Varias empresas por HubSpot ID» abre el lote con su caja', async () => {
     rtl.render(<Shell />);
     await chooseOption(BATCH_OPTION);
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID de tus empresas/);
     assert.equal(textbox().getAttribute('placeholder'), 'Company IDs (con coma o uno por fila)');
-    const panel = await options();
-    assert.ok(rtl.within(panel).getByRole('button', { name: COMPANY_OPTION }));
-    assert.equal(rtl.within(panel).queryByRole('button', { name: BATCH_OPTION }), null);
+    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
+    assert.ok(rtl.screen.getByTestId('search-mode-back'));
   });
 
-  it('el contacto puntual tiene su caja y «Contactos de una empresa» vuelve al modo de siempre', async () => {
+  it('el contacto puntual tiene su caja y «Cambiar forma de buscar» vuelve a la pregunta', async () => {
     linkedinFlag = true;
     rtl.render(<Shell />);
-    await settleFlag();
     await chooseOption(LINKEDIN_OPTION);
     await rtl.screen.findByTestId('linkedin-contact-search');
     assert.equal(textbox().getAttribute('placeholder'), 'Pega el LinkedIn, el correo o el ID de HubSpot del contacto');
-    const panel = await options();
-    assert.ok(rtl.within(panel).getByRole('button', { name: BATCH_OPTION }));
-    await chooseOption(COMPANY_OPTION);
-    await expectCompanyModeWithEmptyBox();
+    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
+    rtl.fireEvent.click(await rtl.screen.findByTestId('search-mode-back'));
+    await expectChooserWithLockedBox();
   });
 
-  it('cambiar de opción empieza limpio: lo escrito en el lote no pasa al otro modo', async () => {
+  it('cambiar de forma empieza limpio: lo escrito en el lote no pasa al otro modo', async () => {
     linkedinFlag = true;
     rtl.render(<Shell />);
-    await settleFlag();
     await chooseOption(BATCH_OPTION);
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
     rtl.fireEvent.change(textbox(), { target: { value: '65498491' } });
+    rtl.fireEvent.click(rtl.screen.getByTestId('search-mode-back'));
     await chooseOption(LINKEDIN_OPTION);
     await rtl.screen.findByTestId('linkedin-contact-search');
     assert.equal(textbox().value, '');
     assert.equal(rtl.screen.queryByText(/puedes ingresar el HubSpot ID/), null);
   });
 
-  it('desde el modo lote, «Nueva conversación» abre en «Por empresa» con la caja vacía', async () => {
+  it('desde el modo lote, «Nueva conversación» vuelve a la pregunta con la caja vacía', async () => {
     rtl.render(<Shell />);
     await chooseOption(BATCH_OPTION);
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
     rtl.fireEvent.change(textbox(), { target: { value: '65498491,65498497' } });
     rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-new'));
-    await expectCompanyModeWithEmptyBox();
+    await expectChooserWithLockedBox();
     assert.equal(mockRunItem.mock.callCount(), 0);
   });
 
-  it('desde el contacto puntual, «Nueva conversación» abre en «Por empresa» con la caja vacía', async () => {
-    linkedinFlag = true;
-    rtl.render(<Shell />);
-    await settleFlag();
-    await chooseOption(LINKEDIN_OPTION);
-    await rtl.screen.findByTestId('linkedin-contact-search');
+  it('desde una empresa, «Nueva conversación» vuelve a la pregunta', async () => {
+    await openCompanyMode();
     rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-new'));
-    await expectCompanyModeWithEmptyBox();
+    await expectChooserWithLockedBox();
+  });
+
+  it('un perfil de persona en «Contactos de una empresa» con la bandera apagada: explica y no busca la empresa', async () => {
+    await openCompanyMode();
+    rtl.fireEvent.change(textbox(), { target: { value: 'https://www.linkedin.com/in/persona-ficticia-1/' } });
+    rtl.fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
+    await rtl.screen.findByText(/escribe abajo el nombre, el dominio o el HubSpot ID de su empresa/);
+    assert.equal(rtl.screen.queryByTestId('contact-enrichment-search-as-person'), null);
+    assert.equal(textbox().disabled, false);
   });
 
   it('varios IDs pegados en «Por empresa»: ofrece «Buscarlas como lote» y, al aceptarlo, los busca como lote', async () => {
-    rtl.render(<Shell />);
-    await expectCompanyModeWithEmptyBox();
+    await openCompanyMode();
     rtl.fireEvent.change(textbox(), { target: { value: '111\n222' } });
     rtl.fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
     await rtl.screen.findByText(/Eso parece una lista de 2 HubSpot IDs de empresa/);
-    // Mientras se ofrece el lote no se muestran las demás opciones y la caja sigue activa.
     const offer = await rtl.screen.findByTestId('contact-enrichment-search-as-batch');
     assert.equal(offer.textContent, 'Buscarlas como lote (2)');
-    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
     assert.equal(textbox().disabled, false);
     assert.equal(mockRunItem.mock.callCount(), 0);
 
@@ -293,8 +314,7 @@ describe('Panel del agente · modos de búsqueda como opciones (Bryan 17-11)', (
   });
 
   it('más de 10 IDs pegados en «Por empresa»: avisa el tope y no ofrece el lote', async () => {
-    rtl.render(<Shell />);
-    await expectCompanyModeWithEmptyBox();
+    await openCompanyMode();
     rtl.fireEvent.change(textbox(), { target: { value: Array.from({ length: 11 }, (_, i) => `${100 + i}`).join(',') } });
     rtl.fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
     await rtl.screen.findByText(/Pegaste 11 HubSpot IDs distintos/);
@@ -313,8 +333,8 @@ describe('Panel del agente · modos de búsqueda como opciones (Bryan 17-11)', (
     rtl.fireEvent.change(textbox(), { target: { value: '111,222,333' } });
     rtl.fireEvent.keyDown(textbox(), { key: 'Enter', code: 'Enter' });
     await rtl.waitFor(() => assert.equal(mockRunItem.mock.callCount(), 1));
-    // Mientras corre el lote no se ofrecen otras formas de buscar.
-    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
+    // Mientras corre el lote no se puede cambiar la forma de buscar.
+    assert.equal(rtl.screen.queryByTestId('search-mode-back'), null);
 
     const newButton = rtl.screen.getByTestId('chat-panel-new') as HTMLButtonElement;
     assert.equal(newButton.disabled, false, '«Nueva conversación» se puede usar con el lote en curso');
@@ -335,9 +355,9 @@ describe('Panel del agente · modos de búsqueda como opciones (Bryan 17-11)', (
     const notStarted = await rtl.screen.findByTestId('hubspot-id-batch-not-started', undefined, { timeout: 5000 });
     assert.match(notStarted.textContent ?? '', /222, 333/);
 
-    // El siguiente clic abre la conversación nueva en «Por empresa».
+    // El siguiente clic vuelve a la pregunta del primer paso.
     rtl.fireEvent.click(rtl.screen.getByTestId('chat-panel-new'));
-    await expectCompanyModeWithEmptyBox();
+    await expectChooserWithLockedBox();
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(mockRunItem.mock.callCount(), 1);
   });

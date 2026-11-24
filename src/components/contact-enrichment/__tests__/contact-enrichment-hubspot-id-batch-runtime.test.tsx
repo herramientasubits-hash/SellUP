@@ -173,7 +173,7 @@ async function send(text: string) {
 }
 
 describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
-  it('el lote es una opción bajo la conversación, no un botón de la cabecera', async () => {
+  it('el lote es una de las formas de buscar del primer paso, no un botón de la cabecera', async () => {
     rtl.render(<Shell />);
     const panel = await rtl.screen.findByTestId('search-mode-options');
     const option = rtl.within(panel).getByRole('button', { name: BATCH_OPTION });
@@ -270,22 +270,22 @@ describe('Panel del agente · Búsqueda por lotes con ID de HubSpot', () => {
     await rtl.waitFor(() => assert.deepEqual(searchedRequests, ['req-65498491', 'req-65498497']), { timeout: 5000 });
   });
 
-  it('«Contactos de una empresa» regresa al asistente de una empresa', async () => {
+  it('«Cambiar forma de buscar» vuelve a la pregunta del primer paso', async () => {
     await openBatchMode();
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
+    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null, 'sin otra lista de opciones');
+    rtl.fireEvent.click(rtl.screen.getByTestId('search-mode-back'));
     const panel = await rtl.screen.findByTestId('search-mode-options');
-    rtl.fireEvent.click(rtl.within(panel).getByRole('button', { name: /Contactos de una empresa/ }));
-    await rtl.screen.findByText(/dime el nombre, dominio o HubSpot ID/);
+    assert.ok(rtl.within(panel).getByRole('button', { name: /Contactos de una empresa/ }));
     assert.equal(rtl.screen.queryByTestId('hubspot-id-batch'), null);
   });
 
-  it('al terminar el lote vuelven a salir las otras formas de buscar', async () => {
+  it('al terminar el lote se puede cambiar la forma de buscar', async () => {
     await openBatchMode();
     await rtl.screen.findByText(/puedes ingresar el HubSpot ID/);
     await send('65498491');
     await rtl.screen.findByTestId('hubspot-id-batch-report', undefined, { timeout: 5000 });
-    const panel = await rtl.screen.findByTestId('search-mode-options', undefined, { timeout: 5000 });
-    assert.ok(rtl.within(panel).getByRole('button', { name: /Contactos de una empresa/ }));
-    assert.equal(rtl.within(panel).queryByRole('button', { name: BATCH_OPTION }), null);
+    await rtl.screen.findByTestId('search-mode-back', undefined, { timeout: 5000 });
+    assert.equal(rtl.screen.queryByTestId('search-mode-options'), null);
   });
 });

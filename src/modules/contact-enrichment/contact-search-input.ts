@@ -27,6 +27,11 @@ const HUBSPOT_CONTACT_URL_RE = /hubspot\.com\/.*?\/(?:contact|record\/0-1)\/(\d{
 /** Enlace de una EMPRESA de HubSpot: `.../company/123` o `.../record/0-2/123`. */
 const HUBSPOT_COMPANY_URL_RE = /hubspot\.com\/.*?\/(?:company|record\/0-2)\/\d+/i;
 
+/** ¿Es el enlace de un CONTACTO de HubSpot (`.../contact/123` o `.../record/0-1/123`)? */
+export function isHubSpotContactUrl(raw: string): boolean {
+  return HUBSPOT_CONTACT_URL_RE.test(raw.trim());
+}
+
 /**
  * Un correo se reconoce por su forma; un número (o el enlace de un contacto de HubSpot) es el ID
  * del contacto en HubSpot; cualquier texto con «linkedin» va a la validación de LinkedIn (que

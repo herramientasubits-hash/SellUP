@@ -32,7 +32,7 @@ export const LINKEDIN_PROFILE_URL_ERROR_COPY: Record<LinkedinProfileUrlRejection
   empty: 'Pega el enlace del perfil de LinkedIn de la persona.',
   not_linkedin: 'Ese enlace no es de LinkedIn. Pega el enlace del perfil, por ejemplo linkedin.com/in/nombre-apellido.',
   company_page:
-    'Ese enlace es de una página de empresa (o institución), no de una persona. Para buscar contactos de una empresa usa «Por empresa»; aquí pega el perfil de la persona (linkedin.com/in/…).',
+    'Ese enlace es de una página de empresa (o institución), no de una persona. Para buscar los contactos de una empresa elige «Contactos de una empresa»; aquí pega el perfil de la persona (linkedin.com/in/…).',
   not_profile: 'Ese enlace de LinkedIn no es un perfil de persona. Debe tener la forma linkedin.com/in/nombre-apellido.',
   unsupported_profile_format:
     'No podemos leer ese formato de perfil (enlaces antiguos /pub/ o de Sales Navigator). Abre el perfil en LinkedIn y copia el enlace linkedin.com/in/….',
