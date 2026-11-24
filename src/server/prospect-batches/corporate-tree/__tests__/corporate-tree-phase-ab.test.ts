@@ -45,6 +45,7 @@ import {
 import {
   APOLLO_QUOTA_EXHAUSTED,
   parseCorporateTreeRequest,
+  provenSellUpHubSpotIds,
   runCorporateTreeSearch,
   type CorporateTreeBatchCandidate,
   type CorporateTreeRequest,
@@ -1233,5 +1234,69 @@ describe('C4. Migración 157', () => {
     for (const forbidden of ['UPDATE ', 'DELETE FROM', 'POLICY', 'hubspot', 'budget', 'DROP ']) {
       assert.equal(sql.toLowerCase().includes(forbidden.toLowerCase()), false, `la 157 nombra «${forbidden}»`);
     }
+  });
+});
+
+describe('D5. Grupo Aval (Prod 24-11, 5989cf21): la ficha que SellUp ya comprobó cuenta para el aviso del grupo', () => {
+  it('HubSpot no liga la web (varias fichas) pero SellUp sí la tiene comprobada ⇒ el aviso dice «cliente»', async () => {
+    const asked: string[][] = [];
+    const { deps } = fakeDeps({
+      findHubSpotIdsByDomain: async () => ['1', '2'],
+      findSellUpHubSpotIdsByDomain: async (domains) => {
+        asked.push([...domains]);
+        return new Map([['barcel.com.mx', 'hs-barcel']]);
+      },
+      readGroupHubSpotStatus: async (ids) => new Map(ids.map((id) => [id, 'customer' as const])),
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.ok(asked.some((list) => list.includes('barcel.com.mx')));
+    assert.deepEqual(result.groupSignal?.customers, [{ name: 'Barcel', countryCode: 'MX' }]);
+  });
+
+  it('si SellUp no responde, todo sigue como antes', async () => {
+    const { deps } = fakeDeps({
+      findHubSpotIdsByDomain: async () => [],
+      findSellUpHubSpotIdsByDomain: async () => {
+        throw new Error('db down');
+      },
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.equal(result.groupSignal ?? null, null);
+  });
+
+  it('sólo fichas COMPROBADAS: Banco de Bogotá (misma web) y Porvenir (exacto) sí; Occidente (otra web) no', () => {
+    const base = { name: 'x', country_code: 'CO', status: 'discarded' };
+    const ids = provenSellUpHubSpotIds(
+      ['bancodebogota.com', 'porvenir.com.co', 'bancodeoccidente.com.co'],
+      [
+        {
+          ...base, id: 'bog', domain: 'bancodebogota.com', matched_hubspot_company_id: '662858678', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: '662858678', matched_domain: 'bancodebogota.com.co', matched_website: 'bancodebogota.com' }] } },
+        },
+        { ...base, id: 'por', domain: 'porvenir.com.co', matched_hubspot_company_id: '673586967', duplicate_status: 'exact_duplicate', metadata: {} },
+        {
+          ...base, id: 'occ', domain: 'bancodeoccidente.com.co', matched_hubspot_company_id: 'hs-hn', duplicate_status: 'possible_duplicate',
+          metadata: { duplicate_check: { matches: [{ source: 'hubspot', matched_id: 'hs-hn', matched_domain: 'bancodeoccidente.hn' }] } },
+        },
+      ],
+      [],
+    );
+    assert.deepEqual(Object.fromEntries(ids), { 'bancodebogota.com': '662858678', 'porvenir.com.co': '673586967' });
+  });
+
+  it('una cuenta con su ficha cuenta; dos fichas distintas para la misma web no se ligan', () => {
+    assert.deepEqual(
+      Object.fromEntries(provenSellUpHubSpotIds(['avvillas.com.co'], [], [{ domain: 'www.avvillas.com.co', hubspot_company_id: 'hs-av' }])),
+      { 'avvillas.com.co': 'hs-av' },
+    );
+    assert.equal(
+      provenSellUpHubSpotIds(['avvillas.com.co'], [], [
+        { domain: 'avvillas.com.co', hubspot_company_id: 'a' },
+        { domain: 'avvillas.com.co', hubspot_company_id: 'b' },
+      ]).size,
+      0,
+    );
   });
 });

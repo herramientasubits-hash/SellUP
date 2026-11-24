@@ -273,6 +273,13 @@ export type CorporateTreeRunDeps = {
    */
   findHubSpotIdsByDomain?: (domain: string) => Promise<string[] | null>;
   /**
+   * Prod 24-11 (Grupo Aval 5989cf21) — la ficha de HubSpot que SellUp ya COMPROBÓ para esa web
+   * (una candidata con duplicado exacto o con la misma web en su coincidencia; o una cuenta con
+   * su ficha). Banco de Bogotá y Porvenir estaban «Ya en SellUp» sin ficha ligada y el aviso
+   * dejó de decir que el grupo es cliente. Sólo lectura de SellUp. Por web: su ficha (o nada).
+   */
+  findSellUpHubSpotIdsByDomain?: (domains: readonly string[]) => Promise<ReadonlyMap<string, string>>;
+  /**
    * FASE C — el nivel de la fila del árbol de arriba (para poner el árbol nuevo debajo).
    * `null` = no existe o no se pudo leer (el árbol queda en el nivel 1, sin padre).
    */
@@ -816,8 +823,12 @@ async function runAfterReservation(
   const candidates = loaded ?? [];
   const matched = matchPlannedRows(plan.rows, candidates, context.keyOf);
   const parentLink = await readParentLink(request, deps, sealStartAtMs);
-  const relationshipRows = await withHubSpotIdsByDomain(
-    buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId, parentLink }),
+  const relationshipRows = await withSellUpHubSpotIds(
+    await withHubSpotIdsByDomain(
+      buildRelationshipRows({ rows: plan.rows, matched, root, runId, batchId, createdBy: context.internalUserId, parentLink }),
+      deps,
+      sealStartAtMs,
+    ),
     deps,
     sealStartAtMs,
   );
@@ -1029,6 +1040,70 @@ async function withHubSpotIdsByDomain(
   }
   if (found.size === 0) return rows;
   return rows.map((row, index) => (found.has(index) ? { ...row, matched_hubspot_company_id: found.get(index)! } : row));
+}
+
+/**
+ * Las filas con web propia que HubSpot no ligó (ninguna o varias fichas para esa web) toman la
+ * ficha que SellUp ya comprobó para esa misma web. Sin respuesta a tiempo, quedan como estaban.
+ */
+async function withSellUpHubSpotIds(
+  rows: CorporateTreeRelationshipRow[],
+  deps: CorporateTreeRunDeps,
+  deadlineAtMs: number,
+): Promise<CorporateTreeRelationshipRow[]> {
+  if (!deps.findSellUpHubSpotIdsByDomain) return rows;
+  const domainCount = new Map<string, number>();
+  for (const row of rows) {
+    if (row.related_domain) domainCount.set(row.related_domain, (domainCount.get(row.related_domain) ?? 0) + 1);
+  }
+  const pending = rows.filter(
+    (row) =>
+      !row.matched_hubspot_company_id &&
+      !!row.related_domain &&
+      (row.relation_type === 'root' || domainCount.get(row.related_domain) === 1),
+  );
+  if (pending.length === 0 || deps.nowMs() >= deadlineAtMs) return rows;
+  const domains = [...new Set(pending.map((row) => row.related_domain!.toLowerCase()))];
+  const read = await settleBy(
+    deps.findSellUpHubSpotIdsByDomain(domains).catch(() => new Map<string, string>()),
+    deadlineAtMs,
+    deps.nowMs,
+  );
+  if (!read.settled || read.value.size === 0) return rows;
+  const ids = read.value;
+  return rows.map((row) => {
+    if (row.matched_hubspot_company_id || !pending.includes(row)) return row;
+    const id = ids.get(row.related_domain!.toLowerCase());
+    return id ? { ...row, matched_hubspot_company_id: id } : row;
+  });
+}
+
+/**
+ * De lo que SellUp tiene para cada web, la ficha de HubSpot COMPROBADA (puro). Una web con dos
+ * fichas distintas no se liga: podría ser otra empresa.
+ */
+export function provenSellUpHubSpotIds(
+  domains: readonly string[],
+  candidates: readonly CorporateTreeBatchCandidate[],
+  accounts: readonly { domain: string | null; hubspot_company_id: string | null }[],
+): Map<string, string> {
+  const found = new Map<string, Set<string>>();
+  const add = (domain: string | null, id: string | null) => {
+    const key = bareDomain(domain);
+    if (!key || !id) return;
+    found.set(key, (found.get(key) ?? new Set()).add(id));
+  };
+  for (const candidate of candidates) {
+    const id = candidate.matched_hubspot_company_id;
+    if (id && isProvenHubSpotMatch(candidate, id)) add(candidate.domain, id);
+  }
+  for (const account of accounts) add(account.domain, account.hubspot_company_id);
+  const result = new Map<string, string>();
+  for (const domain of domains) {
+    const ids = found.get(bareDomain(domain) ?? '');
+    if (ids && ids.size === 1) result.set(domain.toLowerCase(), [...ids][0]);
+  }
+  return result;
 }
 
 /** Las empresas del grupo con ficha de HubSpot en esta corrida (para guardarlas con el árbol). */
