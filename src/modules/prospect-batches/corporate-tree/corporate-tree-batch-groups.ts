@@ -46,6 +46,8 @@ export type CorporateTreeBatchRelationship = {
   own_website?: boolean;
   /** Su web propia ya está en otra búsqueda o en una cuenta de SellUp. */
   known_in_sellup?: boolean;
+  /** Prod 24-11 — su ficha de HubSpot está LIBRE (sin actividad de venta reciente). */
+  hubspot_free?: boolean;
   /** Por qué el escritor no la escribió (motivo crudo, de `corporate_tree.not_written`). */
   not_written_reason?: string | null;
   relation_type: string;
@@ -68,6 +70,20 @@ export const CORPORATE_TREE_POSSIBLE_HUBSPOT_REASON = 'corporate_tree_possible_h
 export const CORPORATE_TREE_OWNERSHIP_REJECTED_REASON = 'corporate_tree_ownership_rejected';
 export const CORPORATE_TREE_OWNERSHIP_REJECTED_LABEL = 'En Descartadas: revisa si la web es suya';
 export const CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL = 'Ya en SellUp (otra búsqueda o cuenta)';
+/** Prod 24-11 (Multibank) — está en HubSpot pero nadie la trabaja: se puede prospectar. */
+export const CORPORATE_TREE_HUBSPOT_FREE_LABEL = 'En HubSpot, libre para prospectar';
+
+/** Marca las filas cuya ficha de HubSpot está libre (según la lectura del grupo guardada en el lote). */
+export function withHubSpotFreeFlags(
+  relationships: readonly CorporateTreeBatchRelationship[],
+  freeHubSpotIds: readonly string[] | undefined,
+): CorporateTreeBatchRelationship[] {
+  if (!freeHubSpotIds || freeHubSpotIds.length === 0) return [...relationships];
+  const free = new Set(freeHubSpotIds);
+  return relationships.map((rel) =>
+    rel.matched_hubspot_company_id && free.has(rel.matched_hubspot_company_id) ? { ...rel, hubspot_free: true } : rel,
+  );
+}
 /** El rescate le encontró su web y ya existía en SellUp o HubSpot. */
 export const CORPORATE_TREE_RESCUE_DUPLICATE_LABEL = 'Ya existía (el rescate encontró su web)';
 /** Otra candidata viva ya tiene su número fiscal: el rescate no pagó la búsqueda de su web. */
@@ -251,7 +267,9 @@ export function groupBatchCandidatesByTreeRelation(
       name: rel.related_name,
       countryCode: rel.related_country_code,
       statusLabel: rel.matched_hubspot_company_id
-        ? 'Ya en HubSpot'
+        ? rel.hubspot_free
+          ? CORPORATE_TREE_HUBSPOT_FREE_LABEL
+          : 'Ya en HubSpot'
         : rel.known_in_sellup
           ? CORPORATE_TREE_KNOWN_IN_SELLUP_LABEL
           : rel.own_website

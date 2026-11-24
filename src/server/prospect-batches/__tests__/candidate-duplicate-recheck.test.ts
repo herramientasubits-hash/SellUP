@@ -123,3 +123,48 @@ describe('capa gratuita de registros oficiales — consulta HubSpot al guardar (
     assert.match(persistCall.slice(0, 1200), /runHubspotCheck: true/);
   });
 });
+
+describe('Multibank (Prod 24-11): la ficha LIBRE de HubSpot queda marcada al volver a revisar', () => {
+  const FREE_HS = {
+    status: 'no_match',
+    matched_company_id: null,
+    matched_company_name: 'Multibank Panama',
+    matched_domain: 'multibank.com.pa',
+    matched_website: 'multibank.com.pa',
+    confidence: 92,
+    free_to_take: { company_id: '1106135172', reason: 'recycled', owner_id: '507086994' },
+  } as unknown as CandidateDuplicateResult['hubspot_duplicate_check'];
+
+  it('guarda `hubspot_free_pool` como el escritor y lo dice (no «no hay otra empresa igual»)', async () => {
+    const { client, updates } = fakeSupabase(ROW);
+    await recheckCandidateDuplicates(client, 'cand-1', async () => result({ hubspot_duplicate_check: FREE_HS }));
+    assert.equal(updates[0].duplicate_status, 'no_match', 'libre no es duplicado');
+    assert.equal(updates[0].matched_hubspot_company_id, null);
+    const meta = updates[0].metadata as Row;
+    assert.deepEqual(meta.hubspot_free_pool, { company_id: '1106135172', reason: 'recycled', owner_id: '507086994' });
+    const dc = meta.duplicate_check as Row;
+    assert.match(String(dc.summary), /libre/);
+    const matches = dc.matches as Row[];
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0].status, 'new_candidate', 'como el escritor: las tablas no la cuentan como duplicado');
+    assert.equal(matches[0].matched_id, '1106135172');
+    assert.deepEqual(meta.claude_rescue, { ok: true });
+  });
+
+  it('si ya no está libre (o ya no está en HubSpot), se quita la marca vieja', async () => {
+    const { client, updates } = fakeSupabase({ ...ROW, metadata: { claude_rescue: { ok: true }, hubspot_free_pool: { company_id: 'old', reason: 'recycled', owner_id: null } } });
+    await recheckCandidateDuplicates(client, 'cand-1', async () => result({}));
+    const meta = updates[0].metadata as Row;
+    assert.equal('hubspot_free_pool' in meta, false);
+    assert.deepEqual(meta.claude_rescue, { ok: true });
+  });
+
+  it('fue cliente (churn) ⇒ también viaja', async () => {
+    const { client, updates } = fakeSupabase(ROW);
+    const churn = { churned_at: '2025-01-01', churn_reason: 'precio' };
+    await recheckCandidateDuplicates(client, 'cand-1', async () =>
+      result({ hubspot_duplicate_check: { ...FREE_HS, free_to_take: { company_id: '1', reason: 'churn', owner_id: null, ex_customer: churn } } as CandidateDuplicateResult['hubspot_duplicate_check'] }),
+    );
+    assert.deepEqual(((updates[0].metadata as Row).hubspot_free_pool as Row).ex_customer, churn);
+  });
+});

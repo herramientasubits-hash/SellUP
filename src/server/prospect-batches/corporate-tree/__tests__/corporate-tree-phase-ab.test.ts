@@ -59,7 +59,13 @@ import {
   readSavedTree,
   serializeSavedTree,
 } from '../corporate-tree-saved';
-import { buildCorporateTreeHierarchy, corporateTreePendingSummary } from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
+import {
+  buildCorporateTreeHierarchy,
+  CORPORATE_TREE_HUBSPOT_FREE_LABEL,
+  corporateTreePendingSummary,
+  groupBatchCandidatesByTreeRelation,
+  withHubSpotFreeFlags,
+} from '@/modules/prospect-batches/corporate-tree/corporate-tree-batch-groups';
 import {
   corporateTreeGroupOpportunity,
   corporateTreeGroupSentence,
@@ -1298,5 +1304,38 @@ describe('D5. Grupo Aval (Prod 24-11, 5989cf21): la ficha que SellUp ya comprob�
       ]).size,
       0,
     );
+  });
+});
+
+describe('D6. Multibank (Prod 24-11): una ficha LIBRE de HubSpot no se muestra como «Ya en HubSpot» sin más', () => {
+  it('la corrida guarda las fichas libres del grupo', async () => {
+    const { deps } = fakeDeps({
+      findHubSpotIdsByDomain: async (domain) => (domain === 'barcel.com.mx' ? ['1106135172'] : []),
+      readGroupHubSpotStatus: async (ids) => new Map(ids.map((id) => [id, 'free' as const])),
+    });
+    const result = await runCorporateTreeSearch(REQUEST, CONTEXT, deps);
+    assert.ok(result.ok);
+    assert.deepEqual(result.groupSignal?.freeHubSpotIds, ['1106135172']);
+    assert.equal(corporateTreeGroupOpportunity(result.groupSignal ?? null), null, 'libre no es «alguien la trabaja»');
+  });
+
+  it('se lee del lote validado (sólo ids de HubSpot, con tope)', () => {
+    const read = readCorporateTreeGroupSignal({ checked: 1, customers: [], worked: [], freeHubSpotIds: ['1106135172', 'x;drop', 5] });
+    assert.deepEqual(read?.freeHubSpotIds, ['1106135172']);
+    assert.equal('freeHubSpotIds' in (readCorporateTreeGroupSignal({ checked: 0, customers: [], worked: [] }) ?? {}), false);
+  });
+
+  it('el panel la muestra «libre para prospectar»; la tomada sigue «Ya en HubSpot»', () => {
+    const rel = (name: string, id: string) => ({
+      id: name, related_name: name, related_country_code: 'PA', related_candidate_id: null, related_domain: `${name}.com`,
+      matched_hubspot_company_id: id, relation_type: 'group', relation_detail: null, evidence_url: null,
+    });
+    const groups = groupBatchCandidatesByTreeRelation(
+      [],
+      withHubSpotFreeFlags([rel('multibank', '1106135172'), rel('corficolombiana', '57686469633')], ['1106135172']),
+    );
+    const labels = Object.fromEntries(groups.flatMap((g) => g.items).map((i) => [i.name, i.statusLabel]));
+    assert.equal(labels.multibank, CORPORATE_TREE_HUBSPOT_FREE_LABEL);
+    assert.equal(labels.corficolombiana, 'Ya en HubSpot');
   });
 });

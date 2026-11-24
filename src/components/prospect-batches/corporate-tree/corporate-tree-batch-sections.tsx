@@ -5,6 +5,7 @@ import { LATAM_COUNTRIES } from '@/modules/prospect-batches/types';
 import {
   buildCorporateTreeHierarchy,
   groupBatchCandidatesByTreeRelation,
+  withHubSpotFreeFlags,
   readCorporateTreeBatchSummary,
   type CorporateTreeBatchCandidateInput,
   type CorporateTreeBatchRelationship,
@@ -40,13 +41,16 @@ export function CorporateTreeBatchSections({
 }) {
   const summary = readCorporateTreeBatchSummary(batchMetadata);
   if (!summary) return null;
-  const groups = groupBatchCandidatesByTreeRelation(candidates, relationships);
   const treeMetadata =
     batchMetadata && typeof batchMetadata === 'object'
       ? (batchMetadata as Record<string, unknown>)[CORPORATE_TREE_METADATA_KEY]
       : null;
   const groupSignal = readCorporateTreeGroupSignal(
     treeMetadata && typeof treeMetadata === 'object' ? (treeMetadata as Record<string, unknown>).group_hubspot : null,
+  );
+  const groups = groupBatchCandidatesByTreeRelation(
+    candidates,
+    withHubSpotFreeFlags(relationships ?? [], groupSignal?.freeHubSpotIds),
   );
   const groupOpportunity = corporateTreeGroupOpportunity(groupSignal);
   const countryNames = LATAM_COUNTRIES.filter((c) => summary.countryCodes.includes(c.code)).map((c) => c.name);
@@ -65,7 +69,8 @@ export function CorporateTreeBatchSections({
               : countryNames.length > 0
                 ? `Buscado en ${countryNames.join(', ')}.`
                 : null}{' '}
-            Las que ya estaban en HubSpot o en SellUp quedan aquí como referencia: no entran a revisión. Las que
+            Las que ya estaban en HubSpot o en SellUp quedan aquí como referencia: no entran a revisión (salvo las
+            libres de HubSpot, que nadie trabaja y se pueden prospectar). Las que
             no tienen web esperan en «Descartadas» mientras el rescate se la busca; las que sólo usan la web del grupo
             quedan como referencia.
           </p>
