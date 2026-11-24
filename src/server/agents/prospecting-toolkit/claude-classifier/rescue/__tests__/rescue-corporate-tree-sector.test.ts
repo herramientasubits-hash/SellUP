@@ -66,6 +66,13 @@ describe('rescate en el árbol: sin sector pedido', () => {
     assert.match(source, /sizeOnlyRescued \|\| treeOwnWebsite/);
   });
 
+  it('Multibank (Prod 24-11): una ficha de HubSpot LIBRE puede entrar; decide el chequeo de duplicados', () => {
+    // HubSpot 1106135172 (multibank.com.pa): sin actividad de venta desde 07-2025 ⇒ libre para
+    // prospectar. Una regla «si el árbol la vio en HubSpot, no entra» la frenaba igual (revertida).
+    const source = readFileSync(join(__dirname, '../rescue-batch.ts'), 'utf8');
+    assert.doesNotMatch(source, /treeHubSpotDomains|withTreeHubSpotMatch/);
+  });
+
   it('un árbol sin webs del grupo también cuenta como árbol (lo lee del lote)', () => {
     const source = readFileSync(join(__dirname, '../rescue-batch.ts'), 'utf8');
     assert.match(source, /return ctx\.corporateTree === true \|\| \(ctx\.groupDomains\?\.size \?\? 0\) > 0;/);

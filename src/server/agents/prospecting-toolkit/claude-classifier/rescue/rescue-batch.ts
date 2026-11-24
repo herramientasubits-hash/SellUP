@@ -153,12 +153,6 @@ export type RescueBatchDeps = {
    */
   loadBatchIsCorporateTree?: (batchId: string) => Promise<boolean>;
   /**
-   * Prod 24-11 (Grupo Aval 5989cf21) — webs que el árbol del lote ya ligó a una ficha de HubSpot.
-   * Multibank: HubSpot guarda su ficha con otra web y la revisión por web no la encontraba; el
-   * árbol sí («Ya en HubSpot»), y el rescate la mandaba a revisión. `[]` = ninguna o no es árbol.
-   */
-  loadBatchTreeHubSpotDomains?: (batchId: string) => Promise<string[]>;
-  /**
    * AUDIT-A1-WS7 — lo ya gastado en Claude por el rescate de ESTE lote, sumando
    * todas las corridas (botón, vueltas encadenadas, revisión en línea). `null` = no se
    * pudo leer (fail-open: se usa sólo el gasto de esta corrida). Antes el tope de
@@ -561,8 +555,6 @@ type RescueRunContext = {
   groupDomains?: ReadonlySet<string>;
   /** Prod 24-11 — el lote es de la búsqueda en árbol (aunque no tenga webs del grupo). */
   corporateTree?: boolean;
-  /** Prod 24-11 — webs que el árbol del lote ya reconoció en HubSpot (sin `www.`). */
-  treeHubSpotDomains?: ReadonlySet<string>;
   /**
    * AGENT1-CLAIMS-IDENTITY-DOMAIN-CROSSCHECK-1 — candidatos VIVOS a los que el
    * rescate les agregó su número fiscal oficial: se reclaman al final junto con
@@ -572,30 +564,6 @@ type RescueRunContext = {
   /** 21-10 — búsquedas del sitio pagadas: antes de esta corrida y en ella. */
   domainSearches?: { before: number; thisRun: number };
 };
-
-function bareTreeDomain(value: string): string | null {
-  const domain = value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
-  return domain || null;
-}
-
-/**
- * Prod 24-11 (Multibank) — la web encontrada es la de otra fila del MISMO árbol que ya está en
- * HubSpot: es la misma empresa, no entra a revisión. La web del grupo no cuenta (es de todas).
- */
-export function withTreeHubSpotMatch(
-  duplicate: DomainDuplicateCheck,
-  foundDomain: string,
-  ctx: Pick<RescueRunContext, 'treeHubSpotDomains' | 'groupDomains'>,
-): DomainDuplicateCheck {
-  if (duplicate.status !== 'new_candidate') return duplicate;
-  const domain = bareTreeDomain(foundDomain);
-  if (!domain || !ctx.treeHubSpotDomains?.has(domain)) return duplicate;
-  if (ctx.groupDomains?.has(domain) || ctx.groupDomains?.has(`www.${domain}`)) return duplicate;
-  return {
-    status: 'existing_in_hubspot',
-    summary: 'Ya está en HubSpot: el árbol la reconoció con esta misma web en otra fila.',
-  };
-}
 
 /** ¿Es el rescate de un lote del árbol? (tiene las webs del grupo guardadas). */
 function isCorporateTreeRun(ctx: RescueRunContext): boolean {
@@ -985,7 +953,6 @@ async function resolveDispositionWebsite(
       console.error('[claude-rescue] known company check failed:', err instanceof Error ? err.message : err);
     }
   }
-  duplicate = withTreeHubSpotMatch(duplicate, found.domain, ctx);
   // AGENT1-CORPORATE-TREE-8 — en el árbol, la web del GRUPO no hace duplicada a una filial con
   // número fiscal: sigue por la vía de la filial sin web propia (la web queda de referencia).
   if (
@@ -1713,11 +1680,6 @@ async function rescueBatchWithClaudeUnlocked(
     corporateTree: deps.loadBatchIsCorporateTree
       ? await deps.loadBatchIsCorporateTree(params.batchId).catch(() => false)
       : false,
-    treeHubSpotDomains: new Set(
-      (deps.loadBatchTreeHubSpotDomains ? await deps.loadBatchTreeHubSpotDomains(params.batchId).catch(() => []) : [])
-        .map(bareTreeDomain)
-        .filter((d): d is string => !!d),
-    ),
   };
   const admittedIds: string[] = [];
   // AUDIT-A1-WS7 — tope acumulado por lote (todas las corridas del rescate).
