@@ -81,8 +81,15 @@ export async function drainEnrichmentJobs(
  * trabajo en cola pide la siguiente vuelta en una función NUEVA, hasta vaciar la cola.
  */
 
-/** Plazo para EMPEZAR rondas en una vuelta encadenada (la función tiene 300 s). */
-export const ENRICHMENT_CHAIN_TIME_BUDGET_MS = 180_000;
+/**
+ * Plazo para EMPEZAR rondas en una vuelta encadenada (la función tiene 300 s).
+ *
+ * Prod 24-11 (16:41–16:54): con 180 s la cadena hizo 4 vueltas y se cortó con 73 en
+ * cola. Una ronda (3 trabajos, 2 a la vez, hasta ~37 s cada uno) dura hasta ~75 s: si
+ * empieza al segundo 179, la vuelta termina cerca de los 300 s y Vercel la corta ANTES
+ * de pedir la siguiente. Con 120 s quedan ~180 s de margen para terminar y relevar.
+ */
+export const ENRICHMENT_CHAIN_TIME_BUDGET_MS = 120_000;
 /** Rondas por vuelta encadenada (cada ronda reclama `workerBatchSize` trabajos). */
 export const ENRICHMENT_CHAIN_MAX_ROUNDS = 80;
 /** Tope de vueltas seguidas: una cola que no se vacía no puede encadenarse para siempre. */
