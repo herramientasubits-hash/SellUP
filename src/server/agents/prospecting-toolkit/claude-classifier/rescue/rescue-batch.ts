@@ -550,6 +550,11 @@ type RescueRunContext = {
   domainSearches?: { before: number; thisRun: number };
 };
 
+/** ¿Es el rescate de un lote del árbol? (tiene las webs del grupo guardadas). */
+function isCorporateTreeRun(ctx: RescueRunContext): boolean {
+  return (ctx.groupDomains?.size ?? 0) > 0;
+}
+
 /** ¿Ya se pagaron todas las búsquedas del sitio permitidas para el lote? */
 function domainSearchCapReached(ctx: RescueRunContext): boolean {
   const used = ctx.domainSearches ? ctx.domainSearches.before + ctx.domainSearches.thisRun : 0;
@@ -1022,7 +1027,7 @@ async function rescueParentGroupDisposition(
   if (duplicate.status !== 'new_candidate') return stays({ duplicate_status: duplicate.status }, step.cost);
 
   // En el árbol no hay industria pedida: vale el parentesco con el grupo, no el sector.
-  const isTree = (ctx.groupDomains?.size ?? 0) > 0;
+  const isTree = isCorporateTreeRun(ctx);
   const company = { ...dispositionToCompanyInput(row), name: displayName, websiteOrDomain: parent.website };
   const result = await safeClassify(
     ctx.requestedIndustry
@@ -1163,10 +1168,13 @@ async function rescueDisposition(
     }),
     ctx.requestedMinEmployees,
   );
+  // Árbol: sin sector pedido; con su web propia encontrada y sin duplicado, vuelve a revisión.
+  const treeOwnWebsite = isCorporateTreeRun(ctx) && !ctx.requestedIndustry && !!found;
   const decision = decideRescue(result, {
     icpMinEmployees: official.minEmployees,
     requestedIndustryName: ctx.requestedIndustry?.name ?? row.industry,
     ...(official.measured ? { sizeAlreadyConfirmed: true, officialSizeMeasured: true } : {}),
+    ...(treeOwnWebsite ? { sectorNotRequested: true } : {}),
   });
   const decidedAt = deps.nowIso();
   // Una fila de Descartadas sólo vuelve si el SECTOR quedó confirmado (se descartó por eso),
@@ -1190,7 +1198,8 @@ async function rescueDisposition(
   const goesBack =
     sizeProven &&
     (decision.kind === 'reassign' ||
-      (decision.kind === 'admit' && (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued)));
+      (decision.kind === 'admit' &&
+        (decision.sectorConfirmed || officialFreeLayerWebOnly || sizeOnlyRescued || treeOwnWebsite)));
   if (goesBack && options.overCap && decision.kind === 'admit') {
     return bankOverCapDisposition(bankRow, ctx, deps, { result, decision, decidedAt, cost, withFound });
   }
