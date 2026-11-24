@@ -27,6 +27,10 @@ const NON_HEADCOUNT_UNIT =
 
 const NUMBER = '(\\d{1,3}(?:[.,]\\d{3})+|\\d+)';
 
+/** Palabras de gente (con el typo «empelados» del feedback 24-11). */
+const HEADCOUNT_WORD =
+  '(?:empleados?|empelados?|colaboradores?|trabajadores?|personas|funcionarios?|employees?|workers?|staff)';
+
 /** «más de N», «mayores a N», «mínimo N», «al menos N», «>N», «N+», «N o más». */
 const THRESHOLD_PATTERNS: readonly RegExp[] = [
   new RegExp(
@@ -34,6 +38,12 @@ const THRESHOLD_PATTERNS: readonly RegExp[] = [
     'g',
   ),
   new RegExp(`${NUMBER}\\s*(?:\\+|o\\s+mas\\b|or\\s+more\\b|en\\s+adelante\\b)`, 'g'),
+  // Prod 24-11 (EC, 732bc372): «350 empleados o más» — la palabra va EN MEDIO del número y
+  // el «o más», y el filtro quedó en 200 (pasó HIVIMAR, 201).
+  new RegExp(
+    `${NUMBER}\\s*${HEADCOUNT_WORD}\\s*(?:\\+|o\\s+mas\\b|or\\s+more\\b|en\\s+adelante\\b|para\\s+arriba\\b|como\\s+minimo\\b|minimo\\b|at\\s+least\\b|or\\s+above\\b)`,
+    'g',
+  ),
 ];
 
 function normalize(text: string): string {

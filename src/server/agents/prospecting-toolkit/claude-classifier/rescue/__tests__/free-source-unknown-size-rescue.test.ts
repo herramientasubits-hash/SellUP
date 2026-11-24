@@ -61,3 +61,21 @@ describe('isFreeSourceUnknownSize', () => {
     assert.equal(needsCandidateRescue(done, NOW), false);
   });
 });
+
+describe('Prod 24-11 (EC, 732bc372) — tamaño pedido mayor que lo que mide la fuente oficial', () => {
+  const ec = row({ name: 'ACERIAS NACIONALES DEL ECUADOR', country_code: 'EC', country: 'Ecuador', website: 'https://andecsa.com', domain: 'andecsa.com' });
+
+  it('sin pedido explícito, Ecuador (100+ medido) no se revisa como antes', () => {
+    assert.equal(isFreeSourceUnknownSize(ec), false);
+    assert.equal(needsCandidateRescue(ec, NOW), false);
+  });
+
+  it('con «350 empleados o más», 100+ no alcanza: Claude la revisa', () => {
+    assert.equal(isFreeSourceUnknownSize(ec, 350), true);
+    assert.equal(needsCandidateRescue(ec, NOW, { requestedMinEmployees: 350 }), true);
+  });
+
+  it('un pedido de 200 o menos no cambia nada', () => {
+    assert.equal(isFreeSourceUnknownSize(ec, 200), false);
+  });
+});
