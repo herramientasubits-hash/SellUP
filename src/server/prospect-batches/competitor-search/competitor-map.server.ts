@@ -8,7 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CompetitorReference } from '@/modules/prospect-batches/competitor-search/competitor-reference';
 import { buildCompetitorMap, type CompetitorMap, type CompetitorMapCandidate } from '@/modules/prospect-batches/competitor-search/competitor-map';
-import { HUBSPOT_CUSTOMER_LIFECYCLE_VALUES } from '@/server/integrations/hubspot-free-company-policy';
+import { HUBSPOT_ACCOUNT_STATE_PROPERTY, isHubSpotCurrentCustomer } from '@/server/integrations/hubspot-free-company-policy';
 import { getHubSpotToken } from '@/server/integrations/hubspot-company-create';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
 
@@ -20,11 +20,9 @@ const MAP_BATCH_LIMIT = 30;
 const MAP_CANDIDATE_LIMIT = 500;
 const SAFE_DOMAIN = /^[a-z0-9.-]+$/;
 
-/** Regla de «cliente» de la bolsa libre de HubSpot (la misma etapa y estado). */
+/** Regla de «cliente» de la bolsa libre de HubSpot (la misma etapa y estado; un churn no cuenta). */
 export function isHubSpotCustomerProperties(properties: Record<string, unknown> | null | undefined): boolean {
-  const lifecycle = typeof properties?.lifecyclestage === 'string' ? properties.lifecyclestage.trim() : '';
-  const leadStatus = typeof properties?.hs_lead_status === 'string' ? properties.hs_lead_status.trim() : '';
-  return (lifecycle !== '' && HUBSPOT_CUSTOMER_LIFECYCLE_VALUES.has(lifecycle)) || leadStatus === 'Customer';
+  return isHubSpotCurrentCustomer(properties);
 }
 
 /** IDs de HubSpot que son clientes. Fallo ⇒ conjunto vacío (el mapa sale sin la marca). */
@@ -42,7 +40,7 @@ export async function readHubSpotCustomerIds(
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: ['lifecyclestage', 'hs_lead_status'], inputs: unique.map((id) => ({ id })) }),
+        body: JSON.stringify({ properties: ['lifecyclestage', 'hs_lead_status', HUBSPOT_ACCOUNT_STATE_PROPERTY], inputs: unique.map((id) => ({ id })) }),
       },
       HUBSPOT_TIMEOUT_MS,
       options.fetchFn ? { fetchFn: options.fetchFn } : {},

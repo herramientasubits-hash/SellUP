@@ -96,7 +96,13 @@ export interface HubSpotDuplicateCheck {
    * `status` queda en `no_match` (no es duplicado) y `matched_company_id` es la ficha
    * que se enlaza al aprobar.
    */
-  free_to_take?: { company_id: string; reason: string; owner_id: string | null } | null;
+  free_to_take?: {
+    company_id: string;
+    reason: string;
+    owner_id: string | null;
+    /** FEEDBACK 24-11 — fue cliente de UBITS (churn). */
+    ex_customer?: { churned_at: string | null; churn_reason: string | null };
+  } | null;
 }
 
 export interface NormalizedKeys {
@@ -512,7 +518,12 @@ async function checkHubSpot(
           matched_owner_id: free.ownerId,
           confidence: freeMatch.confidence,
           hubspot_url: freeRaw?.hubspot_url ?? null,
-          free_to_take: { company_id: free.hubspotCompanyId, reason: free.reason, owner_id: free.ownerId },
+          free_to_take: {
+            company_id: free.hubspotCompanyId,
+            reason: free.reason,
+            owner_id: free.ownerId,
+            ...(free.churn ? { ex_customer: { churned_at: free.churn.churnedAt, churn_reason: free.churn.reason } } : {}),
+          },
         },
         connected: true,
       };

@@ -5,7 +5,7 @@
 // HubSpot, y quien revisaba no sabía si la empresa ya estaba creada allí.
 // Puro: sin base de datos, sin clientes.
 
-import { HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
+import { describeHubSpotChurn, HUBSPOT_FREE_REASON_LABEL } from '@/server/integrations/hubspot-free-company-policy';
 
 export type DuplicateVerdictKind = 'duplicate' | 'possible_duplicate' | 'not_duplicate' | 'unverified';
 
@@ -26,6 +26,11 @@ export interface DuplicateVerdictInput {
    * duplicado y al aprobar se enlaza a esa ficha. `null`/ausente = no es libre.
    */
   hubspotFreeReason?: string | null;
+  /**
+   * FEEDBACK 24-11 — fue cliente de UBITS y se fue (churn): la frase lista
+   * («Ex cliente de UBITS (churn 2025-03-01 · Pricing & Billing)»), o `null`.
+   */
+  hubspotExCustomer?: string | null;
 }
 
 /** Por qué está libre en HubSpot, como lo dice la política de empresas libres. */
@@ -44,6 +49,20 @@ export function readHubSpotFreeReason(metadata: unknown): string | null {
   const fromImport = hubspotCheck?.free_to_take as Record<string, unknown> | undefined;
   const reason = fromWriter?.reason ?? fromImport?.reason;
   return typeof reason === 'string' ? reason : null;
+}
+
+/** La marca de ex cliente (churn) que guardó el escritor o la importación, como frase. */
+export function readHubSpotExCustomer(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const meta = metadata as Record<string, unknown>;
+  const fromWriter = meta.hubspot_free_pool as Record<string, unknown> | undefined;
+  const validation = meta.validation as Record<string, unknown> | undefined;
+  const hubspotCheck = validation?.hubspot_duplicate_check as Record<string, unknown> | undefined;
+  const fromImport = hubspotCheck?.free_to_take as Record<string, unknown> | undefined;
+  const exCustomer = (fromWriter?.ex_customer ?? fromImport?.ex_customer) as Record<string, unknown> | undefined;
+  if (!exCustomer || typeof exCustomer !== 'object') return null;
+  const textOf = (value: unknown) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+  return describeHubSpotChurn({ churnedAt: textOf(exCustomer.churned_at), reason: textOf(exCustomer.churn_reason) });
 }
 
 export interface DuplicateVerdict {
@@ -70,10 +89,11 @@ export function resolveDuplicateVerdict(input: DuplicateVerdictInput): Duplicate
   // «no encontrada en HubSpot» confundía con Pintuco y Corona, recicladas).
   if (input.hubspotFreeReason && input.duplicateStatus !== 'exact_duplicate' && input.duplicateStatus !== 'possible_duplicate') {
     const why = FREE_REASON_TEXT[input.hubspotFreeReason] ?? 'libre';
+    const exCustomer = input.hubspotExCustomer ? `${input.hubspotExCustomer}. ` : '';
     return {
       kind: 'not_duplicate',
-      label: 'Libre en HubSpot',
-      detail: `Ya está en HubSpot, libre (${why}): no es de otro vendedor. Al aprobar, SellUp la enlaza a esa ficha.`,
+      label: input.hubspotExCustomer ? 'Ex cliente · libre en HubSpot' : 'Libre en HubSpot',
+      detail: `${exCustomer}Ya está en HubSpot, libre (${why}): no es de otro vendedor. Al aprobar, SellUp la enlaza a esa ficha.`,
       blockReason: null,
     };
   }

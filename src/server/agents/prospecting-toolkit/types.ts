@@ -7,6 +7,8 @@
  * vez de redeclararlo aquí (dos copias del mismo tipo se desincronizan).
  */
 
+import type { HubSpotChurnInfo } from '@/server/integrations/hubspot-free-company-policy';
+
 import type { CandidatePersistenceOutcome } from './prospect-candidate-persistence-readiness';
 import type { ApolloSubindustryCatalogTermsResolution } from './apollo-subindustry-catalog-terms-resolution';
 import type { ResolveExtraBatchMetadata } from './writer-metadata-resolution';
@@ -60,6 +62,8 @@ export type HubSpotFreeToTake = {
   reason: 'recycled' | 'pool_owner' | 'no_owner' | 'deactivated_owner';
   /** Dueño actual en HubSpot (una bolsa, una persona desactivada o nadie). */
   ownerId: string | null;
+  /** FEEDBACK 24-11 — fue cliente de UBITS y se fue (churn): cuándo y por qué. */
+  churn?: HubSpotChurnInfo;
 };
 
 export type DuplicateCheckResult = {

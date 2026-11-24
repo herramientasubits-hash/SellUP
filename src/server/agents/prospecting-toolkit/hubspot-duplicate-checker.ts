@@ -28,7 +28,9 @@ import {
   type HubSpotSiblingVerdict,
 } from './hubspot-free-sibling-guard';
 import {
+  HUBSPOT_ACCOUNT_STATE_PROPERTY,
   HUBSPOT_CLIENT_LIFECYCLE_VALUE,
+  isHubSpotChurnedAccount,
   type HubSpotAvailability,
 } from '@/server/integrations/hubspot-free-company-policy';
 import { fetchHubSpotWithRetry } from '@/server/integrations/hubspot-rate-limit';
@@ -810,6 +812,7 @@ async function markFreeHubSpotMatches(
 /**
  * Clientes de HubSpot cuyo nombre contiene la palabra de la marca: etapa «Cliente»
  * (`1443029400`) o «Current Customer». Para el freno del mismo grupo en otro país.
+ * FEEDBACK 24-11 — un ex cliente (churn) sigue en «Cliente»: no cuenta como cliente.
  */
 async function searchClientsByBrandWord(token: string, word: string): Promise<HubSpotSearchResult[]> {
   const nameFilter = { propertyName: 'name', operator: 'CONTAINS_TOKEN', value: word };
@@ -821,13 +824,13 @@ async function searchClientsByBrandWord(token: string, word: string): Promise<Hu
         { filters: [nameFilter, { propertyName: 'lifecyclestage', operator: 'EQ', value: HUBSPOT_CLIENT_LIFECYCLE_VALUE }] },
         { filters: [nameFilter, { propertyName: 'hs_current_customer', operator: 'EQ', value: 'yes' }] },
       ],
-      properties: HS_PROPERTIES,
+      properties: [...HS_PROPERTIES, HUBSPOT_ACCOUNT_STATE_PROPERTY],
       limit: SIBLING_NAME_SEARCH_LIMIT,
     }),
   }, HUBSPOT_DUPLICATE_CHECK_TIMEOUT_MS);
   if (!res.ok) throw new HubSpotDuplicateSearchError('name', res.status);
   const data = (await res.json()) as HubSpotSearchResponse;
-  return data.results ?? [];
+  return (data.results ?? []).filter((r) => !isHubSpotChurnedAccount(r.properties));
 }
 
 /** Hermanas por nombre: se piden más que en la búsqueda normal para no perder la ficha cliente. */

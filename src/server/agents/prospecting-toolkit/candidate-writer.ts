@@ -791,6 +791,14 @@ function buildCandidateMetadata(
             company_id: duplicateCheck.hubspotFreeToTake.hubspotCompanyId,
             reason: duplicateCheck.hubspotFreeToTake.reason,
             owner_id: duplicateCheck.hubspotFreeToTake.ownerId,
+            ...(duplicateCheck.hubspotFreeToTake.churn
+              ? {
+                  ex_customer: {
+                    churned_at: duplicateCheck.hubspotFreeToTake.churn.churnedAt,
+                    churn_reason: duplicateCheck.hubspotFreeToTake.churn.reason,
+                  },
+                }
+              : {}),
           },
         }
       : {}),

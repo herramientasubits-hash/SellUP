@@ -9,6 +9,12 @@
  * que pinta SellUp. Nunca escribe en HubSpot.
  */
 
+import {
+  HUBSPOT_CHURN_PROPERTIES,
+  HUBSPOT_CLIENT_LIFECYCLE_VALUE,
+  readHubSpotChurn,
+} from '@/server/integrations/hubspot-free-company-policy';
+
 /** Un Company ID / Contact ID de HubSpot: sólo dígitos. */
 export function isHubSpotObjectId(value: unknown): value is string {
   return typeof value === 'string' && /^\d{1,20}$/.test(value);
@@ -82,6 +88,7 @@ export const HUBSPOT_LOOKUP_COMPANY_PROPERTIES = [
   'createdate',
   'notes_last_updated',
   'num_associated_contacts',
+  ...HUBSPOT_CHURN_PROPERTIES,
 ] as const;
 
 const LIFECYCLE_LABELS: Readonly<Record<string, string>> = {
@@ -90,7 +97,9 @@ const LIFECYCLE_LABELS: Readonly<Record<string, string>> = {
   marketingqualifiedlead: 'Lead calificado por marketing',
   salesqualifiedlead: 'Lead calificado por ventas',
   opportunity: 'Oportunidad',
-  customer: 'Cliente',
+  // Portal de UBITS: «Cliente» es `1443029400`; `customer` es «Forecast».
+  [HUBSPOT_CLIENT_LIFECYCLE_VALUE]: 'Cliente',
+  customer: 'Forecast',
   evangelist: 'Promotor',
   other: 'Otro',
 };
@@ -100,6 +109,16 @@ export function lifecycleLabel(value: string | null | undefined): string | null 
   const raw = clean(value);
   if (!raw) return null;
   return LIFECYCLE_LABELS[raw.toLowerCase()] ?? raw;
+}
+
+/**
+ * FEEDBACK 24-11 — un ex cliente sigue en la etapa «Cliente» en HubSpot: se dice que
+ * fue cliente y cuándo se fue, para no leerlo como cliente actual.
+ */
+function companyLifecycleLabel(p: Props): string | null {
+  const churn = readHubSpotChurn(p);
+  if (churn) return churn.churnedAt ? `Ex cliente (churn ${churn.churnedAt})` : 'Ex cliente (churn)';
+  return lifecycleLabel(p.lifecyclestage);
 }
 
 export interface HubSpotCompanyView {
@@ -151,7 +170,7 @@ export function mapHubSpotCompany(id: string, properties: Props | undefined): Hu
     employees: cleanEmployees(p.numberofemployees),
     taxId: clean(p.identificaci_n_fiscal) ?? clean(p.rfc_mx_),
     ownerId: clean(p.hubspot_owner_id),
-    lifecycle: lifecycleLabel(p.lifecyclestage),
+    lifecycle: companyLifecycleLabel(p),
     phone: clean(p.phone),
     linkedinUrl: cleanWebUrl(p.linkedin_company_page),
     description: clean(p.description),
