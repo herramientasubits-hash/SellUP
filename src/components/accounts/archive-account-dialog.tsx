@@ -56,7 +56,7 @@ export function ArchiveAccountDialog({
       variant="destructive"
       icon={Archive}
       title="Archivar empresa"
-      description="Esta acción retira la empresa del pipeline activo. Solo un administrador puede realizarla y queda registrada en auditoría. ¿Confirmas?"
+      description="Esta acción retira la empresa del pipeline activo. Queda registrada en auditoría y se puede restaurar desde el buscador. ¿Confirmas?"
       confirmLabel={archiving ? 'Archivando…' : 'Archivar empresa'}
       loading={archiving}
       onConfirm={handleArchive}

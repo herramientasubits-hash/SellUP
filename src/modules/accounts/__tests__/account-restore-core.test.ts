@@ -22,13 +22,29 @@ describe('«Restaurar empresa»', () => {
     assert.match(restoreConflictMessage({ id: 'x', name: 'Sportium' }) ?? '', /ya hay una ficha activa.*Sportium/);
   });
 
-  it('restaurar es sólo de admin y no usa un tipo de auditoría que la base rechaza', async () => {
+  it('restaurar: cualquier usuario sobre las de su alcance, sin borrar y con un tipo de auditoría válido', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('../actions.ts', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('export async function restoreAccount('));
     const fn = body.slice(0, body.indexOf('\nexport async function') > 0 ? body.indexOf('\n// ====') : undefined);
-    assert.match(fn, /requireAdmin\(\)/);
+    assert.match(fn, /requireActiveUser\(\)/);
+    assert.match(fn, /canActOnAccount\(id\)/);
+    assert.doesNotMatch(fn, /requireAdmin/);
+    // el duplicado se busca en TODA la base, no sólo en lo que ve quien restaura
+    assert.match(fn, /findActiveTwin\(createSupabaseAdminClient\(\), row\)/);
     assert.match(fn, /actionType: 'account_status_changed'/);
     assert.doesNotMatch(fn, /\.delete\(/);
+  });
+
+  it('archivar (una o varias): cualquier usuario sobre las de su alcance (dueña 25-11)', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../actions.ts', import.meta.url), 'utf8');
+    const one = src.slice(src.indexOf('export async function archiveAccount('), src.indexOf('export async function archiveAccounts('));
+    assert.match(one, /requireActiveUser\(\)/);
+    assert.match(one, /canActOnAccount\(id\)/);
+    const many = src.slice(src.indexOf('export async function archiveAccounts('), src.indexOf('async function allAccountsInScope('));
+    assert.match(many, /requireActiveUser\(\)/);
+    assert.match(many, /allAccountsInScope\(uniqueIds\)/);
+    assert.doesNotMatch(src, /requireAdmin/);
   });
 });

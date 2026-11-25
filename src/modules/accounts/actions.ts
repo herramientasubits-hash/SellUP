@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { isCurrentUserAdmin } from '@/modules/access/actions';
+import { anyInScope, canActOnAccount, currentScopeUserIds, OUT_OF_SCOPE_MESSAGE } from '@/modules/access/record-scope.server';
 import { loadDirectoryNames, loadDirectoryUsers } from '@/modules/access/user-directory.server';
 import { isCommercialScopeEnabled } from '@/lib/feature-flags.server';
 import { resolveCommercialScope } from '@/modules/access/commercial-scope';
@@ -73,14 +74,6 @@ async function requireActiveUser(): Promise<{ internalUserId: string }> {
   return { internalUserId: internalUser.id };
 }
 
-// Respeta «Ver como…»: mientras se prueba otro rol, no es administrador.
-async function requireAdmin(): Promise<{ internalUserId: string }> {
-  const { internalUserId } = await requireActiveUser();
-  if (!(await isCurrentUserAdmin().catch(() => false))) {
-    throw new Error('Acceso restringido: se requiere rol admin');
-  }
-  return { internalUserId };
-}
 
 // ============================================================
 // Commercial scope
@@ -632,15 +625,16 @@ export async function updateAccount(
 // archiveAccount
 // ============================================================
 
+/**
+ * Archivar (dueña 25-11): cualquier usuario activo, sobre las empresas de su alcance —admin todo;
+ * manager/líder lo suyo y lo de su gente; vendedor/Growth lo suyo—. La RLS de `accounts` (166)
+ * exige lo mismo al actualizar; aquí se revisa antes para dar un mensaje claro.
+ */
 export async function archiveAccount(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  let internalUserId: string;
-  try {
-    ({ internalUserId } = await requireAdmin());
-  } catch {
-    return { success: false, error: 'Se requiere rol admin para archivar cuentas' };
-  }
+  const { internalUserId } = await requireActiveUser();
+  if (!(await canActOnAccount(id))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
 
   const supabase = await createClient();
   // El estado que tenía: «Restaurar» la devuelve ahí.
@@ -674,24 +668,21 @@ const ARCHIVE_ACCOUNTS_MAX = 200;
 
 /**
  * Archiva varias empresas de una vez (barra de selección de la tabla). Mismas reglas
- * que `archiveAccount`: sólo admin, salen del pipeline activo y cada una queda en
- * auditoría. Las que ya estaban archivadas no cuentan.
+ * que `archiveAccount`: cualquier usuario activo sobre las de su alcance, salen del pipeline
+ * activo y cada una queda en auditoría. Las que ya estaban archivadas no cuentan; si alguna
+ * seleccionada está fuera del alcance, no se archiva ninguna (se dice por qué).
  */
 export async function archiveAccounts(
   ids: string[],
 ): Promise<{ success: true; archived: number } | { success: false; error: string }> {
-  let internalUserId: string;
-  try {
-    ({ internalUserId } = await requireAdmin());
-  } catch {
-    return { success: false, error: 'Se requiere rol admin para archivar cuentas' };
-  }
+  const { internalUserId } = await requireActiveUser();
 
   const uniqueIds = [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))];
   if (uniqueIds.length === 0) return { success: false, error: 'No hay empresas seleccionadas' };
   if (uniqueIds.length > ARCHIVE_ACCOUNTS_MAX) {
     return { success: false, error: `Puedes archivar hasta ${ARCHIVE_ACCOUNTS_MAX} empresas a la vez` };
   }
+  if (!(await allAccountsInScope(uniqueIds))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
 
   const supabase = await createClient();
   const { data: before } = await supabase.from('accounts').select('id, pipeline_status').in('id', uniqueIds);
@@ -727,9 +718,27 @@ export async function archiveAccounts(
   return { success: true, archived: archivedIds.length };
 }
 
-/** Una ficha activa de la misma empresa (mismo Company ID de HubSpot o mismo dominio). */
+/** ¿Todas estas empresas están en el alcance de quien pide? Falla cerrado si alguna no existe. */
+async function allAccountsInScope(ids: string[]): Promise<boolean> {
+  const scopeIds = await currentScopeUserIds();
+  if (scopeIds === null) return true;
+  const { data, error } = await createSupabaseAdminClient()
+    .from('accounts')
+    .select('id, owner_id, created_by')
+    .in('id', ids);
+  if (error || !data || data.length !== ids.length) return false;
+  return (data as Array<{ owner_id: string | null; created_by: string | null }>).every((row) =>
+    anyInScope(scopeIds, [row.owner_id, row.created_by]),
+  );
+}
+
+/**
+ * Una ficha activa de la misma empresa (mismo Company ID de HubSpot o mismo dominio). Se busca
+ * con el cliente de servicio: la de otra persona fuera del alcance también cuenta, si no un
+ * vendedor podría restaurar un duplicado que no ve.
+ */
 async function findActiveTwin(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
   account: { id: string; hubspot_company_id: string | null; domain: string | null },
 ): Promise<ActiveTwin | null> {
   const checks: Array<['hubspot_company_id' | 'domain', string]> = [];
@@ -750,7 +759,8 @@ async function findActiveTwin(
 }
 
 /**
- * «Restaurar empresa» (dueña 25-11): deshace «Archivar». Sólo admin, como archivar. Vuelve
+ * «Restaurar empresa» (dueña 25-11): deshace «Archivar». Quien puede archivarla (cualquier usuario
+ * activo, sobre las de su alcance) puede restaurarla. Vuelve
  * al estado que tenía al archivarla (o «Nueva» si no quedó registrado), con su responsable,
  * contactos e historial intactos: archivar no borra nada. Si la empresa ya volvió a entrar
  * con otra ficha activa, no se restaura (quedaría duplicada) y se dice cuál es.
@@ -758,12 +768,8 @@ async function findActiveTwin(
 export async function restoreAccount(
   id: string,
 ): Promise<{ success: true } | { success: false; error: string }> {
-  let internalUserId: string;
-  try {
-    ({ internalUserId } = await requireAdmin());
-  } catch {
-    return { success: false, error: 'Se requiere rol admin para restaurar empresas' };
-  }
+  const { internalUserId } = await requireActiveUser();
+  if (!(await canActOnAccount(id))) return { success: false, error: OUT_OF_SCOPE_MESSAGE };
 
   const supabase = await createClient();
   const { data: account, error: readError } = await supabase
@@ -776,7 +782,7 @@ export async function restoreAccount(
   const row = account as { id: string; hubspot_company_id: string | null; domain: string | null; archived_at: string | null };
   if (!row.archived_at) return { success: true };
 
-  const conflict = restoreConflictMessage(await findActiveTwin(supabase, row));
+  const conflict = restoreConflictMessage(await findActiveTwin(createSupabaseAdminClient(), row));
   if (conflict) return { success: false, error: conflict };
 
   const { data: lastArchive } = await supabase

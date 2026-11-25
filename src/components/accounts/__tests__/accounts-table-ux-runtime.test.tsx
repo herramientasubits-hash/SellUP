@@ -259,14 +259,14 @@ describe('Empresas — el estado no se cambia a mano', () => {
     assert.deepEqual(statusChanges, []);
   });
 
-  it('archivar es sólo de admin (decisión 6): a un vendedor no se le ofrece', async () => {
+  it('archivar también se le ofrece a un vendedor: cada quien archiva lo de su alcance (dueña 25-11)', async () => {
     window.localStorage.setItem('sellup:table:accounts', JSON.stringify({ rowControl: 'menu' }));
     renderTable();
 
     fireEvent.click(screen.getByRole('button', { name: 'Acciones de Acme' }));
 
     await screen.findByRole('menuitem', { name: 'Editar empresa' });
-    assert.equal(screen.queryByRole('menuitem', { name: 'Archivar empresa' }), null);
+    assert.ok(screen.getByRole('menuitem', { name: 'Archivar empresa' }));
   });
 });
 
