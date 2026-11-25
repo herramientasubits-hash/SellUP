@@ -199,6 +199,25 @@ describe('4O-E4.1 estático — la auditoría de escritores de mobile_phone', ()
       .map((file) => relative(SRC_DIR, file).split(sep).join('/'))
       .sort();
 
+  it('el buscador general (dueña 25-11) LEE la columna y no puede escribirla', () => {
+    const reader = stripComments(
+      readFileSync(join(SRC_DIR, 'modules/global-search/directory-records.server.ts'), 'utf8'),
+    );
+    const core = stripComments(
+      readFileSync(join(SRC_DIR, 'modules/global-search/directory-search-core.ts'), 'utf8'),
+    );
+    // Ninguna escritura de ningún tipo: ni update/insert/upsert/delete ni RPC.
+    for (const code of [reader, core]) {
+      assert.doesNotMatch(code, /\.(update|insert|upsert|delete|rpc)\(/);
+    }
+    // En el lector: la columna sólo aparece en la lista del SELECT y como palabra clave del resultado.
+    assert.match(reader, /CONTACT_COLUMNS\s*=\s*\n?\s*'[^']*mobile_phone[^']*'/);
+    assert.equal((reader.match(/mobile_phone/g) ?? []).length, 2);
+    // En el núcleo puro: tipo de la fila, comparación en memoria y filtro `ilike` de PostgREST.
+    assert.match(core, /mobile_phone\.ilike\./);
+    assert.doesNotMatch(core, /mobile_phone\s*=[^=]/);
+  });
+
   it('ningún fichero NUEVO menciona mobile_phone en código', () => {
     const unexpected = filesMentioningMobilePhone().filter(
       (file) => !(file in EXPECTED_MOBILE_PHONE_FILES),
