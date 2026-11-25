@@ -68,6 +68,8 @@ describe('guardar una cotización 2027', () => {
       null,
       { ...base2027, version: '2030' },
       { ...base2027, accountType: 'otro' },
+      // El cotizador es solo de Ventas: Customer Success ya no se acepta.
+      { ...base2027, accountType: 'cs' },
       { ...base2027, accountId: 'no-es-un-uuid' },
       { ...base2027, input: { ...base2027.input, payments: 7 } },
       { ...base2027, input: { ...base2027.input, years: 5 } },
@@ -83,7 +85,7 @@ describe('guardar una cotización 2026', () => {
     version: '2026' as const,
     clientName: '',
     accountId: null,
-    accountType: 'cs' as const,
+    accountType: 'ventas' as const,
     input: { ...defaultQuote2026Input(), licenses: 480, years: 5, modules: { assessments: true, desempeno: true, planes: true, encuestas: true } },
   };
 

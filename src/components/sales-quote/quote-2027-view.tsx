@@ -346,7 +346,7 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
         }
         footnote={
           needsApproval
-            ? `${result.belowMinimum.length === 1 ? "Una línea queda" : `${result.belowMinimum.length} líneas quedan`} bajo el mínimo: al pedir aprobación le llega a quien aprueba ese tipo de cuenta, en SellUp y por Slack.`
+            ? `${result.belowMinimum.length === 1 ? "Una línea queda" : `${result.belowMinimum.length} líneas quedan`} bajo el mínimo: al pedir aprobación le llega a quien aprueba descuentos, en SellUp y por Slack.`
             : undefined
         }
       />

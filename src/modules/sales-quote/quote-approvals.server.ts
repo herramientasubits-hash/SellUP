@@ -4,14 +4,14 @@ import 'server-only';
 // Cotizador — quién aprueba los descuentos y los avisos (calca las
 // solicitudes de créditos, src/modules/budgets/approval-requests.server.ts).
 // Una cotización 2027 con alguna línea bajo el mínimo se guarda pendiente y le
-// llega a los aprobadores de su tipo de cuenta (y a quienes van en copia) por la
+// llega a los aprobadores de Ventas (y a quienes van en copia) por la
 // campanita y por Slack, con botones para decidir ahí mismo.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { notifySlackUsers } from '@/modules/notifications/slack-notify.server';
 import { quoteDecisionButtons } from '@/modules/notifications/quote-approval-slack';
-import { ACCOUNT_TYPE_LABELS, type QuoteAccountType } from './approval-draft';
+import type { QuoteAccountType } from './approval-draft';
 
 export const QUOTES_PATH = '/quotes';
 export const QUOTE_APPROVALS_URL = `${QUOTES_PATH}?tab=approvals`;
@@ -42,7 +42,7 @@ async function activeAdmins(admin: SupabaseClient): Promise<PersonRef[]> {
   return (data ?? []).map((user) => ({ id: user.id as string, name: nameOf(user) }));
 }
 
-/** Aprobadores y copias de un tipo de cuenta, sólo personas activas. */
+/** Aprobadores y copias (el cotizador es solo de Ventas), sólo personas activas. */
 export async function resolveQuoteApprovers(admin: SupabaseClient, accountType: QuoteAccountType): Promise<QuoteApprovers> {
   const { data: rows } = await admin.from('sales_quote_approvers').select('user_id, role').eq('account_type', accountType);
   const ids = [...new Set((rows ?? []).map((row) => row.user_id as string))];
@@ -62,7 +62,7 @@ export async function resolveQuoteApprovers(admin: SupabaseClient, accountType: 
   return { approvers: await activeAdmins(admin), cc, fallbackToAdmins: true };
 }
 
-/** ¿Puede esta persona decidir cotizaciones de este tipo de cuenta? */
+/** ¿Puede esta persona decidir cotizaciones del cotizador? */
 export async function canDecideQuotes(
   admin: SupabaseClient,
   userId: string,
@@ -146,7 +146,7 @@ export async function notifyQuoteApprovalRequested(
           recipient: person.id,
           type: 'sales_quote_approval_requested' as const,
           title: `${input.requesterName} pide aprobar un descuento`,
-          message: `${summary} Tú decides (${ACCOUNT_TYPE_LABELS[input.accountType]}).`,
+          message: `${summary} Tú decides.`,
           quoteId: input.quoteId,
           url: QUOTE_APPROVALS_URL,
           withButtons: true,

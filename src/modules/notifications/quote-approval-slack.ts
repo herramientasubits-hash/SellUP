@@ -2,7 +2,7 @@
 // Aprobación de descuentos del cotizador por Slack — botones (puro).
 // Quien aprueba recibe la solicitud con «Aprobar» / «Rechazar». Al pulsar se
 // decide con SU sesión la misma acción de la pestaña «Por aprobar»
-// (`decideSalesQuote`), que comprueba que sea aprobador del tipo de cuenta o
+// (`decideSalesQuote`), que comprueba que sea aprobador de descuentos o
 // admin, que no sea su propia cotización y que siga pendiente.
 // ============================================================
 
