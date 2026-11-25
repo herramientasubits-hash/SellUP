@@ -52,19 +52,22 @@ async function ownerNames(ids: ReadonlyArray<string | null>): Promise<Map<string
 /** Empresas de SellUp (aprobadas) que coinciden con lo escrito. */
 export async function accountDirectoryHits(query: string, rawQuery: string = query): Promise<SellUpRecordHit[]> {
   const criteria = parseSearchCriteria(rawQuery);
-  const isAdmin = await isCurrentUserAdmin().catch(() => false);
-  let request = createSupabaseAdminClient()
+  const [isAdmin, scopeIds] = await Promise.all([isCurrentUserAdmin().catch(() => false), currentScopeUserIds()]);
+  const { data, error } = await createSupabaseAdminClient()
     .from('accounts')
     .select(ACCOUNT_COLUMNS)
     .or(accountOrFilter(criteria, query))
     .order('created_at', { ascending: false })
     .limit(DIRECTORY_DB_ROWS);
-  if (!isAdmin) request = request.is('archived_at', null);
-  const { data, error } = await request;
   if (error) throw new Error(`accountDirectoryHits: ${error.message}`);
 
-  const rows = rankMatches((data ?? []) as unknown as DirectoryAccountRow[], (r) => accountMatchRank(r, criteria), SELLUP_RECORDS_PER_KIND);
-  const [scopeIds, names] = await Promise.all([currentScopeUserIds(), ownerNames(rows.map((r) => r.owner_id))]);
+  // Archivadas (dueña 25-11: todos archivan y restauran lo de su alcance): cada quien ve las
+  // suyas para poder restaurarlas; las de fuera de su alcance no aparecen.
+  const visible = ((data ?? []) as unknown as DirectoryAccountRow[]).filter(
+    (r) => r.archived_at === null || isAdmin || anyInScope(scopeIds, [r.owner_id, r.created_by]),
+  );
+  const rows = rankMatches(visible, (r) => accountMatchRank(r, criteria), SELLUP_RECORDS_PER_KIND);
+  const names = await ownerNames(rows.map((r) => r.owner_id));
   return rows.map((row) => {
     const archived = row.archived_at !== null;
     const meta = compact([archived ? 'Archivada' : null, row.industry, row.country]);
