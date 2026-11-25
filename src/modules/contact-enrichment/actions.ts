@@ -21,7 +21,13 @@ import { executeContactEnrichmentApolloRun } from '@/server/agents/contact-enric
 import { executeContactEnrichmentLushaRun } from '@/server/agents/contact-enrichment-toolkit/lusha-enrichment-runner';
 import { getLushaAccountUsage } from '@/server/integrations/lusha-client';
 import { getLushaApiKey } from '@/server/services/lusha-connection';
-import { isLushaContactEnrichmentEnabled, resolveLushaSearchTimeoutMs } from '@/lib/feature-flags.server';
+import {
+  isApolloPhoneRevealEnabled,
+  isLushaContactEnrichmentEnabled,
+  isLushaPhoneRevealFallbackEnabled,
+  isPhoneRevealWaterfallEnabled,
+  resolveLushaSearchTimeoutMs,
+} from '@/lib/feature-flags.server';
 import { logContactAudit } from '@/modules/contacts/contact-audit.server';
 import { runContactHubSpotAutoPhoneUpdateWired } from '@/modules/contacts/contact-hubspot-sync-runner';
 // El informe del PATCH automático viaja en el resultado del merge, fuera de `ok`.
@@ -62,16 +68,31 @@ import {
 import { classifyLushaRunOutcome } from './lusha-run-outcome-classifier';
 import {
   applyCandidateCompanyReassignment,
+  CANDIDATE_COMPANY_REASSIGNMENT_KEY,
   readCandidateCompanyReassignment,
 } from './candidate-company-reassignment-core';
 import {
+  ACCOUNT_OTHER_SOURCES_EXCLUDED_SOURCE,
+  ACCOUNT_OTHER_SOURCES_LIMIT,
+  ACCOUNT_OTHER_SOURCES_STATUSES,
+  collectMatchedContactIds,
+  selectAccountOtherSourceCandidates,
+  type AccountOtherSourceCandidate,
+  type AccountOtherSourcesRow,
+} from './account-other-sources-candidates-core';
+import { resolveCurrentActor } from './current-actor.server';
+import { isPhoneRevealRoleAuthorized } from './phone-reveal-authorized-roles';
+import { LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS } from './lusha-phone-fallback-core';
+import {
   byIsoDesc,
+  CANDIDATE_RUN_EMBED_COLUMNS,
   CANDIDATE_SCOPE_BRANCHES,
   candidateAccountScopeOrClause,
   candidateRunEmbed,
   candidateRunEmbedForBranch,
   isCandidateRunInScope,
   mergeScopedCandidateRows,
+  type ContactRunScopeFacts,
 } from './candidate-scope';
 import { COMPANY_CHANGE_OPEN_METADATA_KEY } from './official-contact-review-core';
 import {
@@ -703,6 +724,133 @@ export async function getDuplicateContactCandidates(
   if (error) throw new Error(`getDuplicateContactCandidates: ${error.message}`);
 
   return withCandidateAccountContext(supabase, (data ?? []).map(mapPendingContactCandidate));
+}
+
+// ── Contactos de otras fuentes en la ficha de la empresa (Agente 1, Bryan 25-11) ──
+
+/** Banderas del panel del candidato, resueltas en el servidor (igual que en «Por revisar»). */
+export interface AccountOtherSourcesSheetFlags {
+  phoneRevealEnabled: boolean;
+  phoneRevealAuthorized: boolean;
+  lushaPhoneFallbackEnabled: boolean;
+  lushaPhoneFallbackAuthorized: boolean;
+  phoneRevealWaterfallEnabled: boolean;
+  phoneRevealWaterfallAuthorized: boolean;
+}
+
+export type AccountOtherSourcesCandidatesResult =
+  | { status: 'ok'; candidates: AccountOtherSourceCandidate[]; flags: AccountOtherSourcesSheetFlags }
+  | { status: 'error' };
+
+/** El run con lo que pide la regla de alcance (quién lanzó y de quién es su empresa). */
+function otherSourcesRunEmbed(inner: boolean): string {
+  return `run:contact_enrichment_runs${inner ? '!inner' : ''} ( ${CANDIDATE_RUN_EMBED_COLUMNS}, triggered_by, account:accounts ( owner_id, created_by ) )`;
+}
+
+function otherSourcesScopeFacts(run: unknown): ContactRunScopeFacts | null {
+  const value = Array.isArray(run) ? run[0] : run;
+  if (!value || typeof value !== 'object') return null;
+  const record = value as { triggered_by?: string | null; account?: unknown };
+  const rawAccount = Array.isArray(record.account) ? record.account[0] : record.account;
+  const account = (rawAccount ?? null) as { owner_id?: string | null; created_by?: string | null } | null;
+  return {
+    triggered_by: record.triggered_by ?? null,
+    account_owner_id: account?.owner_id ?? null,
+    account_created_by: account?.created_by ?? null,
+  };
+}
+
+/**
+ * «Contactos de otras fuentes» de una empresa: lo que Apollo, Lusha y las demás fuentes (menos
+ * HubSpot) trajeron para ella y sigue por revisar o como posible duplicado en el Agente 2A.
+ *
+ * Dos lecturas, porque la empresa de un candidato puede venir de dos sitios: la de su búsqueda
+ * (`run.account_id`) o la que se le reasignó a mano (`enrichment_metadata.company_reassignment`).
+ * La selección pura (`selectAccountOtherSourceCandidates`) aplica la reasignación, la regla de
+ * alcance de las colas y el orden. Sólo lectura: 0 proveedores, 0 créditos, 0 escrituras.
+ */
+export async function getAccountCandidatesFromOtherSources(
+  accountId: string,
+): Promise<AccountOtherSourcesCandidatesResult> {
+  await requireActiveUserForEnrichment();
+  const trimmedId = typeof accountId === 'string' ? accountId.trim() : '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedId)) return { status: 'error' };
+
+  try {
+    const [scopeIds, actor] = await Promise.all([resolveCandidateScopeIds(), resolveCurrentActor()]);
+    const authorized = isPhoneRevealRoleAuthorized(actor?.roleKey ?? null);
+    const flags: AccountOtherSourcesSheetFlags = {
+      phoneRevealEnabled: isApolloPhoneRevealEnabled(),
+      phoneRevealAuthorized: authorized,
+      lushaPhoneFallbackEnabled: isLushaPhoneRevealFallbackEnabled(),
+      lushaPhoneFallbackAuthorized: !!actor?.roleKey && LUSHA_PHONE_FALLBACK_AUTHORIZED_ROLE_KEYS.includes(actor.roleKey),
+      phoneRevealWaterfallEnabled: isPhoneRevealWaterfallEnabled(),
+      phoneRevealWaterfallAuthorized: authorized,
+    };
+    if (scopeIds?.length === 0) return { status: 'ok', candidates: [], flags };
+
+    const supabase = await createClient();
+    const read = (inner: boolean) =>
+      withVisibleSince(
+        supabase
+          .from('contact_enrichment_candidates')
+          .select(`${candidateSelect(otherSourcesRunEmbed(inner))}, matched_contacts_id`),
+      )
+        .in('status', [...ACCOUNT_OTHER_SOURCES_STATUSES])
+        .neq('source', ACCOUNT_OTHER_SOURCES_EXCLUDED_SOURCE)
+        .order('created_at', { ascending: false })
+        .limit(ACCOUNT_OTHER_SOURCES_LIMIT);
+
+    const [byRun, byReassignment] = await Promise.all([
+      read(true).eq('run.account_id', trimmedId),
+      read(false).eq(`enrichment_metadata->${CANDIDATE_COMPANY_REASSIGNMENT_KEY}->>account_id`, trimmedId),
+    ]);
+    if (byRun.error) {
+      console.error('[getAccountCandidatesFromOtherSources] read_failed', { code: byRun.error.code });
+      return { status: 'error' };
+    }
+    // Las reasignadas a mano son la excepción: si esa lectura fallara, el bloque sigue con las demás.
+    if (byReassignment.error) {
+      console.warn('[getAccountCandidatesFromOtherSources] reassignment_read_failed', { code: byReassignment.error.code });
+    }
+
+    const rawRows = [...((byRun.data ?? []) as unknown[]), ...((byReassignment.error ? [] : byReassignment.data ?? []) as unknown[])];
+    const rows: AccountOtherSourcesRow[] = rawRows.map((raw) => {
+      const record = raw as Record<string, unknown>;
+      return {
+        candidate: mapPendingContactCandidate(raw),
+        scopeFacts: otherSourcesScopeFacts(record.run),
+        matchedContactId: (record.matched_contacts_id as string | null) ?? null,
+      };
+    });
+
+    // Nombre del contacto con el que coincide cada duplicado (sólo esos ids, para el aviso).
+    const matchedIds = collectMatchedContactIds(rows);
+    const matchedNames = new Map<string, string | null>();
+    if (matchedIds.length > 0) {
+      const { data: matched, error: matchedError } = await createSupabaseAdminClient()
+        .from('contacts')
+        .select('id, full_name')
+        .in('id', matchedIds);
+      if (matchedError) {
+        console.warn('[getAccountCandidatesFromOtherSources] matched_contacts_read_failed', { code: matchedError.code });
+      }
+      for (const contact of (matched ?? []) as Array<{ id: string; full_name: string | null }>) {
+        matchedNames.set(contact.id, contact.full_name);
+      }
+    }
+
+    const selected = selectAccountOtherSourceCandidates(rows, trimmedId, scopeIds, matchedNames);
+    // El contexto de empresa conserva cada campo del candidato (también `matched_contact`).
+    const candidates = (await withCandidateAccountContext(supabase, selected)) as AccountOtherSourceCandidate[];
+    return { status: 'ok', candidates, flags };
+  } catch (caught) {
+    if (isNextControlFlowSignal(caught)) throw caught;
+    console.error('[getAccountCandidatesFromOtherSources] load_failed', {
+      errorName: caught instanceof Error ? caught.name : typeof caught,
+    });
+    return { status: 'error' };
+  }
 }
 
 /** Estados de candidato que la búsqueda general encuentra (Por revisar, duplicados, rechazados). */
