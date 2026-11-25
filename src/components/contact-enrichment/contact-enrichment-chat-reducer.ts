@@ -593,6 +593,16 @@ function earlierApprovedLine(s: ContactSearchSummary): string | null {
   return `De búsquedas anteriores: aprobé ${contactsCountLabel(s.earlierToContacts)} de HubSpot que ya ${s.earlierToContacts === 1 ? 'estaba completo' : 'estaban completos'}.`;
 }
 
+/**
+ * CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 (Colineal 25-11) — los que ya trabajan en otra empresa no se
+ * mezclan con los demás en «Por revisar»: quedan en «Ya no están en la empresa».
+ */
+export function leftCompanyLine(result: Pick<AutomaticRoutingUiResult, 'contactsNoLongerAtCompany'>): string | null {
+  const n = result.contactsNoLongerAtCompany ?? 0;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${n === 1 ? '1 ya no está' : `${n} ya no están`} en la empresa (lo comprobé con Apollo o la web): ${n === 1 ? 'queda' : 'quedan'} aparte, en «Ya no están en la empresa» de «Por revisar».`;
+}
+
 export function buildAutomaticRoutingMessage(
   result: AutomaticRoutingUiResult,
 ): { content: string; tone?: AgentChatTone } {
@@ -627,7 +637,7 @@ export function buildAutomaticRoutingMessage(
   }
 
   // AGENT2A-COMPANY-SEARCH-COUNTS (Bryan 29-10): el detalle separa HubSpot y las otras fuentes.
-  const detail = [hubspotSummaryLine(result, s), otherSourcesLine(s), earlierApprovedLine(s)].filter(
+  const detail = [hubspotSummaryLine(result, s), otherSourcesLine(s), earlierApprovedLine(s), leftCompanyLine(result)].filter(
     (line): line is string => !!line,
   );
   const header = fresh > 0 ? 'Terminé la búsqueda:' : 'Esta búsqueda no trajo contactos nuevos:';

@@ -19,6 +19,7 @@ export const maxDuration = 300;
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const startedAtMs = Date.now();
   const internalUserId = await activeInternalUserIdForRoute();
   if (!internalUserId) {
     return NextResponse.json({ ok: false, code: 'unauthorized', message: 'Inicia sesión.' }, { status: 401, headers: NO_STORE });
@@ -34,7 +35,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       );
     }
     const routed = await runAutomaticContactEnrichmentForRequestCore(id, internalUserId, new Date().toISOString());
-    const result = await completeContactSearch(id, routed);
+    const result = await completeContactSearch(id, routed, { triggeredBy: internalUserId, startedAtMs });
     return NextResponse.json({ ok: true, result }, { headers: NO_STORE });
   } catch (err) {
     console.error('[agent2] contact search failed:', err instanceof Error ? err.message : err);

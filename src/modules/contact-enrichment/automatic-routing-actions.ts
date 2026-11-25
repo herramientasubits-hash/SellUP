@@ -32,6 +32,7 @@ import {
 export async function runAutomaticContactEnrichmentForRequestAction(
   requestId: unknown,
 ): Promise<RunAutomaticContactEnrichmentForRequestResult> {
+  const startedAtMs = Date.now();
   const { internalUserId } = await requireActiveUserForEnrichment();
   // Alcance comercial: una solicitud ajena se trata como id inválido — el núcleo corta antes de
   // crear intentos o llamar proveedores, así que no gasta créditos.
@@ -42,5 +43,7 @@ export async function runAutomaticContactEnrichmentForRequestAction(
     new Date().toISOString(),
   );
   // Contactos de HubSpot completos → Contactos; conteo de «Por revisar» anterior (Bryan 29-10).
-  return allowed && typeof requestId === 'string' ? completeContactSearch(requestId.trim(), result) : result;
+  return allowed && typeof requestId === 'string'
+    ? completeContactSearch(requestId.trim(), result, { triggeredBy: internalUserId, startedAtMs })
+    : result;
 }

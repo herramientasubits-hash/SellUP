@@ -10,6 +10,7 @@ import type { RunAutomaticContactEnrichmentForRequestResult } from './automatic-
 import { isContactRunInScope } from './candidate-scope';
 import { resolveCandidateScopeIds } from './candidate-scope.server';
 import { runContactSearchFollowUp, type FollowUpPendingCandidate } from './contact-search-follow-up-core';
+import { sweepHubSpotCandidatesEmployment } from './hubspot-employment-sweep.server';
 
 /** Corridas históricas por empresa que se miran como mucho (misma cota que el reúso local). */
 const COMPANY_RUN_LIMIT = 200;
@@ -78,7 +79,7 @@ async function loadPendingCandidates(runIds: readonly string[]): Promise<FollowU
     const chunk = runIds.slice(i, i + RUN_ID_CHUNK);
     const { data, error } = await admin
       .from('contact_enrichment_candidates')
-      .select('id, source, email, phone, linkedin_url, enrichment_run_id')
+      .select('id, source, email, phone, linkedin_url, enrichment_run_id, enrichment_metadata')
       .in('enrichment_run_id', chunk)
       .eq('status', 'pending_review');
     if (error) throw new Error(error.message);
@@ -110,7 +111,21 @@ async function countApprovedCandidates(runIds: readonly string[]): Promise<numbe
 export async function completeContactSearch(
   requestId: string,
   result: RunAutomaticContactEnrichmentForRequestResult,
+  options: { triggeredBy?: string | null; startedAtMs?: number | null; employmentSweepBudgetMs?: number } = {},
 ): Promise<RunAutomaticContactEnrichmentForRequestResult> {
+  // CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 (Colineal 25-11) — ANTES de aprobar solos a los de HubSpot
+  // completos: ¿siguen en la empresa? Apollo y, si no sabe, la web. Falla abierto.
+  if (result.success && result.automaticRoutingEnabled) {
+    const runIds = [result.attempt1AttemptId, result.attempt2AttemptId].filter(
+      (id): id is string => typeof id === 'string' && id.length > 0,
+    );
+    await sweepHubSpotCandidatesEmployment({
+      runIds,
+      triggeredBy: options.triggeredBy ?? null,
+      startedAtMs: options.startedAtMs ?? null,
+      budgetMs: options.employmentSweepBudgetMs,
+    });
+  }
   try {
     return await runContactSearchFollowUp(requestId, result, {
       loadEarlierCompanyRunIds,
