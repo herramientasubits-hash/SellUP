@@ -400,10 +400,13 @@ export interface OtherTermRow {
   multiYear: number;
   perYear: number;
   contract: number;
+  /** Ahorro frente a contratar año a año (solo la 2026 lo muestra). */
+  savings?: number;
 }
 
 /** El mismo cliente a otros plazos: cambia solo el descuento por plazo. */
 export function OtherTermsTable({ rows, money }: { rows: OtherTermRow[]; money: MoneyContext }) {
+  const withSavings = rows.some((row) => row.savings !== undefined);
   return (
     <Table containerClassName="overflow-x-auto">
       <TableHeader>
@@ -412,6 +415,7 @@ export function OtherTermsTable({ rows, money }: { rows: OtherTermRow[]; money: 
           <TableHead className="text-right">Descuento por plazo</TableHead>
           <TableHead className="text-right">Total por año ({currencyCode(money)})</TableHead>
           <TableHead className="text-right">Total del contrato ({currencyCode(money)})</TableHead>
+          {withSavings && <TableHead className="text-right">Ahorro frente a 1 año ({currencyCode(money)})</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -421,6 +425,9 @@ export function OtherTermsTable({ rows, money }: { rows: OtherTermRow[]; money: 
             <TableCell className="text-right tabular-nums">{formatQuotePercent(row.multiYear)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatQuoteMoney(row.perYear, money)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatQuoteMoney(row.contract, money)}</TableCell>
+            {withSavings && (
+              <TableCell className="text-right tabular-nums">{row.savings ? formatQuoteMoney(row.savings, money) : "—"}</TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>
