@@ -371,6 +371,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             accountId={account.id}
             contacts={contacts}
             summary={contactsSummary}
+            archived={isArchived}
           />
           {hubspotCompanyId && (
             <div className="mt-4">
