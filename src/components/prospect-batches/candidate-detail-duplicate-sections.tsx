@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Building2, Database, Layers, Link2, ListFilter } from '@/icons';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -19,6 +20,7 @@ import {
 } from '@/modules/prospect-batches/types';
 import { SOURCE_LABELS, val, type SheetValidationMetadata } from './candidate-detail-helpers';
 import { Field, FieldGrid } from './candidate-detail-parts';
+import { duplicateMatchLink } from './duplicate-match-link';
 
 interface CandidateDuplicateSectionsProps {
   candidate: ProspectCandidateWithReviewer;
@@ -320,7 +322,7 @@ export function CandidateDuplicateMatchesSections({
         >
           <ul className="divide-y divide-border/50">
             {dcMatches.map((match, i) => (
-              <DuplicateMatchRow key={i} match={match} />
+              <DuplicateMatchRow key={i} match={match} matchedAccountId={candidate.matched_account_id} />
             ))}
           </ul>
         </DrawerSection>
@@ -329,7 +331,17 @@ export function CandidateDuplicateMatchesSections({
   );
 }
 
-function DuplicateMatchRow({ match }: { match: DuplicateMatch }) {
+const MATCH_LINK_CLASS =
+  'inline-flex items-center gap-1.5 rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
+
+function DuplicateMatchRow({
+  match,
+  matchedAccountId,
+}: {
+  match: DuplicateMatch;
+  matchedAccountId: string | null | undefined;
+}) {
+  const link = duplicateMatchLink(match, matchedAccountId);
   return (
     <li className="space-y-1 py-2.5 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
@@ -345,6 +357,18 @@ function DuplicateMatchRow({ match }: { match: DuplicateMatch }) {
         <p className="text-xs text-muted-foreground break-all">{match.matched_domain}</p>
       )}
       {match.reason && <p className="text-xs text-muted-foreground italic break-words">{match.reason}</p>}
+      {link &&
+        (link.external ? (
+          <a href={link.href} target="_blank" rel="noopener noreferrer" className={MATCH_LINK_CLASS}>
+            <Link2 className="size-3.5" aria-hidden="true" />
+            {link.label}
+          </a>
+        ) : (
+          <Link href={link.href} className={MATCH_LINK_CLASS}>
+            <Link2 className="size-3.5" aria-hidden="true" />
+            {link.label}
+          </Link>
+        ))}
     </li>
   );
 }

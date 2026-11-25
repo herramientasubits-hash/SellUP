@@ -24,11 +24,13 @@ export function AccountContactsTabClient({
   accountId,
   contacts,
   summary,
+  hasHubSpotCompany = false,
   archived = false,
 }: {
   accountId: string;
   contacts: Contact[];
   summary: ContactsSummary;
+  hasHubSpotCompany?: boolean;
   /** Empresa archivada: «Contactos de otras fuentes» se lista sin acciones. */
   archived?: boolean;
 }) {
@@ -49,6 +51,7 @@ export function AccountContactsTabClient({
         summary={summary}
         onViewContact={view}
         onContactsChanged={() => router.refresh()}
+        hasHubSpotCompany={hasHubSpotCompany}
       />
       <div className="mt-4">
         <AccountOtherSourcesContacts
