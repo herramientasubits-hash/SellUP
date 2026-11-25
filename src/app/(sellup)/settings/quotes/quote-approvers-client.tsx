@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Quién aprueba los descuentos del cotizador, por tipo de cuenta.
+ * Quién aprueba los descuentos del cotizador (solo Ventas).
  *
  * Aprobadores: deciden (en SellUp o con los botones de Slack). En copia: les
  * llega el aviso, sin decidir. Sin aprobadores, deciden los administradores.
@@ -14,13 +14,8 @@ import { Field } from "@/components/forms/field";
 import { MultiSelect } from "@/components/forms/multi-select";
 import { SurfaceCard, SurfaceCardHeader } from "@/components/shared/surface-card";
 import { Button } from "@/components/ui/button";
-import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, type QuoteAccountType } from "@/modules/sales-quote/approval-draft";
+import type { QuoteAccountType } from "@/modules/sales-quote/approval-draft";
 import { setQuoteApprovers, type QuoteApproverSettings } from "@/modules/sales-quote/quote-actions";
-
-const DESCRIPTIONS: Record<QuoteAccountType, string> = {
-  ventas: "Cotizaciones de cuentas nuevas.",
-  cs: "Cotizaciones de cuentas que ya son clientes (renovaciones y ampliaciones).",
-};
 
 function AccountTypeCard({
   accountType,
@@ -46,13 +41,16 @@ function AccountTypeCard({
         toast.error(result.error);
         return;
       }
-      toast.success(`Guardado: ${ACCOUNT_TYPE_LABELS[accountType]}.`);
+      toast.success("Aprobadores guardados.");
       router.refresh();
     });
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader title={ACCOUNT_TYPE_LABELS[accountType]} description={DESCRIPTIONS[accountType]} />
+      <SurfaceCardHeader
+        title="Quién aprueba los descuentos"
+        description="Cuando una cotización de Ventas pasa el descuento máximo, la solicitud les llega a estas personas en SellUp y por Slack."
+      />
       <div className="grid gap-5 md:grid-cols-2">
         <Field
           label="Aprueban"
@@ -87,9 +85,7 @@ function AccountTypeCard({
 export function QuoteApproversClient({ settings }: { settings: QuoteApproverSettings }) {
   return (
     <div className="flex flex-col gap-4">
-      {ACCOUNT_TYPES.map((accountType) => (
-        <AccountTypeCard key={accountType} accountType={accountType} initial={settings.byType[accountType]} users={settings.users} />
-      ))}
+      <AccountTypeCard accountType="ventas" initial={settings.byType.ventas} users={settings.users} />
     </div>
   );
 }

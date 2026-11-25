@@ -18,7 +18,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { formatAppDateTime } from "@/lib/format-date";
-import { ACCOUNT_TYPE_LABELS } from "@/modules/sales-quote/approval-draft";
 import { USD_CONTEXT } from "@/modules/sales-quote/exchange-rates";
 import { formatQuoteInteger, formatQuoteMoney, formatQuotePercent } from "@/modules/sales-quote/format";
 import { cancelSalesQuote, decideSalesQuote, type SalesQuoteRow } from "@/modules/sales-quote/quote-actions";
@@ -102,7 +101,7 @@ function QuoteDetail({ row, onClose }: { row: SalesQuoteRow; onClose: () => void
       open
       onOpenChange={(open) => !open && onClose()}
       title={`${clientOf(row)} · ${row.countryName}`}
-      description={`Versión ${row.version} · ${yearsLabel(row.years)} · ${ACCOUNT_TYPE_LABELS[row.accountType]} · por ${row.createdByName}, ${formatDate(row.createdAt)}`}
+      description={`Versión ${row.version} · ${yearsLabel(row.years)} · por ${row.createdByName}, ${formatDate(row.createdAt)}`}
       size="xl"
       footer={
         <Button
@@ -250,7 +249,7 @@ function ApprovalCard({ row }: { row: SalesQuoteRow }) {
     <SurfaceCard>
       <SurfaceCardHeader
         title={`${row.createdByName} pide aprobar un descuento`}
-        description={`Pedida el ${formatDate(row.createdAt)} · ${clientOf(row)} · ${row.countryName} · ${yearsLabel(row.years)} · ${ACCOUNT_TYPE_LABELS[row.accountType]}. ${below === 1 ? "Una línea queda" : `${below} líneas quedan`} bajo el mínimo.`}
+        description={`Pedida el ${formatDate(row.createdAt)} · ${clientOf(row)} · ${row.countryName} · ${yearsLabel(row.years)}. ${below === 1 ? "Una línea queda" : `${below} líneas quedan`} bajo el mínimo.`}
         actions={<QuoteStatusBadge status={row.status} />}
       />
       <div className="flex flex-col gap-4">

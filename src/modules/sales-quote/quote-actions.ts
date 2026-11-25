@@ -5,7 +5,7 @@
 // ============================================================
 // Todo pasa por el servidor con la llave de servicio (tablas de la 170, sin RLS
 // para la sesión). Cada acción comprueba la sesión, la región de quien cotiza y,
-// para decidir, que sea aprobador del tipo de cuenta o admin. Lo que se guarda
+// para decidir, que sea aprobador de descuentos o admin. Lo que se guarda
 // es siempre el cálculo del servidor (`buildQuoteRecord`).
 
 import { revalidatePath } from 'next/cache';
@@ -164,7 +164,7 @@ export async function decideSalesQuote(input: {
   if (!quote) return { success: false, error: 'No encontramos la cotización.' };
   if (quote.created_by === me.id) return { success: false, error: 'No puedes aprobar tu propia cotización.' };
   if (!(await canDecideQuotes(admin, me.id, isAdmin, quote.account_type as QuoteAccountType))) {
-    return { success: false, error: 'No apruebas descuentos de este tipo de cuenta.' };
+    return { success: false, error: 'No apruebas descuentos del cotizador.' };
   }
   if (quote.status !== 'pending_approval') return { success: false, error: 'Esta cotización ya no está pendiente.' };
 
@@ -226,7 +226,7 @@ export interface SalesQuotesBoard {
   team: SalesQuoteRow[] | null;
   /** Pendientes que esta persona puede decidir. */
   toDecide: SalesQuoteRow[];
-  /** Puede aprobar algún tipo de cuenta (ve la pestaña «Por aprobar»). */
+  /** Aprueba descuentos (ve la pestaña «Por aprobar»). */
   canApprove: boolean;
   /** Las tablas aún no existen (falta la migración 170). */
   storageMissing: boolean;
@@ -276,7 +276,7 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
     return EMPTY_BOARD;
   }
 
-  // Lo que puede decidir: por tipo de cuenta.
+  // Lo que puede decidir (un solo tipo de cuenta: Ventas).
   const decidableTypes: QuoteAccountType[] = [];
   for (const accountType of ACCOUNT_TYPES) {
     if (await canDecideQuotes(admin, me.id, isAdmin, accountType)) decidableTypes.push(accountType);
@@ -431,7 +431,7 @@ export async function setQuoteApprovers(input: {
   const approverIds = [...new Set(input.approverIds.filter(isUuid))];
   const ccIds = [...new Set(input.ccIds.filter((id) => isUuid(id) && !approverIds.includes(id)))];
   const all = [...approverIds, ...ccIds];
-  if (all.length > 50) return { ok: false, error: 'Máximo 50 personas por tipo de cuenta.' };
+  if (all.length > 50) return { ok: false, error: 'Máximo 50 personas.' };
 
   const admin = createSupabaseAdminClient();
   if (all.length > 0) {

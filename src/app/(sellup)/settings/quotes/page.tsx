@@ -19,7 +19,7 @@ export default async function QuoteSettingsPage() {
   return (
     <SettingsPage
       title="Cotizador"
-      description="Quién aprueba los descuentos que pasan el máximo y quién recibe copia, según el tipo de cuenta. La región de cada vendedor sale de su grupo en Usuarios y acceso."
+      description="Quién aprueba los descuentos que pasan el máximo y quién recibe copia. El cotizador es de Ventas; la región de cada vendedor sale de su grupo en Usuarios y acceso."
     >
       {result.ok ? (
         <QuoteApproversClient settings={result.settings} />

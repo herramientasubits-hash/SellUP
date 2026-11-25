@@ -9,12 +9,16 @@ import type { Quote2027Input, Quote2027Result } from './engine-2027';
 import { findQuoteCountry } from './markets';
 import { yearsLabel } from './shared';
 
-export const ACCOUNT_TYPES = ['ventas', 'cs'] as const;
+/**
+ * El cotizador es solo de Ventas (decisión del 25-11: Customer Success no lo
+ * usa). La columna `account_type` de la 170 sigue existiendo y siempre guarda
+ * 'ventas'; un solo tipo deja la lógica de aprobadores como está.
+ */
+export const ACCOUNT_TYPES = ['ventas'] as const;
 export type QuoteAccountType = (typeof ACCOUNT_TYPES)[number];
 
 export const ACCOUNT_TYPE_LABELS: Record<QuoteAccountType, string> = {
-  ventas: 'Ventas (cuenta nueva)',
-  cs: 'Customer Success (cuenta existente)',
+  ventas: 'Ventas',
 };
 
 const usd = (value: number) =>

@@ -5,7 +5,8 @@
  *
  * Si nada baja del mínimo se guarda «Lista para enviar». Si algo baja (solo en
  * la 2027), el botón dice «Pedir aprobación»: se guarda pendiente y le llega a
- * quien aprueba ese tipo de cuenta. La empresa de SellUp es opcional.
+ * quien aprueba descuentos (Configuración → Cotizador). La empresa de SellUp es
+ * opcional. El cotizador es solo de Ventas.
  */
 
 import { useEffect, useState, useTransition } from "react";
@@ -14,8 +15,6 @@ import { Search, X } from "@/icons";
 import { Field } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS, type QuoteAccountType } from "@/modules/sales-quote/approval-draft";
 import { saveSalesQuote, searchQuoteAccounts, type QuoteAccountOption } from "@/modules/sales-quote/quote-actions";
 import type { PricingVersion } from "@/modules/sales-quote/version";
 
@@ -86,7 +85,6 @@ function AccountPicker({ value, onChange }: { value: QuoteAccountOption | null; 
 }
 
 export function QuoteSavePanel({ version, input, clientName, needsApproval, disabled = false, onSaved }: QuoteSavePanelProps) {
-  const [accountType, setAccountType] = useState<QuoteAccountType>("ventas");
   const [account, setAccount] = useState<QuoteAccountOption | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -97,7 +95,7 @@ export function QuoteSavePanel({ version, input, clientName, needsApproval, disa
         input,
         clientName: clientName.trim() || account?.name || "",
         accountId: account?.id ?? null,
-        accountType,
+        accountType: "ventas",
       });
       if (!result.ok) {
         toast.error(result.error);
@@ -118,26 +116,6 @@ export function QuoteSavePanel({ version, input, clientName, needsApproval, disa
 
   return (
     <div className="flex flex-col gap-4 border-t border-border/60 pt-4">
-      {version === "2027" && (
-        <Field label="Tipo de cuenta" description="Define quién aprueba si un descuento pasa el máximo.">
-          <Select
-            value={accountType}
-            onValueChange={(value) => value && setAccountType(value as QuoteAccountType)}
-            items={ACCOUNT_TYPE_LABELS}
-          >
-            <SelectTrigger className="w-full" aria-label="Tipo de cuenta">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ACCOUNT_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {ACCOUNT_TYPE_LABELS[type]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-      )}
       <Field label="Empresa en SellUp" description="Opcional: liga la cotización a una de tus empresas.">
         <AccountPicker value={account} onChange={setAccount} />
       </Field>
