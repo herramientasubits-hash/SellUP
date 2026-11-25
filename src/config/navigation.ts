@@ -2,6 +2,7 @@ import { type LucideIcon } from "@/icons";
 import { TEAM_ROLE_KEYS } from "@/modules/access/commercial-scope-logic";
 import type { RolePreviewState } from "@/modules/access/role-preview";
 import {
+  BarChart3,
   BrainCircuit,
   Building2,
   Calculator,
@@ -129,6 +130,12 @@ export const ROI_CALCULATOR_ROUTE = "/roi-calculator";
 /** Cotizador de Ventas (precios oficiales 2026 y 2027). */
 export const QUOTES_ROUTE = "/quotes";
 
+/**
+ * Tableros (TABLEROS-1, dueño 25-11): el uso del sistema y lo enriquecido. Lo ven
+ * todos; cada quien con su alcance (admin todo, líder su equipo, BD lo suyo).
+ */
+export const DASHBOARDS_ROUTE = "/dashboards";
+
 /** A dónde va un enlace antiguo `/settings/source-catalog/<…>`, con sus parámetros. */
 export function legacySourceCatalogRedirect(
   path: readonly string[] | undefined,
@@ -167,6 +174,13 @@ export const mainNavItems: NavItem[] = [
     title: "Comentarios y alertas",
     href: COMMENTS_ROUTE,
     icon: MessageSquare,
+  },
+  {
+    // Dueño 25-11: público. La página aplica el alcance comercial a cada lectura:
+    // admin ve todo, líder/manager su equipo en cascada y BD/KAM sólo lo suyo.
+    title: "Tableros",
+    href: DASHBOARDS_ROUTE,
+    icon: BarChart3,
   },
   // Q3F-5AZ.2D-1 — "Revisión de prospectos" removed from the sidebar. Human
   // review now lives inside the official Prospectos surface

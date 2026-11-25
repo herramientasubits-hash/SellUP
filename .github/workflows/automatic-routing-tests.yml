@@ -6473,3 +6473,11 @@ jobs:
       # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
       - name: Run Agent 1 audit hardening tests
         run: npm run test:a1-audit-hardening
+
+      # TABLEROS-1 - «Tableros» (/dashboards): filtros en la URL, rango desde el
+      # lanzamiento (11-11), crédito a quien aprobó, filtro de fuente una a una o
+      # agrupada, alcance (BD sólo lo suyo) y lecturas que sólo leen.
+      #
+      # 0 llamadas a proveedores - 0 creditos - 0 escrituras en Produccion.
+      - name: Run Tableros tests
+        run: npm run test:tableros
