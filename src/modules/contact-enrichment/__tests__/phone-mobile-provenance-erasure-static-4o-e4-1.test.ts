@@ -106,6 +106,9 @@ const EXPECTED_MOBILE_PHONE_FILES: Record<string, string> = {
   'components/contacts/contact-channels-section.tsx': 'lectura — UI de detalle (ficha y página)',
   'components/contacts/contacts-data-table-client.tsx': 'lectura — columna de tabla',
   'components/contacts/contacts-tab.tsx': 'lectura — UI de cuenta',
+  // Dueña 25-11 — buscador general por teléfono/celular: sólo LEE la columna (SELECT + filtro).
+  'modules/global-search/directory-records.server.ts': 'lectura — búsqueda general (SELECT)',
+  'modules/global-search/directory-search-core.ts': 'lectura — búsqueda general (filtro y coincidencia)',
   'components/contacts/contacts-table-client.tsx': 'lectura — tabla legacy',
   'components/contacts/create-contact-drawer.tsx': 'ESCRITOR MANUAL — formulario «Celular»',
   'components/contacts/edit-contact-drawer.tsx': 'ESCRITOR MANUAL — formulario «Celular»',

@@ -8,8 +8,11 @@
 // Reglas del hito:
 //  - Sincronización MANUAL, controlada, uno a uno, desde un contacto aprobado.
 //  - NUNCA automática al aprobar. NUNCA bulk. NUNCA crea empresas/deals/notas.
-//  - Requiere email, account_id y que la cuenta tenga hubspot_company_id.
-//  - Si ya existe contacto en HubSpot por email → vincular, no duplicar.
+//  - Requiere email (o, sin email, un LinkedIn: dueña 25-11), account_id y que la cuenta tenga
+//    hubspot_company_id.
+//  - Si ya existe contacto en HubSpot por email → vincular, no duplicar. Sin email, se busca
+//    por LinkedIn y por nombre entre los contactos de su empresa
+//    (`contact-hubspot-no-email-identity-core.ts`).
 //  - NUNCA llama a Apollo ni toca candidatos.
 
 import {
@@ -22,6 +25,11 @@ import {
   type HubSpotSyncMethod,
   type HubSpotSyncState,
 } from './contact-hubspot-sync-state';
+import {
+  canSyncWithoutEmail,
+  decideHubSpotContactWithoutEmail,
+  type HubSpotIdentityCandidate,
+} from './contact-hubspot-no-email-identity-core';
 
 // ── Entrada/proyección de datos ─────────────────────────────────
 
@@ -55,7 +63,8 @@ export interface HubSpotSyncConnection {
 
 /** Propiedades estándar y seguras enviadas a HubSpot al crear un contacto. */
 export interface HubSpotContactCreateInput {
-  email: string;
+  /** `null` = se crea sin correo (sólo con LinkedIn, tras comprobar que no existe: dueña 25-11). */
+  email: string | null;
   firstname: string | null;
   lastname: string | null;
   jobtitle: string | null;
@@ -465,6 +474,11 @@ export type SyncContactToHubSpotResult =
 export const SYNC_MESSAGES = {
   contactNotFound: 'No se encontró el contacto.',
   missingEmail: 'No se puede sincronizar: el contacto no tiene email.',
+  // Dueña 25-11 — sin correo se crea con LinkedIn, salvo que en la empresa haya varias personas
+  // con el mismo nombre: no se adivina cuál es.
+  ambiguousWithoutEmail:
+    'No se envió a HubSpot: el contacto no tiene correo y en su empresa hay varias personas con ese nombre. Añade su correo o vincúlalo a mano.',
+  createdWithoutEmail: 'Contacto creado en HubSpot sin correo (con su LinkedIn) y vinculado a SellUp.',
   missingAccount: 'No se puede sincronizar: el contacto no está asociado a una cuenta.',
   missingCompany:
     'No se puede sincronizar: la cuenta no tiene empresa vinculada en HubSpot.',
@@ -546,7 +560,7 @@ export function normalizeLinkedinUrlForHubSpot(value: string | null | undefined)
  */
 export function buildHubSpotContactProperties(
   contact: ContactForSync,
-  email: string,
+  email: string | null,
   collectionPhones?: readonly RevealedPhoneForHubSpot[],
 ): HubSpotContactCreateInput {
   const { firstname, lastname } = splitContactName(contact);
@@ -757,6 +771,17 @@ export interface SyncContactDeps {
   loadAccount: (accountId: string) => Promise<AccountForSync | null>;
   checkConnection: () => Promise<HubSpotSyncConnection>;
   findHubSpotContactByEmail: (email: string) => Promise<HubSpotExistingContactMatch | null>;
+  /**
+   * Dueña 25-11 — contactos SIN correo: quienes pueden ser la misma persona en HubSpot (los
+   * contactos de su empresa y los que tienen su mismo LinkedIn). LANZA si no pudo leerlos: sin
+   * saber quién está, crear sería apostar a que no hay duplicado.
+   *
+   * Opcional: sin ella, un contacto sin correo sigue bloqueado exactamente como antes.
+   */
+  findHubSpotContactsForIdentity?: (args: {
+    hubspotCompanyId: string;
+    linkedinUrl: string;
+  }) => Promise<HubSpotIdentityCandidate[]>;
   createHubSpotContact: (
     input: HubSpotContactCreateInput,
   ) => Promise<{ id: string } | { error: string }>;
@@ -884,7 +909,16 @@ export async function runSyncContactToHubSpot(
     !!cleanString(contact.hubspot_contact_id) &&
     readHubSpotSyncState(contact.metadata)?.status !== 'synced' &&
     !hasPendingHubSpotPhoneChange(readHubSpotSyncState(contact.metadata));
-  if (!email && !linkedFirstSyncWithoutEmail) {
+  // Dueña 25-11 — un contacto SIN correo y SIN vínculo se lleva a HubSpot si tiene LinkedIn (con
+  // qué reconocerlo después) y el motor sabe buscar a la persona sin correo. Los ya vinculados
+  // siguen exactamente como antes.
+  const linkedinForIdentity = normalizeLinkedinUrlForHubSpot(contact.linkedin_url);
+  const withoutEmailByLinkedin =
+    !email &&
+    !cleanString(contact.hubspot_contact_id) &&
+    !!deps.findHubSpotContactsForIdentity &&
+    canSyncWithoutEmail({ firstname: null, lastname: null, linkedinUrl: linkedinForIdentity });
+  if (!email && !linkedFirstSyncWithoutEmail && !withoutEmailByLinkedin) {
     await recordBlockedOrFailed('blocked_no_email', null);
     return { ok: false, errorCode: 'MISSING_EMAIL', message: SYNC_MESSAGES.missingEmail };
   }
@@ -1124,8 +1158,8 @@ export async function runSyncContactToHubSpot(
     };
   }
 
-  // Inalcanzable: sin correo sólo se llega aquí por la rama D, que ya devolvió.
-  if (!email) {
+  // Sin correo sólo se llega aquí con LinkedIn (`withoutEmailByLinkedin`); lo demás ya devolvió.
+  if (!email && !withoutEmailByLinkedin) {
     await recordBlockedOrFailed('blocked_no_email', null);
     return { ok: false, errorCode: 'MISSING_EMAIL', message: SYNC_MESSAGES.missingEmail };
   }
@@ -1167,8 +1201,14 @@ export async function runSyncContactToHubSpot(
   // rastro es un contacto que dice «Nunca sincronizado» sin que nadie sepa que sí se intentó.
   let existing: HubSpotExistingContactMatch | null;
   try {
-    existing = await deps.findHubSpotContactByEmail(email);
-  } catch {
+    existing = email
+      ? await deps.findHubSpotContactByEmail(email)
+      : await findExistingWithoutEmail(contact, hubspotCompanyId, linkedinForIdentity as string, deps);
+  } catch (error) {
+    if (error === AMBIGUOUS_WITHOUT_EMAIL) {
+      await recordBlockedOrFailed('blocked_no_email', HUBSPOT_SYNC_ERROR_CODES.ambiguousWithoutEmail);
+      return { ok: false, errorCode: 'MISSING_EMAIL', message: SYNC_MESSAGES.ambiguousWithoutEmail };
+    }
     await recordBlockedOrFailed('failed', HUBSPOT_SYNC_ERROR_CODES.hubspotSearchFailed);
     return { ok: false, errorCode: 'HUBSPOT_ERROR', message: SYNC_MESSAGES.hubspotError };
   }
@@ -1241,11 +1281,46 @@ export async function runSyncContactToHubSpot(
     hubspotContactId,
     message:
       mode === 'created'
-        ? SYNC_MESSAGES.created
+        ? email
+          ? SYNC_MESSAGES.created
+          : SYNC_MESSAGES.createdWithoutEmail
         : fillEmpty?.outcome === 'filled'
           ? SYNC_MESSAGES.linkedExistingFilled
           : SYNC_MESSAGES.linkedExisting,
   };
+}
+
+/** Señal interna: sin correo y con varias personas del mismo nombre en la empresa. */
+const AMBIGUOUS_WITHOUT_EMAIL = Symbol('ambiguous_without_email');
+
+/**
+ * Dueña 25-11 — ¿la persona SIN correo ya está en HubSpot? Por su LinkedIn y, si no, por su
+ * nombre entre los contactos de su empresa (`decideHubSpotContactWithoutEmail`). Lanza si no se
+ * pudo leer (falla cerrado, como la búsqueda por correo) o `AMBIGUOUS_WITHOUT_EMAIL` si hay
+ * varias personas con ese nombre.
+ */
+async function findExistingWithoutEmail(
+  contact: ContactForSync,
+  hubspotCompanyId: string,
+  linkedinUrl: string,
+  deps: SyncContactDeps,
+): Promise<HubSpotExistingContactMatch | null> {
+  if (!deps.findHubSpotContactsForIdentity) throw new Error('identity lookup unavailable');
+  const candidates = await deps.findHubSpotContactsForIdentity({ hubspotCompanyId, linkedinUrl });
+  const { firstname, lastname } = splitContactName(contact);
+  const decision = decideHubSpotContactWithoutEmail(candidates, { firstname, lastname, linkedinUrl });
+  if (decision.kind === 'ambiguous') throw AMBIGUOUS_WITHOUT_EMAIL;
+  if (decision.kind === 'none') return null;
+  // Se relee por id para saber qué tiene VACÍO (completar sin pisar, como con el correo).
+  if (deps.findHubSpotContactById) {
+    try {
+      const read = await deps.findHubSpotContactById(decision.id);
+      if (read) return read;
+    } catch {
+      // Sin lectura no se completa nada, pero el vínculo sigue siendo correcto.
+    }
+  }
+  return { id: decision.id };
 }
 
 /**

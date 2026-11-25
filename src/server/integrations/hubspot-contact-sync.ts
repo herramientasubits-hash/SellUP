@@ -19,6 +19,10 @@ import {
   type HubSpotFillEmptyPropertyName,
 } from '@/modules/contacts/contact-hubspot-sync-core';
 import { ensureHubSpotSellUpCreatedPropertyCached } from './hubspot-property-ensure-cache';
+import {
+  linkedinUrlVariants,
+  type HubSpotIdentityCandidate,
+} from '@/modules/contacts/contact-hubspot-no-email-identity-core';
 
 const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://lrdruowtadwbdulndlph.supabase.co';
@@ -295,6 +299,102 @@ export async function findHubSpotContactByEmail(
   return { id: first.id, properties };
 }
 
+/** Cuántas páginas de contactos asociados se leen como máximo (500 por página). */
+const IDENTITY_MAX_ASSOCIATION_PAGES = 5;
+
+type RawIdentityContact = { id?: string; properties?: Record<string, unknown> };
+
+function identityCandidate(raw: RawIdentityContact): HubSpotIdentityCandidate | null {
+  if (typeof raw.id !== 'string' || !raw.id) return null;
+  const p = raw.properties ?? {};
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : null);
+  return {
+    id: raw.id,
+    firstname: text(p.firstname),
+    lastname: text(p.lastname),
+    email: text(p.email),
+    linkedinUrl: text(p.hs_linkedin_url),
+  };
+}
+
+async function hubspotJson<T>(token: string, path: string, init?: { method: 'POST'; body: unknown }): Promise<{ ok: true; data: T } | { ok: false; status: number }> {
+  const response = await fetch(`${HUBSPOT_BASE}${path}`, {
+    method: init?.method ?? 'GET',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    ...(init ? { body: JSON.stringify(init.body) } : {}),
+  });
+  if (!response.ok) return { ok: false, status: response.status };
+  return { ok: true, data: (await response.json()) as T };
+}
+
+/**
+ * Dueña 25-11 — quienes pueden ser la misma persona que un contacto SIN correo: los contactos
+ * asociados a su empresa en HubSpot y los que tienen su mismo LinkedIn. SÓLO LECTURA.
+ *
+ * Falla CERRADO: si no se pudieron leer los contactos de la empresa, LANZA (crear sería apostar a
+ * que no hay duplicado). La búsqueda por LinkedIn en todo el portal es un extra: si HubSpot no la
+ * admite (la documentación no confirma que `hs_linkedin_url` sea filtrable), se sigue con los de
+ * la empresa.
+ */
+export async function findHubSpotContactsForIdentity(args: {
+  hubspotCompanyId: string;
+  linkedinUrl: string;
+}): Promise<HubSpotIdentityCandidate[]> {
+  const token = await getHubSpotToken();
+  if (!token) throw new Error('HubSpot token unavailable');
+  const properties = ['email', 'firstname', 'lastname', 'hs_linkedin_url'];
+
+  const ids: string[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < IDENTITY_MAX_ASSOCIATION_PAGES; page += 1) {
+    const query = new URLSearchParams({ limit: '500', ...(after ? { after } : {}) });
+    const assoc = await hubspotJson<{ results?: Array<{ toObjectId?: string | number }>; paging?: { next?: { after?: string } } }>(
+      token,
+      `/crm/v4/objects/companies/${encodeURIComponent(args.hubspotCompanyId)}/associations/contacts?${query.toString()}`,
+    );
+    if (!assoc.ok) throw new Error(`HubSpot company contacts error: HTTP ${assoc.status}`);
+    for (const row of assoc.data.results ?? []) {
+      if (row.toObjectId !== undefined && row.toObjectId !== null) ids.push(String(row.toObjectId));
+    }
+    after = assoc.data.paging?.next?.after;
+    if (!after) break;
+  }
+
+  const candidates: HubSpotIdentityCandidate[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const read = await hubspotJson<{ results?: RawIdentityContact[] }>(token, '/crm/v3/objects/contacts/batch/read', {
+      method: 'POST',
+      body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties },
+    });
+    if (!read.ok) throw new Error(`HubSpot contacts read error: HTTP ${read.status}`);
+    for (const raw of read.data.results ?? []) {
+      const candidate = identityCandidate(raw);
+      if (candidate) candidates.push(candidate);
+    }
+  }
+
+  const variants = linkedinUrlVariants(args.linkedinUrl);
+  if (variants.length > 0) {
+    const search = await hubspotJson<{ results?: RawIdentityContact[] }>(token, '/crm/v3/objects/contacts/search', {
+      method: 'POST',
+      body: {
+        filterGroups: variants.map((value) => ({ filters: [{ propertyName: 'hs_linkedin_url', operator: 'EQ', value }] })),
+        properties,
+        limit: 10,
+      },
+    });
+    if (search.ok) {
+      for (const raw of search.data.results ?? []) {
+        const candidate = identityCandidate(raw);
+        if (candidate) candidates.push(candidate);
+      }
+    } else {
+      console.warn(`[hubspot-contact-sync] búsqueda por LinkedIn no disponible: HTTP ${search.status}`);
+    }
+  }
+  return candidates;
+}
+
 /** Lo que la búsqueda puntual por correo necesita de un contacto de HubSpot. */
 export interface HubSpotContactProfile {
   id: string;
@@ -547,7 +647,8 @@ export function buildHubSpotContactCreateBody(
   input: HubSpotContactCreateInput,
   markSellUpCreated: boolean,
 ): Record<string, string> {
-  const properties: Record<string, string> = { email: input.email };
+  // Sin correo (dueña 25-11) no se manda la clave: una cadena vacía en HubSpot BORRA.
+  const properties: Record<string, string> = input.email ? { email: input.email } : {};
   if (input.firstname) properties.firstname = input.firstname;
   if (input.lastname) properties.lastname = input.lastname;
   if (input.jobtitle) properties.jobtitle = input.jobtitle;
