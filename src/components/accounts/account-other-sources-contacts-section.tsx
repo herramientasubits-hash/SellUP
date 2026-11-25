@@ -367,7 +367,8 @@ export function AccountOtherSourcesContacts({
           />
         ) : candidates.length === 0 ? (
           <EmptyState
-            variant="plain"
+            variant="compact"
+            className="px-0"
             icon={Inbox}
             title={ACCOUNT_OTHER_SOURCES_COPY.emptyTitle}
             description={ACCOUNT_OTHER_SOURCES_COPY.emptyBody}

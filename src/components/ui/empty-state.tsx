@@ -70,8 +70,10 @@ interface EmptyStateProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "ti
   /**
    * `card` (por defecto): el vacío que ocupa la página, con más aire.
    * `plain`: un vacío dentro de una card o una tabla que ya tiene su propia superficie.
+   * `compact`: una sola línea con ícono pequeño, para secciones secundarias que no deben
+   *   ocupar pantalla cuando están vacías (pestaña Contactos de la empresa, Bryan 25-11).
    */
-  variant?: "card" | "plain";
+  variant?: "card" | "plain" | "compact";
 }
 
 /** Ícono de interfaz → ilustración de vidrio de UBITS. */
@@ -139,6 +141,23 @@ function EmptyState({
   className,
   ...props
 }: EmptyStateProps) {
+  if (variant === "compact") {
+    return (
+      <div
+        data-slot="empty"
+        data-variant="compact"
+        className={cn("flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left", className)}
+        {...props}
+      >
+        {Icon && <Icon size={16} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-muted-foreground" />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {title && <p className="text-sm font-medium text-foreground">{title}</p>}
+          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+        </div>
+        {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      </div>
+    );
+  }
   const glass = Icon ? GLASS_BY_ICON.get(Icon) : undefined;
   return (
     <div

@@ -42,3 +42,24 @@ test('el vacío menciona los contactos de HubSpot cuando hay ficha', () => {
   assert.ok(tab.includes('hasHubSpotCompany ? EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION : EMPTY_CONTACTS_DESCRIPTION'));
   assert.match(tab, /EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION =\s*'[^']*Contactos en HubSpot[^']*Traer/);
 });
+
+// Bryan 25-11: vacíos que no ocupan pantalla y el título «Contactos aprobados».
+const emptyState = readFileSync('src/components/ui/empty-state.tsx', 'utf8');
+const others = readFileSync('src/components/accounts/account-other-sources-contacts-section.tsx', 'utf8');
+const hubspot = readFileSync('src/components/hubspot/hubspot-contacts-section.tsx', 'utf8');
+
+test('la tabla se titula «Contactos aprobados»', () => {
+  assert.match(tab, /Contactos aprobados\s*\{contacts\.length > 0/);
+});
+
+test('sin contactos no se pintan las tarjetas de resumen', () => {
+  assert.ok(tab.includes('summary.total > 0 && ('));
+  assert.ok(tab.indexOf('summary.total > 0 && (') < tab.indexOf('title="Total"'));
+});
+
+test('los vacíos de la pestaña son de una sola línea (variante compact)', () => {
+  assert.match(emptyState, /variant\?: "card" \| "plain" \| "compact"/);
+  assert.match(tab, /variant="compact"\s*icon=\{Users\}\s*title="Sin contactos aprobados"/);
+  assert.match(others, /variant="compact"[\s\S]{0,80}title=\{ACCOUNT_OTHER_SOURCES_COPY\.emptyTitle\}/);
+  assert.match(hubspot, /variant="compact"[\s\S]{0,80}title=\{onlyMissing \? 'Todos están en SellUp'/);
+});
