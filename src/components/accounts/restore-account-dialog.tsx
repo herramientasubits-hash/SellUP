@@ -17,7 +17,7 @@ interface RestoreAccountDialogProps {
 
 /**
  * RestoreAccountDialog — la confirmación de «Restaurar empresa» (dueña 25-11): deshace
- * «Archivar». Sólo admin; el servidor lo exige igual. Si la empresa ya volvió a entrar con
+ * «Archivar». Cualquier usuario sobre las empresas de su alcance; el servidor lo exige igual. Si la empresa ya volvió a entrar con
  * otra ficha activa, el servidor no la restaura y lo dice.
  */
 export function RestoreAccountDialog({ accountId, onClose, onRestored }: RestoreAccountDialogProps) {
@@ -48,7 +48,7 @@ export function RestoreAccountDialog({ accountId, onClose, onRestored }: Restore
       }}
       icon={RotateCcw}
       title="Restaurar empresa"
-      description="La empresa vuelve al listado y al pipeline activo, con su responsable, contactos e historial. Solo un administrador puede hacerlo y queda registrado en auditoría. ¿Confirmas?"
+      description="La empresa vuelve al listado y al pipeline activo, con su responsable, contactos e historial. Queda registrado en auditoría. ¿Confirmas?"
       confirmLabel={restoring ? 'Restaurando…' : 'Restaurar empresa'}
       loading={restoring}
       onConfirm={handleRestore}

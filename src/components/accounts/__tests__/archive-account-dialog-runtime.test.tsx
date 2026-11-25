@@ -109,7 +109,7 @@ describe('ArchiveAccountDialog', () => {
     assert.match(dialog.textContent ?? '', /Archivar empresa/);
     assert.match(
       dialog.textContent ?? '',
-      /Esta acción retira la empresa del pipeline activo\. Solo un administrador puede realizarla y queda registrada en auditoría\. ¿Confirmas\?/,
+      /Esta acción retira la empresa del pipeline activo\. Queda registrada en auditoría y se puede restaurar desde el buscador\. ¿Confirmas\?/,
     );
   });
 
@@ -128,7 +128,7 @@ describe('ArchiveAccountDialog', () => {
   });
 
   it('si la acción falla, NO da la empresa por archivada y el diálogo sigue abierto', async () => {
-    archiveResult = { success: false, error: 'Solo un administrador puede archivar.' };
+    archiveResult = { success: false, error: 'No tienes acceso a este registro: es de alguien fuera de tu equipo.' };
     const events = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Archivar empresa' }));
     await waitFor(() => assert.deepEqual(archiveCalls, ['acc-1']));

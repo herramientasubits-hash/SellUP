@@ -15,7 +15,6 @@ import type { InternalUserOption } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { ArchiveAccountDialog } from './archive-account-dialog';
 import { RestoreAccountDialog } from './restore-account-dialog';
-import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface AccountDetailActionsProps {
   accountId: string;
@@ -31,7 +30,7 @@ interface AccountDetailActionsProps {
    * quien lo aloja decide (el panel lateral se cierra).
    */
   onArchived?: () => void;
-  /** La empresa está archivada: en vez de «Archivar», «Restaurar» (sólo admin). */
+  /** La empresa está archivada: en vez de «Archivar», «Restaurar». */
   archived?: boolean;
 }
 
@@ -48,8 +47,8 @@ export function AccountDetailActions({
   archived = false,
 }: AccountDetailActionsProps) {
   const router = useRouter();
-  // Archivar es sólo de admin (decisión 6); respeta «Ver como…». El servidor lo exige igual.
-  const { isAdmin } = useNavAccess();
+  // Archivar y restaurar: cualquier usuario, sobre las empresas de su alcance (dueña 25-11).
+  // Quien ve la ficha ya está en su alcance; el servidor y la RLS lo exigen igual.
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
   const [restoreOpen, setRestoreOpen] = React.useState(false);
@@ -84,7 +83,7 @@ export function AccountDetailActions({
             <Pencil className="h-3.5 w-3.5" />
             Editar empresa
           </DropdownMenuItem>
-          {isAdmin && archived ? (
+          {archived ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setRestoreOpen(true)}>
@@ -93,7 +92,7 @@ export function AccountDetailActions({
               </DropdownMenuItem>
             </>
           ) : null}
-          {isAdmin && !archived ? (
+          {!archived ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>

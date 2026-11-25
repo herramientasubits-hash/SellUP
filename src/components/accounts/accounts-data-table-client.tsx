@@ -27,7 +27,6 @@ import type { ComponentProps } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ArchiveAccountDialog } from './archive-account-dialog';
-import { useNavAccess } from '@/components/layout/nav-access-context';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -266,8 +265,8 @@ export function AccountsDataTableClient({
   hubspotPortalId = null,
 }: AccountsDataTableClientProps) {
   const router = useRouter();
-  // Archivar es sólo de admin (decisión 6); respeta «Ver como…». El servidor lo exige igual.
-  const { isAdmin } = useNavAccess();
+  // Archivar: cualquier usuario, sobre las empresas de su alcance (dueña 25-11). La lista ya
+  // muestra sólo su alcance; el servidor y la RLS lo exigen igual.
 
   const [detailAccountId, setDetailAccountId] = React.useState<string | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);
@@ -920,16 +919,14 @@ export function AccountsDataTableClient({
           },
         });
 
-        if (isAdmin) {
-          items.push({
-            id: 'archive',
-            label: 'Archivar empresa',
-            icon: Archive,
-            variant: 'destructive' as const,
-            separator: true,
-            onClick: () => setArchivingId(row.id),
-          });
-        }
+        items.push({
+          id: 'archive',
+          label: 'Archivar empresa',
+          icon: Archive,
+          variant: 'destructive' as const,
+          separator: true,
+          onClick: () => setArchivingId(row.id),
+        });
 
         if (row.domain) {
           items.push({
@@ -950,7 +947,7 @@ export function AccountsDataTableClient({
         return items;
       },
     }),
-    [openDetail, corporateTreeMenuItem, firstCallEnabled, isAdmin],
+    [openDetail, corporateTreeMenuItem, firstCallEnabled],
   );
 
   // ── Bulk actions ──────────────────────────────────────────────
@@ -1004,7 +1001,7 @@ export function AccountsDataTableClient({
           });
         },
       },
-      ...(isAdmin ? [{
+      {
         id: 'archive-accounts',
         label: 'Archivar',
         icon: Archive,
@@ -1015,8 +1012,8 @@ export function AccountsDataTableClient({
           title: 'Archivar empresas',
           description: (rows) =>
             rows.length === 1
-              ? `«${rows[0].name}» sale del listado y del pipeline activo. Solo un administrador puede hacerlo y queda registrado en auditoría.`
-              : `${rows.length} empresas salen del listado y del pipeline activo. Solo un administrador puede hacerlo y queda registrado en auditoría.`,
+              ? `«${rows[0].name}» sale del listado y del pipeline activo. Queda registrado en auditoría y se puede restaurar desde el buscador.`
+              : `${rows.length} empresas salen del listado y del pipeline activo. Queda registrado en auditoría y se pueden restaurar desde el buscador.`,
           confirmLabel: 'Archivar',
         },
         onClick: async (rows) => {
@@ -1031,9 +1028,9 @@ export function AccountsDataTableClient({
           dataTableRef.current?.clearSelection();
           router.refresh();
         },
-      } satisfies DataTableBulkAction<Row>] : []),
+      } satisfies DataTableBulkAction<Row>,
     ],
-    [openDetail, router, isAdmin],
+    [openDetail, router],
   );
 
   // ── Vista de lista ────────────────────────────────────────────
