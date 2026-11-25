@@ -99,7 +99,7 @@ const RELEVANCE_DOTS: Record<ContactRelevanceStatus, string> = {
 // ── Indicadores que filtran ─────────────────────────────────────
 // Eran tarjetas de métricas en la cabecera. Ahora son botones: pulsar uno deja
 // en la tabla solo esos candidatos, y el número es exactamente lo que se ve.
-const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCandidate>[] = [
+const BASE_CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCandidate>[] = [
   {
     id: 'high_relevance',
     label: 'Alta relevancia',
@@ -120,6 +120,28 @@ const CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCand
     icon: Link2,
     tone: 'neutral',
     predicate: (candidate) => Boolean(candidate.linkedin_url),
+  },
+];
+
+// CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 (Colineal 25-11) — quien, según Apollo o la web, ya trabaja en
+// otra empresa no se mezcla con los demás en «Por revisar»: queda en su propio indicador.
+const LEFT_COMPANY_FILTER_ID = 'left_company';
+
+function isLeftCompanyCandidate(candidate: PendingContactCandidate): boolean {
+  return resolveTitleProvenance(candidate).tone === 'left';
+}
+
+const PENDING_CANDIDATE_QUICK_FILTERS: readonly QuickFilterDefinition<PendingContactCandidate>[] = [
+  ...BASE_CANDIDATE_QUICK_FILTERS.map((definition) => ({
+    ...definition,
+    predicate: (candidate: PendingContactCandidate) => !isLeftCompanyCandidate(candidate) && definition.predicate(candidate),
+  })),
+  {
+    id: LEFT_COMPANY_FILTER_ID,
+    label: 'Ya no están en la empresa',
+    icon: UserX,
+    tone: 'warning',
+    predicate: isLeftCompanyCandidate,
   },
 ];
 
@@ -643,7 +665,23 @@ export function ContactCandidatesDataTableClient({
     dataTableRef.current?.clearSelection(),
   );
 
-  const quick = useQuickFilter(filteredCandidates, CANDIDATE_QUICK_FILTERS);
+  const hidesLeftCompany = queue === 'pending';
+  const quick = useQuickFilter(
+    filteredCandidates,
+    hidesLeftCompany ? PENDING_CANDIDATE_QUICK_FILTERS : BASE_CANDIDATE_QUICK_FILTERS,
+  );
+  // Sin el indicador «Ya no están en la empresa» pulsado, esas filas no se muestran.
+  const visibleRows = React.useMemo(
+    () =>
+      hidesLeftCompany && quick.activeId !== LEFT_COMPANY_FILTER_ID
+        ? quick.rows.filter((candidate) => !isLeftCompanyCandidate(candidate))
+        : quick.rows,
+    [hidesLeftCompany, quick.activeId, quick.rows],
+  );
+  const visibleTotal = React.useMemo(
+    () => (hidesLeftCompany ? filteredCandidates.filter((c) => !isLeftCompanyCandidate(c)).length : filteredCandidates.length),
+    [hidesLeftCompany, filteredCandidates],
+  );
   const toggleQuickFilter = React.useCallback(
     (id: string) => {
       // Cambiar de indicador cambia la lista: lo marcado deja de tener sentido.
@@ -1073,7 +1111,7 @@ export function ContactCandidatesDataTableClient({
         }
       />
     );
-  } else if (quick.rows.length === 0 && quick.activeLabel) {
+  } else if (visibleRows.length === 0 && quick.activeLabel) {
     emptyState = (
       <QuickFilterEmptyState
         icon={UserSearch}
@@ -1091,7 +1129,7 @@ export function ContactCandidatesDataTableClient({
         <QuickFilterStrip
           {...quickFilterGroup}
           icon={UserSearch}
-          total={quick.total}
+          total={visibleTotal}
           noun={
             queue === 'duplicates'
               ? ['candidato duplicado', 'candidatos duplicados']
@@ -1109,11 +1147,11 @@ export function ContactCandidatesDataTableClient({
         noun="candidatos"
         getRowLabel={(row) => row.full_name ?? 'candidato'}
         columns={columns}
-        data={quick.rows}
+        data={visibleRows}
         getRowId={(row) => row.id}
         // La descripción de la cola la dice la cabecera de la página: aquí no se repite.
         title={quick.activeLabel ? `${queueCopy.title} · ${quick.activeLabel}` : queueCopy.title}
-        count={quick.rows.length}
+        count={visibleRows.length}
         actions={
           <>
             {candidates.length > 0 && isWide && <QuickFilterChips {...quickFilterGroup} />}

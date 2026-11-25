@@ -13,6 +13,11 @@
 
 import type { RunAutomaticContactEnrichmentForRequestResult } from './automatic-routing-action-core';
 import { isCompleteHubSpotCandidate } from './contact-search-summary';
+import {
+  CURRENT_EMPLOYMENT_LEFT_STATUSES,
+  CURRENT_EMPLOYMENT_METADATA_KEY,
+  readCurrentEmploymentCheck,
+} from './current-employment-check';
 
 /** Tope por búsqueda: cada aprobación sincroniza con HubSpot y la ruta tiene un tiempo máximo. */
 export const MAX_HUBSPOT_AUTO_APPROVALS_PER_SEARCH = 25;
@@ -24,6 +29,18 @@ export interface FollowUpPendingCandidate {
   phone: string | null;
   linkedin_url: string | null;
   enrichment_run_id: string;
+  enrichment_metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 (Colineal 25-11) — Apollo o la web dicen que ya trabaja en
+ * otra empresa. Ese contacto nunca pasa solo a Contactos, aunque HubSpot lo tenga completo.
+ */
+export function candidateLeftCompany(candidate: Pick<FollowUpPendingCandidate, 'enrichment_metadata'>): boolean {
+  const metadata = candidate.enrichment_metadata;
+  if (!metadata || typeof metadata !== 'object') return false;
+  const check = readCurrentEmploymentCheck(metadata[CURRENT_EMPLOYMENT_METADATA_KEY]);
+  return !!check && CURRENT_EMPLOYMENT_LEFT_STATUSES.has(check.status);
 }
 
 export interface ContactSearchFollowUpDeps {
@@ -70,7 +87,7 @@ export async function runContactSearchFollowUp(
   const max = deps.maxAutoApprovals ?? MAX_HUBSPOT_AUTO_APPROVALS_PER_SEARCH;
   // Primero los de esta búsqueda, después los que esperaban de antes.
   const complete = pending
-    .filter((c) => isCompleteHubSpotCandidate(c))
+    .filter((c) => isCompleteHubSpotCandidate(c) && !candidateLeftCompany(c))
     .sort((a, b) => Number(!current.has(a.enrichment_run_id)) - Number(!current.has(b.enrichment_run_id)))
     .slice(0, max);
 
@@ -106,8 +123,12 @@ export async function runContactSearchFollowUp(
     }
   }
 
+  // Los de esta búsqueda que ya no están en la empresa: quedan aparte en «Por revisar».
+  const leftCompany = pending.filter((c) => current.has(c.enrichment_run_id) && candidateLeftCompany(c)).length;
+
   return {
     ...result,
+    contactsNoLongerAtCompany: leftCompany,
     hubspotAutoApprovedContacts: approvedNow,
     hubspotAutoApprovedEarlierContacts: approvedEarlier,
     previousPendingReviewCandidates: previousPending,
