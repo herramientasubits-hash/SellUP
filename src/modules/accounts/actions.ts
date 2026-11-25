@@ -44,6 +44,12 @@ import type {
   TaxIdentifierType,
 } from './types';
 import { describeAccountOwnerCheck } from './account-owner-hubspot';
+import {
+  archiveAuditDetails,
+  restoreConflictMessage,
+  restoredPipelineStatus,
+  type ActiveTwin,
+} from './account-restore-core';
 
 // ============================================================
 // Auth helpers
@@ -637,6 +643,8 @@ export async function archiveAccount(
   }
 
   const supabase = await createClient();
+  // El estado que tenía: «Restaurar» la devuelve ahí.
+  const { data: before } = await supabase.from('accounts').select('pipeline_status').eq('id', id).maybeSingle();
 
   const { error } = await supabase
     .from('accounts')
@@ -655,7 +663,7 @@ export async function archiveAccount(
     accountId: id,
     actorUserId: internalUserId,
     actionType: 'account_archived',
-    details: {},
+    details: archiveAuditDetails((before as { pipeline_status?: string } | null)?.pipeline_status),
   });
 
   return { success: true };
@@ -686,6 +694,10 @@ export async function archiveAccounts(
   }
 
   const supabase = await createClient();
+  const { data: before } = await supabase.from('accounts').select('id, pipeline_status').in('id', uniqueIds);
+  const previousStatus = new Map(
+    ((before ?? []) as Array<{ id: string; pipeline_status: string | null }>).map((row) => [row.id, row.pipeline_status]),
+  );
   const { data, error } = await supabase
     .from('accounts')
     .update({
@@ -707,12 +719,95 @@ export async function archiveAccounts(
         accountId,
         actorUserId: internalUserId,
         actionType: 'account_archived',
-        details: { bulk: true, selection_size: uniqueIds.length },
+        details: archiveAuditDetails(previousStatus.get(accountId), { bulk: true, selection_size: uniqueIds.length }),
       }),
     ),
   );
 
   return { success: true, archived: archivedIds.length };
+}
+
+/** Una ficha activa de la misma empresa (mismo Company ID de HubSpot o mismo dominio). */
+async function findActiveTwin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  account: { id: string; hubspot_company_id: string | null; domain: string | null },
+): Promise<ActiveTwin | null> {
+  const checks: Array<['hubspot_company_id' | 'domain', string]> = [];
+  if (account.hubspot_company_id) checks.push(['hubspot_company_id', account.hubspot_company_id]);
+  if (account.domain) checks.push(['domain', account.domain]);
+  for (const [column, value] of checks) {
+    const { data } = await supabase
+      .from('accounts')
+      .select('id, name')
+      .eq(column, value)
+      .is('archived_at', null)
+      .neq('id', account.id)
+      .limit(1)
+      .maybeSingle();
+    if (data) return data as ActiveTwin;
+  }
+  return null;
+}
+
+/**
+ * «Restaurar empresa» (dueña 25-11): deshace «Archivar». Sólo admin, como archivar. Vuelve
+ * al estado que tenía al archivarla (o «Nueva» si no quedó registrado), con su responsable,
+ * contactos e historial intactos: archivar no borra nada. Si la empresa ya volvió a entrar
+ * con otra ficha activa, no se restaura (quedaría duplicada) y se dice cuál es.
+ */
+export async function restoreAccount(
+  id: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  let internalUserId: string;
+  try {
+    ({ internalUserId } = await requireAdmin());
+  } catch {
+    return { success: false, error: 'Se requiere rol admin para restaurar empresas' };
+  }
+
+  const supabase = await createClient();
+  const { data: account, error: readError } = await supabase
+    .from('accounts')
+    .select('id, hubspot_company_id, domain, archived_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (readError) return { success: false, error: readError.message };
+  if (!account) return { success: false, error: 'No encontramos la empresa.' };
+  const row = account as { id: string; hubspot_company_id: string | null; domain: string | null; archived_at: string | null };
+  if (!row.archived_at) return { success: true };
+
+  const conflict = restoreConflictMessage(await findActiveTwin(supabase, row));
+  if (conflict) return { success: false, error: conflict };
+
+  const { data: lastArchive } = await supabase
+    .from('account_audit')
+    .select('details')
+    .eq('account_id', id)
+    .eq('action_type', 'account_archived')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const status = restoredPipelineStatus(
+    (lastArchive as { details?: Record<string, unknown> } | null)?.details?.previous_pipeline_status,
+  );
+
+  const { error } = await supabase
+    .from('accounts')
+    .update({ archived_at: null, archived_by: null, pipeline_status: status, updated_by: internalUserId })
+    .eq('id', id)
+    .not('archived_at', 'is', null);
+  if (error) return { success: false, error: error.message };
+
+  // La tabla de auditoría sólo admite sus tipos de siempre (migración 038): se registra como
+  // cambio de estado, marcado como restauración.
+  await logAccountAudit({
+    accountId: id,
+    actorUserId: internalUserId,
+    actionType: 'account_status_changed',
+    details: { restored: true, from: 'archived', to: status },
+  });
+  revalidatePath('/accounts');
+  return { success: true };
 }
 
 // ============================================================

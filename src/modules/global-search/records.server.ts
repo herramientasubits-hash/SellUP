@@ -1,7 +1,7 @@
 /**
- * Búsqueda general en TODO SellUp — lo que no se carga al abrir el buscador: empresas por
- * revisar, empresas descartadas, búsquedas y candidatos de contacto (por revisar,
- * duplicados y rechazados).
+ * Búsqueda general en TODO SellUp: empresas y contactos (por todos los criterios, con su
+ * alcance), empresas por revisar, empresas descartadas, búsquedas y candidatos de contacto
+ * (por revisar, duplicados y rechazados).
  *
  * Reutiliza las MISMAS lecturas de cada lista (mismo permiso y mismo alcance comercial);
  * no hay consulta nueva con reglas propias. Si una lista falla, las demás se muestran.
@@ -11,6 +11,7 @@
 import { getGlobalCandidatesList, getSearchesForViewer } from '@/modules/prospect-batches/actions';
 import { getDiscardedProspectsList } from '@/modules/prospect-discards/queries';
 import { searchContactCandidatesForGlobalSearch } from '@/modules/contact-enrichment/actions';
+import { accountDirectoryHits, contactDirectoryHits } from './directory-records.server';
 import {
   SELLUP_RECORDS_PER_KIND,
   foldedIncludes,
@@ -112,7 +113,13 @@ async function contactCandidateHits(query: string): Promise<SellUpRecordHit[]> {
     }));
 }
 
-const READERS: ReadonlyArray<{ kind: SellUpRecordKind; read: (query: string, userId: string) => Promise<SellUpRecordHit[]> }> = [
+type Reader = (query: string, userId: string, rawQuery: string) => Promise<SellUpRecordHit[]>;
+
+const READERS: ReadonlyArray<{ kind: SellUpRecordKind; read: Reader }> = [
+  // Empresas y contactos aprobados, de toda la base (no sólo los 200 más recientes) y por
+  // todos los criterios: así no depende de en qué pantalla se esté (dueña 25-11).
+  { kind: 'account', read: (query, _userId, raw) => accountDirectoryHits(query, raw) },
+  { kind: 'contact', read: (query, _userId, raw) => contactDirectoryHits(query, raw) },
   { kind: 'prospect', read: prospectHits },
   { kind: 'discarded_company', read: discardedHits },
   { kind: 'search', read: searchHits },
@@ -123,7 +130,8 @@ const READERS: ReadonlyArray<{ kind: SellUpRecordKind; read: (query: string, use
 export async function searchSellUpRecords(rawQuery: unknown, userId: string): Promise<SellUpRecordsResult> {
   const query = normalizeRecordsQuery(rawQuery);
   if (!query) return { hits: [], failed: [] };
-  const settled = await Promise.allSettled(READERS.map((reader) => reader.read(query, userId)));
+  const raw = typeof rawQuery === 'string' ? rawQuery.replace(/\s+/g, ' ').trim().slice(0, 120) : query;
+  const settled = await Promise.allSettled(READERS.map((reader) => reader.read(query, userId, raw)));
   const hits: SellUpRecordHit[] = [];
   const failed: SellUpRecordKind[] = [];
   settled.forEach((result, index) => {

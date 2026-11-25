@@ -208,6 +208,7 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
             <AccountDetailActions
               accountId={account.id}
               users={users}
+              archived={Boolean(account.archived_at)}
             />
           </>
         }

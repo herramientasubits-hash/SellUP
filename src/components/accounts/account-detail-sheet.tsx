@@ -341,6 +341,7 @@ export function AccountDetailSheet({
                 users={data.users}
                 onChanged={() => loadData(data.account.id)}
                 onArchived={onClose}
+                archived={Boolean(data.account.archived_at)}
               />
               <AccountEnrichContactsButton
                 variant={firstCallOffered ? 'outline' : 'default'}
@@ -611,7 +612,7 @@ export function AccountDetailSheet({
                       accountName={data.account.name}
                       state={data.firstCall}
                       contacts={toFirstCallContactOptions(data.contacts)}
-                      archived={data.account.pipeline_status === 'archived'}
+                      archived={Boolean(data.account.archived_at)}
                       canMoveToReady={data.account.pipeline_status !== 'ready_for_outreach'}
                       onChanged={() => afterFirstCall(data.account.id, false)}
                       onRequestFirstContact={onRequestFirstContact}

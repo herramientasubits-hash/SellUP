@@ -14,6 +14,7 @@ import {
   HUBSPOT_CLIENT_LIFECYCLE_VALUE,
   readHubSpotChurn,
 } from '@/server/integrations/hubspot-free-company-policy';
+import { phoneSuffix, type SearchCriteria } from '@/modules/global-search/search-criteria';
 
 /** Un Company ID / Contact ID de HubSpot: sólo dígitos. */
 export function isHubSpotObjectId(value: unknown): value is string {
@@ -256,6 +257,106 @@ export function buildLookupSearchBody(query: string, properties: readonly string
     properties: [...properties],
     sorts: [{ propertyName: 'notes_last_updated', direction: 'DESCENDING' }],
   };
+}
+
+/** Una búsqueda de HubSpot (`/crm/v3/objects/<objeto>/search`): el cuerpo, listo para enviar. */
+export type HubSpotSearchBody = Record<string, unknown>;
+
+/** Lo que se pide a HubSpot por lo escrito: búsquedas y lecturas por ID, por objeto. */
+export interface HubSpotLookupPlan {
+  companySearches: HubSpotSearchBody[];
+  contactSearches: HubSpotSearchBody[];
+  /** IDs que se leen directo (lo escrito es un número que puede ser un ID de HubSpot). */
+  companyIds: string[];
+  contactIds: string[];
+}
+
+/** Un ID de HubSpot real tiene varios dígitos: con menos, no se gasta una lectura. */
+const MIN_HUBSPOT_ID_DIGITS = 5;
+
+type HubSpotFilter = { propertyName: string; operator: 'EQ' | 'CONTAINS_TOKEN'; value: string };
+
+function filterSearchBody(groups: readonly HubSpotFilter[], properties: readonly string[]): HubSpotSearchBody {
+  return {
+    filterGroups: groups.map((filter) => ({ filters: [filter] })),
+    limit: HUBSPOT_LOOKUP_SEARCH_LIMIT,
+    properties: [...properties],
+  };
+}
+
+/**
+ * Qué se le pide a HubSpot por lo escrito (dueña 25-11: buscar por ID, número fiscal,
+ * dominio, nombre, correo y teléfono). La búsqueda de texto libre de HubSpot ya cubre
+ * nombre, dominio, web, correo y teléfono de la empresa; lo demás va con filtros:
+ *
+ *  - Número fiscal → empresas por `identificaci_n_fiscal` / `rfc_mx_` (contiene el número;
+ *    también sin el dígito de verificación, que unos guardan pegado y otros no).
+ *  - Teléfono → contactos por teléfono y celular, por sus últimos dígitos (da igual el
+ *    indicativo y los separadores).
+ *  - Un número largo → además se lee como Company ID y Contact ID.
+ *  - Una web → se busca el dominio limpio (sin `https://` ni `www.`).
+ *
+ * Los grupos de filtros de HubSpot se combinan con O (máximo 5 por búsqueda).
+ */
+export function buildHubSpotLookupPlan(criteria: SearchCriteria): HubSpotLookupPlan {
+  const textQuery = criteria.email ?? criteria.domain ?? criteria.text;
+  // En orden de certeza: los filtros primero, el texto libre al final (`mergeLookupHits`).
+  const companySearches: HubSpotSearchBody[] = [];
+  const contactSearches: HubSpotSearchBody[] = [];
+
+  const taxFilters: HubSpotFilter[] = [];
+  if (criteria.taxDigits) {
+    const variants = [criteria.taxDigits];
+    // Con el dígito de verificación pegado («9001234567») también se busca sin él.
+    if (criteria.taxDigits.length >= 9) variants.push(criteria.taxDigits.slice(0, -1));
+    for (const value of variants) {
+      taxFilters.push({ propertyName: 'identificaci_n_fiscal', operator: 'CONTAINS_TOKEN', value: `*${value}*` });
+    }
+    taxFilters.push({ propertyName: 'rfc_mx_', operator: 'CONTAINS_TOKEN', value: `*${criteria.taxDigits}*` });
+  }
+  if (criteria.taxText) {
+    taxFilters.push({ propertyName: 'rfc_mx_', operator: 'EQ', value: criteria.taxText });
+    taxFilters.push({ propertyName: 'identificaci_n_fiscal', operator: 'EQ', value: criteria.taxText });
+  }
+  if (taxFilters.length > 0) companySearches.push(filterSearchBody(taxFilters.slice(0, 5), HUBSPOT_LOOKUP_COMPANY_PROPERTIES));
+  // Nombre, dominio, web y teléfono de la empresa: el texto libre de HubSpot.
+  companySearches.push(buildLookupSearchBody(textQuery, HUBSPOT_LOOKUP_COMPANY_PROPERTIES));
+
+  if (criteria.phoneDigits) {
+    const value = `*${phoneSuffix(criteria.phoneDigits)}`;
+    contactSearches.push(
+      filterSearchBody(
+        ['hs_searchable_calculated_phone_number', 'hs_searchable_calculated_mobile_number', 'phone', 'mobilephone'].map(
+          (propertyName) => ({ propertyName, operator: 'CONTAINS_TOKEN' as const, value }),
+        ),
+        HUBSPOT_LOOKUP_CONTACT_PROPERTIES,
+      ),
+    );
+  } else {
+    // Nombre, correo, empresa: el texto libre de HubSpot.
+    contactSearches.push(buildLookupSearchBody(textQuery, HUBSPOT_LOOKUP_CONTACT_PROPERTIES));
+  }
+
+  const ids = criteria.hubspotId && criteria.hubspotId.length >= MIN_HUBSPOT_ID_DIGITS ? [criteria.hubspotId] : [];
+  return { companySearches, contactSearches, companyIds: ids, contactIds: ids };
+}
+
+/**
+ * Une lo encontrado por cada vía sin repetir (por ID) y en orden de certeza: primero lo
+ * leído por ID, luego lo de los filtros y al final el texto libre. Tope por búsqueda.
+ */
+export function mergeLookupHits<T extends { id: string }>(lists: ReadonlyArray<readonly T[]>, limit = HUBSPOT_LOOKUP_SEARCH_LIMIT): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const list of lists) {
+    for (const item of list) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
 }
 
 // ── Actividad ───────────────────────────────────────────────────────────────

@@ -13,8 +13,12 @@ import {
   candidateReviewHref,
 } from '@/modules/contact-enrichment/candidate-review-link';
 import type { ContactCandidateQueue, SellUpRecordHit } from '@/modules/global-search/types';
+import { openRecordHref } from '@/modules/global-search/open-record-link';
+import type { OpenSellUpDrawer } from './hubspot-search-items';
 
 export const SELLUP_RECORD_GROUPS = {
+  account: 'Empresas',
+  contact: 'Contactos',
   prospect: 'Empresas por revisar',
   discarded_company: 'Empresas descartadas',
   search: 'Búsquedas',
@@ -48,6 +52,9 @@ function withParams(base: string, params: Record<string, string>): string {
 /** A dónde lleva lo encontrado, y si la pantalla tiene que abrir una ficha. */
 export function sellUpRecordTarget(hit: SellUpRecordHit): { href: string; event?: SellUpOpenEvent } {
   switch (hit.kind) {
+    case 'account':
+    case 'contact':
+      return { href: openRecordHref(hit.kind, hit.id) };
     case 'prospect':
       // La lista se filtra por el nombre (así la fila está aunque la cola sea larga) y se
       // abre su ficha.
@@ -89,22 +96,36 @@ function groupOf(hit: SellUpRecordHit): string {
   return SELLUP_RECORD_GROUPS[hit.kind];
 }
 
-const ICON = { prospect: Building2, discarded_company: Building2, search: Search, contact_candidate: UserIcon } as const;
+const ICON = { account: Building2, contact: UserIcon, prospect: Building2, discarded_company: Building2, search: Search, contact_candidate: UserIcon } as const;
 
-export function sellUpSearchItem(hit: SellUpRecordHit, open: OpenSellUpRecord): SearchObjectItem {
-  const target = sellUpRecordTarget(hit);
-  return {
+/** Lo que no se puede abrir (lo lleva alguien fuera del alcance): se ve, sin enlace. */
+const LOCKED_ACTION_LABEL = 'Sin acceso';
+
+export function sellUpSearchItem(hit: SellUpRecordHit, open: OpenSellUpRecord, openDrawer?: OpenSellUpDrawer): SearchObjectItem {
+  // Mismo `id` que las empresas y contactos ya cargados: no salen dos veces.
+  const base = {
     id: `${hit.kind}-${hit.id}`,
     title: hit.title,
     meta: hit.meta,
     keywords: hit.keywords,
     icon: ICON[hit.kind],
     group: groupOf(hit),
+  };
+  if (hit.locked) return { ...base, disabled: true, actionLabel: LOCKED_ACTION_LABEL };
+  const target = sellUpRecordTarget(hit);
+  // Una empresa o un contacto se abre en su ficha lateral (dueña 17-11), no en su página.
+  const drawerKind = hit.kind === 'account' || hit.kind === 'contact' ? hit.kind : null;
+  return {
+    ...base,
     href: target.href,
-    onSelect: () => open(target.href, target.event),
+    onSelect: drawerKind && openDrawer ? () => openDrawer(drawerKind, hit.id) : () => open(target.href, target.event),
   };
 }
 
-export function sellUpSearchItems(hits: readonly SellUpRecordHit[], open: OpenSellUpRecord): SearchObjectItem[] {
-  return hits.map((hit) => sellUpSearchItem(hit, open));
+export function sellUpSearchItems(
+  hits: readonly SellUpRecordHit[],
+  open: OpenSellUpRecord,
+  openDrawer?: OpenSellUpDrawer,
+): SearchObjectItem[] {
+  return hits.map((hit) => sellUpSearchItem(hit, open, openDrawer));
 }
