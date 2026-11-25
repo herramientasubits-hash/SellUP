@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { openSlackDMForUser } from '@/server/services/slack-connection';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { accessPathForStatus } from '@/modules/access/access-status-routes';
 
 // The Slack DM sidecar below builds a service-role client via the shared
 // fail-closed factory (createSupabaseAdminClient), which reads the env-guard
@@ -83,17 +84,7 @@ export async function GET(request: Request) {
     p_auth_user_id: user.id,
   });
 
-  const accessStatus = accessData?.[0]?.access_status ?? 'pending_approval';
-
-  const accessRedirects: Record<string, string> = {
-    pending_approval: '/access-pending',
-    rejected: '/access-rejected',
-    suspended: '/access-suspended',
-    archived: '/access-archived',
-    active: '/pipeline',
-  };
-
-  const redirectPath = accessRedirects[accessStatus] ?? '/access-pending';
+  const redirectPath = accessPathForStatus(accessData?.[0]?.access_status);
 
   return NextResponse.redirect(`${origin}${redirectPath}`);
 }

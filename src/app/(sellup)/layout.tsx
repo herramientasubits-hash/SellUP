@@ -5,6 +5,7 @@ import { isCurrentUserAdmin, getCurrentUser } from '@/modules/access/actions';
 import type { NavAccessContext } from '@/config/navigation';
 import { readRealUser, readRolePreview } from '@/modules/access/role-preview.server';
 import { canUseRolePreview } from '@/modules/access/role-preview';
+import { accessPathForStatus } from '@/modules/access/access-status-routes';
 
 export default async function SellUpLayout({
   children,
@@ -27,16 +28,7 @@ export default async function SellUpLayout({
 
   const accessStatus = internalUser?.access_status ?? 'pending_approval';
 
-  if (accessStatus !== 'active') {
-    const accessRedirects: Record<string, string> = {
-      pending_approval: '/access-pending',
-      rejected: '/access-rejected',
-      suspended: '/access-suspended',
-      archived: '/access-archived',
-    };
-
-    redirect(accessRedirects[accessStatus] ?? '/access-pending');
-  }
+  if (accessStatus !== 'active') redirect(accessPathForStatus(accessStatus));
 
   const [{ count }, isAdmin, internalUserRecord, realUser, rolePreview] = await Promise.all([
     supabase

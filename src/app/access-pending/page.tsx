@@ -1,17 +1,9 @@
-import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
+import { requireAccessScreen } from '@/modules/access/access-screen.server';
 import { Clock } from "@/icons";
 import { AccessStatusScreen } from '@/components/shared/access-status-screen';
 
 export default async function AccessPendingPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
+  const { user } = await requireAccessScreen('pending_approval');
 
   return (
     <AccessStatusScreen

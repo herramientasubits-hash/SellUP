@@ -1,17 +1,9 @@
-import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
+import { requireAccessScreen } from '@/modules/access/access-screen.server';
 import { Ban } from "@/icons";
 import { AccessStatusScreen } from '@/components/shared/access-status-screen';
 
 export default async function AccessSuspendedPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
+  const { user } = await requireAccessScreen('suspended');
 
   return (
     <AccessStatusScreen
