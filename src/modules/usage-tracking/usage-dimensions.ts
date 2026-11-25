@@ -309,6 +309,7 @@ export const AGENT_STEP_LABELS: Readonly<Record<string, string>> = {
   buscar_contactos: 'Buscar contactos',
   identificar_contacto: 'Identificar contacto',
   verificar_cargo_ia: 'Verificar cargo y empresa con IA (Claude)',
+  comprobar_empleo: '¿Sigue en la empresa? (Apollo, al buscar)',
   revelar_telefono: 'Revelar teléfono',
   telefono_en_cache: 'Teléfono ya guardado',
   // Pasos que el escritor declara (la regla por proveedor + operación no los distingue).
