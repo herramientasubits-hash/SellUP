@@ -367,12 +367,21 @@ export default async function AccountDetailPage({ params, searchParams }: Accoun
         {/* ── Contactos ────────────────────────────────────────── */}
         <TabsContent value="contactos">
           {/* AGENT2A-CONTACT-PAGE-ACTIONS — el nombre del contacto abre su panel lateral. */}
+          {/* Sin contactos en SellUp, los de HubSpot van PRIMERO: debajo del vacío no se
+              veían en pantallas chicas y parecía que la empresa no tenía (Sportium 25-11). */}
+          {hubspotCompanyId && contacts.length === 0 && (
+            <div className="mb-4">
+              <AccountHubSpotContacts accountId={account.id} hubspotCompanyId={hubspotCompanyId} archived={isArchived} />
+            </div>
+          )}
           <AccountContactsTabClient
             accountId={account.id}
             contacts={contacts}
             summary={contactsSummary}
+            hasHubSpotCompany={!!hubspotCompanyId}
+            archived={isArchived}
           />
-          {hubspotCompanyId && (
+          {hubspotCompanyId && contacts.length > 0 && (
             <div className="mt-4">
               <AccountHubSpotContacts accountId={account.id} hubspotCompanyId={hubspotCompanyId} archived={isArchived} />
             </div>

@@ -375,6 +375,15 @@ describe('runDiscardCandidate', () => {
     assert.equal(result.ok, false);
     assert.equal(updated.length, 0);
   });
+
+  it('no rechaza un candidato ya aprobado', async () => {
+    const { deps, updated } = makeDiscardDeps({
+      loadCandidate: async () => makeCandidate({ status: 'approved' }),
+    });
+    const result = await runDiscardCandidate('cand-1', 'X', deps);
+    assert.equal(result.ok, false);
+    assert.equal(updated.length, 0);
+  });
 });
 
 // ── parseContactName (Hito 17A.5A) ─────────────────────────────
@@ -695,13 +704,16 @@ describe('runDiscardCandidate — cobertura ampliada', () => {
     assert.equal(updated.length, 0);
   });
 
-  it('falla si el candidato ya está duplicate', async () => {
+  // Antes un duplicado no se podía rechazar. Desde «Contactos de otras fuentes» (Bryan 25-11) sí:
+  // si no se fusiona, rechazarlo lo saca de la cola (queda en «Rechazados»).
+  it('rechaza un candidato duplicate (Bryan 25-11)', async () => {
     const { deps, updated } = makeDiscardDeps2({
       loadCandidate: async () => makeCandidate({ status: 'duplicate' }),
     });
     const result = await runDiscardCandidate('cand-1', 'Motivo', deps);
-    assert.equal(result.ok, false);
-    assert.equal(updated.length, 0);
+    assert.equal(result.ok, true);
+    assert.equal(updated.length, 1);
+    assert.equal(updated[0].patch.status, 'discarded');
   });
 
   it('falla si candidateId es vacío', async () => {

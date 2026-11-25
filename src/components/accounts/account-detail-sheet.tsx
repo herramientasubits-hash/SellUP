@@ -72,6 +72,7 @@ import {
   useHubSpotActivity,
 } from '@/components/hubspot/hubspot-activity';
 import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
+import { AccountOtherSourcesContacts } from './account-other-sources-contacts-section';
 import { HubSpotPropertiesDisclosure } from '@/components/hubspot/hubspot-properties-section';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
 import { importedContactToastDescription, OPEN_IMPORTED_CONTACT_LABEL } from '@/modules/hubspot-lookup/import-copy';
@@ -584,24 +585,45 @@ export function AccountDetailSheet({
 
                   {/* Contactos */}
                   <TabsContent value="contactos">
-                    <ContactsTab
-                      accountId={data.account.id}
-                      contacts={data.contacts}
-                      summary={data.contactsSummary}
-                      onViewContact={openContactDetail}
-                      onContactsChanged={() => loadData(data.account.id)}
-                    />
-                    {data.account.hubspot_company_id && hubspotContacts.state && (
-                      <div className="mt-4">
-                        <HubSpotContactsSection
-                          state={hubspotContacts.state}
-                          onRetry={hubspotContacts.reload}
-                          onlyMissing
-                          onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
-                          importingId={importingContactId}
-                        />
-                      </div>
-                    )}
+                    {(() => {
+                      // Sin contactos en SellUp, los de HubSpot van PRIMERO (Sportium 25-11).
+                      const hubspotFirst = data.contacts.length === 0;
+                      const hubspotBlock = data.account.hubspot_company_id && hubspotContacts.state && (
+                        <div className={hubspotFirst ? 'mb-4' : 'mt-4'}>
+                          <HubSpotContactsSection
+                            state={hubspotContacts.state}
+                            onRetry={hubspotContacts.reload}
+                            onlyMissing
+                            onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
+                            importingId={importingContactId}
+                          />
+                        </div>
+                      );
+                      return (
+                        <>
+                          {hubspotFirst && hubspotBlock}
+                          <ContactsTab
+                            accountId={data.account.id}
+                            contacts={data.contacts}
+                            summary={data.contactsSummary}
+                            onViewContact={openContactDetail}
+                            onContactsChanged={() => loadData(data.account.id)}
+                            hasHubSpotCompany={!!data.account.hubspot_company_id}
+                          />
+                          {/* Agente 1 (Bryan 25-11) — lo de Apollo, Lusha y otras fuentes que espera decisión. */}
+                          <div className="mt-4">
+                            <AccountOtherSourcesContacts
+                              accountId={data.account.id}
+                              archived={data.account.pipeline_status === 'archived'}
+                              enabled={tab === 'contactos'}
+                              onContactsChanged={() => loadData(data.account.id)}
+                              onOpenContact={openContactDetail}
+                            />
+                          </div>
+                          {!hubspotFirst && hubspotBlock}
+                        </>
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* Primer contacto (Agente 3): la investigación y las preparaciones juntas */}
