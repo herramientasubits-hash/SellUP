@@ -127,6 +127,11 @@ export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defa
         )}
         {versions.includes("2026") && (
           <TabsContent value="2026">
+            <Alert variant="warning" className="mb-5">
+              <AlertDescription>
+                La versión 2026 se puede usar hasta el 31 de diciembre de 2026. Desde el 1 de enero de 2027 solo se cotiza con la 2027.
+              </AlertDescription>
+            </Alert>
             {countries2026.length > 0 ? (
               <Quote2026View
                 key={seed?.version === "2026" ? seed.key : "base"}
