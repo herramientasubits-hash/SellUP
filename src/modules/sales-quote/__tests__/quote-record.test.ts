@@ -5,6 +5,7 @@ import { decodeQuoteDecision, quoteDecisionButtons, QUOTE_APPROVE_ACTION_ID, QUO
 import { defaultQuote2026Input } from '../engine-2026';
 import { defaultQuote2027Input } from '../engine-2027';
 import { buildQuoteRecord, initialQuoteStatus, isQuoteSendable } from '../quote-record';
+import { applySalesRules2027 } from '../sales-rules';
 
 const base2027 = {
   version: '2027' as const,
@@ -77,6 +78,44 @@ describe('guardar una cotización 2027', () => {
     ]) {
       assert.equal(buildQuoteRecord(bad).ok, false, JSON.stringify(bad)?.slice(0, 80));
     }
+  });
+});
+
+describe('reglas de Ventas (Rubén Candia, 24-11)', () => {
+  const selectionOnly = {
+    ...base2027.input,
+    includeLearning: false,
+    performanceCulture: false,
+    selection: { tier: 'basic' as const, packs: 0 },
+    lmsAi: { tier: 'pro' as const, packs: 2 },
+  };
+
+  it('LMS AI es parte de Aprendizaje: al quitar Aprendizaje se quita LMS AI', () => {
+    const input = applySalesRules2027(selectionOnly);
+    assert.equal(input.includeLearning, false);
+    assert.deepEqual(input.lmsAi, { tier: null, packs: 0 });
+  });
+
+  it('🔴 el servidor no guarda LMS AI sin Aprendizaje', () => {
+    const outcome = buildQuoteRecord({ ...base2027, input: selectionOnly });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.match(outcome.error, /LMS AI es parte de Aprendizaje/);
+  });
+
+  it('con Aprendizaje, LMS AI se guarda normal', () => {
+    const outcome = buildQuoteRecord({ ...base2027, input: { ...base2027.input, lmsAi: { tier: 'basic', packs: 0 } } });
+    assert.ok(outcome.ok);
+    if (outcome.ok) assert.ok(outcome.record.result.lines.some((line) => line.id === 'lmsai'));
+  });
+
+  it('guarda la empresa de HubSpot a la que se cotiza; un id que no es de HubSpot no pasa', () => {
+    const outcome = buildQuoteRecord({ ...base2027, hubspotCompanyId: '18493822001' });
+    assert.ok(outcome.ok);
+    if (outcome.ok) assert.equal(outcome.record.result.hubspotCompanyId, '18493822001');
+    assert.equal(buildQuoteRecord({ ...base2027, hubspotCompanyId: 'abc' }).ok, false);
+    const withoutId = buildQuoteRecord(base2027);
+    assert.ok(withoutId.ok);
+    if (withoutId.ok) assert.equal(withoutId.record.result.hubspotCompanyId, null);
   });
 });
 

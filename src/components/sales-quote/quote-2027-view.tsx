@@ -22,7 +22,6 @@ import {
   TERM_OPTIONS_2027,
   defaultQuote2027Input,
   manualDiscountFor,
-  normalizeQuote2027Input,
   quote2027,
   type Line2027Id,
   type Quote2027Input,
@@ -31,30 +30,32 @@ import {
 import { moneyContextFor } from "@/modules/sales-quote/exchange-rates";
 import { currencyCode, formatQuoteInteger, formatQuoteMoney, formatQuotePercent } from "@/modules/sales-quote/format";
 import { findQuoteCountry, type QuoteCountry } from "@/modules/sales-quote/markets";
+import { applySalesRules2027 } from "@/modules/sales-quote/sales-rules";
 import { yearsLabel } from "@/modules/sales-quote/shared";
 import { CopyButton, CreditPlanPicker, LinePrice, OtherTermsTable, ProductRow, QuoteConditions, QuoteSummary } from "./quote-parts";
 import { LmsAiEstimator, SelectionEstimator, SelectionRoiPanel } from "./quote-estimators";
+import { EMPTY_CLIENT, type QuoteClientRef } from "./quote-client-picker";
 import { QuoteSavePanel } from "./quote-save-panel";
 
 interface Quote2027ViewProps {
   countries: readonly QuoteCountry[];
   /** «Duplicar»: arranca con una cotización guardada. */
   initialInput?: Quote2027Input;
-  initialClientName?: string;
+  initialClient?: QuoteClientRef;
   onSaved: () => void;
 }
 
-export function Quote2027View({ countries, initialInput, initialClientName = "", onSaved }: Quote2027ViewProps) {
+export function Quote2027View({ countries, initialInput, initialClient = EMPTY_CLIENT, onSaved }: Quote2027ViewProps) {
   const [input, setInput] = useState<Quote2027Input>(() =>
     initialInput && countries.some((country) => country.code === initialInput.country)
       ? initialInput
       : { ...(initialInput ?? defaultQuote2027Input()), country: countries[0]?.code ?? "CO" },
   );
-  const [clientName, setClientName] = useState(initialClientName);
+  const [client, setClient] = useState<QuoteClientRef>(initialClient);
   const [useLocalCurrency, setUseLocalCurrency] = useState(false);
   const result = useMemo(() => quote2027(input), [input]);
   const money = moneyContextFor(input.country, useLocalCurrency);
-  const patch = (next: Partial<Quote2027Input>) => setInput((current) => normalizeQuote2027Input({ ...current, ...next }));
+  const patch = (next: Partial<Quote2027Input>) => setInput((current) => applySalesRules2027({ ...current, ...next }));
   const lineById = (id: Line2027Id) => result.lines.find((line) => line.id === id);
 
   const setLineDiscount = (line: Quote2027Line, percent: number | null) =>
@@ -121,7 +122,7 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
 
   const country = findQuoteCountry(input.country)?.name ?? input.country;
   const summaryText = [
-    `Cotización UBITS · ${clientName.trim() || "cliente sin nombre"} · ${country}`,
+    `Cotización UBITS · ${client.name.trim() || "cliente sin nombre"} · ${country}`,
     `Plazo: ${yearsLabel(input.years)}. Pagos al año: ${input.payments}.`,
     "",
     ...result.lines.map(
@@ -142,8 +143,8 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
       <div className="flex min-w-0 flex-col gap-5">
         <FormSection title="Cliente y condiciones" description="Dónde, por cuánto tiempo y cómo paga.">
           <QuoteConditions
-            clientName={clientName}
-            onClientName={setClientName}
+            client={client}
+            onClient={setClient}
             countries={countries}
             country={input.country}
             onCountry={(code) => patch({ country: code })}
@@ -173,7 +174,7 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
               description={
                 input.includeLearning
                   ? `Por licencia. ${formatQuoteInteger(input.licenses)} licencias${input.licenses > 0 && input.licenses < LICENSE_RANGE.min ? ` (se cobran como ${LICENSE_RANGE.min})` : ""}.`
-                  : "No se incluye: la cotización es solo de Selección."
+                  : "No se incluye: la cotización es solo de Selección (sin LMS AI ni Desempeño y Cultura)."
               }
               control={
                 <Switch
@@ -201,6 +202,28 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
                 >
                   {linePrice(lineById("contenido"))}
                 </ProductRow>
+                <div className="space-y-4 border-b border-border/60 py-4">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium text-foreground">LMS AI</p>
+                    <p className="text-sm text-muted-foreground">
+                      Parte de Aprendizaje: créditos para crear cursos con IA. No se vende solo y no cuenta para el paquete.
+                    </p>
+                  </div>
+                  <CreditPlanPicker label="LMS AI" value={input.lmsAi} pack={CREDIT_PACK_2027} money={money} onChange={(lmsAi) => patch({ lmsAi })} />
+                  {lineById("lmsai") && (
+                    <div>
+                      <ProductRow title="Plan de LMS AI" description={lineById("lmsai")?.detail}>
+                        {linePrice(lineById("lmsai"))}
+                      </ProductRow>
+                      {lineById("lmsai_topup") && (
+                        <ProductRow title="Paquetes adicionales" description={lineById("lmsai_topup")?.detail}>
+                          {linePrice(lineById("lmsai_topup"))}
+                        </ProductRow>
+                      )}
+                    </div>
+                  )}
+                  <LmsAiEstimator value={input.lmsAi} pack={CREDIT_PACK_2027} money={money} onApply={(lmsAi) => patch({ lmsAi })} />
+                </div>
               </>
             )}
             <ProductRow
@@ -220,22 +243,6 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
           </div>
         </FormSection>
 
-        <FormSection title="LMS AI" description="Complemento de Aprendizaje: créditos para crear cursos con IA. No cuenta para el paquete.">
-          <CreditPlanPicker label="LMS AI" value={input.lmsAi} pack={CREDIT_PACK_2027} money={money} onChange={(lmsAi) => patch({ lmsAi })} />
-          {lineById("lmsai") && (
-            <div className="space-y-3">
-              <ProductRow title="Plan de LMS AI" description={lineById("lmsai")?.detail}>
-                {linePrice(lineById("lmsai"))}
-              </ProductRow>
-              {lineById("lmsai_topup") && (
-                <ProductRow title="Paquetes adicionales" description={lineById("lmsai_topup")?.detail}>
-                  {linePrice(lineById("lmsai_topup"))}
-                </ProductRow>
-              )}
-            </div>
-          )}
-          <LmsAiEstimator value={input.lmsAi} pack={CREDIT_PACK_2027} money={money} onApply={(lmsAi) => patch({ lmsAi })} />
-        </FormSection>
 
         <FormSection title="Selección" description="Se vende solo o con Aprendizaje. Precio fijo por plan de créditos, sin factor de país.">
           <CreditPlanPicker label="Selección" value={input.selection} pack={CREDIT_PACK_2027} money={money} onChange={(selection) => patch({ selection })} />
@@ -336,7 +343,7 @@ export function Quote2027View({ countries, initialInput, initialClientName = "",
               <QuoteSavePanel
                 version="2027"
                 input={input}
-                clientName={clientName}
+                client={client}
                 needsApproval={needsApproval}
                 disabled={result.blockedByOperations}
                 onSaved={onSaved}

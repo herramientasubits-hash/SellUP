@@ -26,6 +26,7 @@ import { quotableCountries } from "@/modules/sales-quote/quote-access";
 import type { PricingVersion } from "@/modules/sales-quote/version";
 import { Quote2026View } from "./quote-2026-view";
 import { Quote2027View } from "./quote-2027-view";
+import type { QuoteClientRef } from "./quote-client-picker";
 import { ApprovalsList, QuotesTable } from "./quote-lists";
 
 const VERSION_LABELS: Record<PricingVersion, string> = {
@@ -51,7 +52,7 @@ interface Seed {
   key: number;
   version: PricingVersion;
   input: unknown;
-  clientName: string;
+  client: QuoteClientRef;
 }
 
 export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defaultVersion, board, initialTab }: QuoteClientProps) {
@@ -76,7 +77,11 @@ export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defa
       version: target,
       // Una 2026 que ya no se cotiza arranca la 2027 desde cero (otros productos).
       input: target === row.version ? row.input : undefined,
-      clientName: row.clientName ?? row.accountName ?? "",
+      client: {
+        name: row.clientName ?? row.accountName ?? "",
+        hubspotCompanyId: row.result.hubspotCompanyId ?? null,
+        accountId: row.accountId,
+      },
     });
     setVersion(target);
     setTab("quote");
@@ -137,7 +142,7 @@ export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defa
                 key={seed?.version === "2026" ? seed.key : "base"}
                 countries={countries2026}
                 initialInput={seed?.version === "2026" ? (seed.input as Quote2026Input | undefined) : undefined}
-                initialClientName={seed?.version === "2026" ? seed.clientName : undefined}
+                initialClient={seed?.version === "2026" ? seed.client : undefined}
                 onSaved={onSaved}
               />
             ) : (
@@ -150,7 +155,7 @@ export function QuoteClient({ markets, seesAllMarkets, fromGroup, versions, defa
             key={seed?.version === "2027" ? seed.key : "base"}
             countries={countries2027}
             initialInput={seed?.version === "2027" ? (seed.input as Quote2027Input | undefined) : undefined}
-            initialClientName={seed?.version === "2027" ? seed.clientName : undefined}
+            initialClient={seed?.version === "2027" ? seed.client : undefined}
             onSaved={onSaved}
           />
         </TabsContent>

@@ -12,11 +12,11 @@ import { NumberField } from "@/components/forms/number-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { QuoteClientPicker, type QuoteClientRef } from "./quote-client-picker";
 import {
   CREDIT_TIERS,
   CREDIT_TIER_PLANS,
@@ -44,8 +44,8 @@ export function paymentsHint(payments: PaymentCount): string {
 }
 
 interface ConditionsProps {
-  clientName: string;
-  onClientName: (value: string) => void;
+  client: QuoteClientRef;
+  onClient: (value: QuoteClientRef) => void;
   countries: readonly QuoteCountry[];
   country: string;
   onCountry: (code: string) => void;
@@ -71,8 +71,8 @@ export function QuoteConditions(props: ConditionsProps) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-5 md:grid-cols-3">
-        <Field label="Cliente" description="Opcional. Sale en el resumen que copias.">
-          <Input value={props.clientName} onChange={(e) => props.onClientName(e.target.value)} placeholder="Empresa S.A.S." />
+        <Field label="Cliente" description="La empresa de HubSpot a la que se cotiza. Si no está, escribe su nombre.">
+          <QuoteClientPicker value={props.client} onChange={props.onClient} />
         </Field>
         <Field label="País" required>
           <Select

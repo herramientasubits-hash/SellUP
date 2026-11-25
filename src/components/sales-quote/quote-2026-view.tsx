@@ -36,6 +36,7 @@ import { findQuoteCountry, type QuoteCountry } from "@/modules/sales-quote/marke
 import { yearsLabel } from "@/modules/sales-quote/shared";
 import { CopyButton, CreditPlanPicker, LinePrice, OtherTermsTable, ProductRow, QuoteConditions, QuoteSummary } from "./quote-parts";
 import { LmsAiEstimator } from "./quote-estimators";
+import { EMPTY_CLIENT, type QuoteClientRef } from "./quote-client-picker";
 import { QuoteSavePanel } from "./quote-save-panel";
 
 const MODULE_DESCRIPTIONS: Record<Module2026, string> = {
@@ -49,17 +50,17 @@ interface Quote2026ViewProps {
   countries: readonly QuoteCountry[];
   /** «Duplicar»: arranca con una cotización guardada. */
   initialInput?: Quote2026Input;
-  initialClientName?: string;
+  initialClient?: QuoteClientRef;
   onSaved: () => void;
 }
 
-export function Quote2026View({ countries, initialInput, initialClientName = "", onSaved }: Quote2026ViewProps) {
+export function Quote2026View({ countries, initialInput, initialClient = EMPTY_CLIENT, onSaved }: Quote2026ViewProps) {
   const [input, setInput] = useState<Quote2026Input>(() =>
     initialInput && countries.some((country) => country.code === initialInput.country)
       ? initialInput
       : { ...(initialInput ?? defaultQuote2026Input()), country: countries[0]?.code ?? "CO" },
   );
-  const [clientName, setClientName] = useState(initialClientName);
+  const [client, setClient] = useState<QuoteClientRef>(initialClient);
   const [useLocalCurrency, setUseLocalCurrency] = useState(false);
   const result = useMemo(() => quote2026(input), [input]);
   const money = moneyContextFor(input.country, useLocalCurrency);
@@ -94,7 +95,7 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
 
   const country = findQuoteCountry(input.country)?.name ?? input.country;
   const summaryText = [
-    `Cotización UBITS · ${clientName.trim() || "cliente sin nombre"} · ${country}`,
+    `Cotización UBITS · ${client.name.trim() || "cliente sin nombre"} · ${country}`,
     `Plazo: ${yearsLabel(input.years)}. Pagos al año: ${input.payments}.`,
     "",
     ...main.lines.map(
@@ -115,8 +116,8 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
       <div className="flex min-w-0 flex-col gap-5">
         <FormSection title="Cliente y condiciones" description="Dónde, por cuánto tiempo y cómo paga.">
           <QuoteConditions
-            clientName={clientName}
-            onClientName={setClientName}
+            client={client}
+            onClient={setClient}
             countries={countries}
             country={input.country}
             onCountry={(code) => patch({ country: code })}
@@ -187,6 +188,28 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
                 {linePrice(lineById(module))}
               </ProductRow>
             ))}
+            <div className="space-y-4 border-b border-border/60 py-4 last:border-b-0 last:pb-0">
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium text-foreground">LMS AI</p>
+                <p className="text-sm text-muted-foreground">
+                  Parte de Aprendizaje: créditos para crear cursos con IA. Se cobra como servicio y no recibe el descuento de paquete.
+                </p>
+              </div>
+              <CreditPlanPicker label="LMS AI" value={input.lmsAi} pack={CREDIT_PACK_2026} money={money} onChange={(lmsAi) => patch({ lmsAi })} />
+              {lineById("lmsai") && (
+                <div>
+                  <ProductRow title="Plan de LMS AI" description={lineById("lmsai")?.detail}>
+                    {linePrice(lineById("lmsai"))}
+                  </ProductRow>
+                  {lineById("lmsai_topup") && (
+                    <ProductRow title="Paquetes adicionales" description={lineById("lmsai_topup")?.detail}>
+                      {linePrice(lineById("lmsai_topup"))}
+                    </ProductRow>
+                  )}
+                </div>
+              )}
+              <LmsAiEstimator value={input.lmsAi} pack={CREDIT_PACK_2026} money={money} onApply={(lmsAi) => patch({ lmsAi })} />
+            </div>
           </div>
         </FormSection>
 
@@ -206,22 +229,6 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
           )}
         </FormSection>
 
-        <FormSection title="LMS AI" description="Complemento de Aprendizaje: créditos para crear cursos con IA. Se cobra como servicio y no recibe el descuento de paquete.">
-          <CreditPlanPicker label="LMS AI" value={input.lmsAi} pack={CREDIT_PACK_2026} money={money} onChange={(lmsAi) => patch({ lmsAi })} />
-          {lineById("lmsai") && (
-            <div className="space-y-3">
-              <ProductRow title="Plan de LMS AI" description={lineById("lmsai")?.detail}>
-                {linePrice(lineById("lmsai"))}
-              </ProductRow>
-              {lineById("lmsai_topup") && (
-                <ProductRow title="Paquetes adicionales" description={lineById("lmsai_topup")?.detail}>
-                  {linePrice(lineById("lmsai_topup"))}
-                </ProductRow>
-              )}
-            </div>
-          )}
-          <LmsAiEstimator value={input.lmsAi} pack={CREDIT_PACK_2026} money={money} onApply={(lmsAi) => patch({ lmsAi })} />
-        </FormSection>
 
         <FormSection title="Cotización final" description={`Lo que paga el cliente en ${currencyCode(money)} con ${yearsLabel(input.years)}.`}>
           {main.lines.length === 0 ? (
@@ -304,7 +311,7 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
           main.lines.length > 0 && (
             <>
               <CopyButton text={summaryText} label="Copiar resumen" />
-              <QuoteSavePanel version="2026" input={input} clientName={clientName} needsApproval={false} disabled={result.blocked} onSaved={onSaved} />
+              <QuoteSavePanel version="2026" input={input} client={client} needsApproval={false} disabled={result.blocked} onSaved={onSaved} />
             </>
           )
         }

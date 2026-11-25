@@ -10,6 +10,7 @@ import { buildApprovalDraft, ACCOUNT_TYPES, type QuoteAccountType } from './appr
 import { CREDIT_TIERS } from './credits';
 import { MODULES_2026, quote2026, type Quote2026Input } from './engine-2026';
 import { normalizeQuote2027Input, quote2027, type Quote2027Input } from './engine-2027';
+import { LMS_AI_REQUIRES_LEARNING_MESSAGE, hasLmsAiWithoutLearning } from './sales-rules';
 import { PAYMENT_OPTIONS } from './shared';
 import { PRICING_VERSIONS, type PricingVersion } from './version';
 
@@ -47,6 +48,9 @@ const input2026Schema = z.object({
   lmsAi: credits,
 });
 
+/** Id de una empresa de HubSpot (solo dígitos); opcional. */
+const hubspotId = z.string().regex(/^\d{1,20}$/).nullable().optional();
+
 const LINE_IDS_2027 = new Set(['creator', 'contenido', 'lmsai', 'lmsai_topup', 'hiring', 'hiring_topup', 'dc']);
 
 export const quotePayloadSchema = z.discriminatedUnion('version', [
@@ -55,6 +59,7 @@ export const quotePayloadSchema = z.discriminatedUnion('version', [
     input: input2027Schema,
     clientName: z.string().max(200),
     accountId: z.string().uuid().nullable(),
+    hubspotCompanyId: hubspotId,
     accountType: z.enum(ACCOUNT_TYPES),
   }),
   z.object({
@@ -62,6 +67,7 @@ export const quotePayloadSchema = z.discriminatedUnion('version', [
     input: input2026Schema,
     clientName: z.string().max(200),
     accountId: z.string().uuid().nullable(),
+    hubspotCompanyId: hubspotId,
     accountType: z.enum(ACCOUNT_TYPES),
   }),
 ]);
@@ -93,6 +99,8 @@ export interface StoredQuoteResult {
   warnings: string[];
   /** Sólo si necesita aprobación: el texto que lee el aprobador. */
   approval: { subject: string; body: string } | null;
+  /** La empresa de HubSpot a la que se cotiza, si se eligió de HubSpot. */
+  hubspotCompanyId?: string | null;
 }
 
 export interface QuoteRecord {
@@ -122,7 +130,9 @@ export function buildQuoteRecord(raw: unknown): QuoteRecordOutcome {
     const manualDiscounts = Object.fromEntries(
       Object.entries(payload.input.manualDiscounts).filter(([id]) => LINE_IDS_2027.has(id)),
     );
-    const input = normalizeQuote2027Input({ ...payload.input, manualDiscounts } as Quote2027Input);
+    const raw = { ...payload.input, manualDiscounts } as Quote2027Input;
+    if (hasLmsAiWithoutLearning(raw)) return { ok: false, error: LMS_AI_REQUIRES_LEARNING_MESSAGE };
+    const input = normalizeQuote2027Input(raw);
     const result = quote2027(input);
     if (result.blockedByOperations) return { ok: false, error: 'Más de 10.000 licencias: Aprendizaje se cotiza con Operaciones, no aquí.' };
     if (result.lines.length === 0) return { ok: false, error: 'La cotización no tiene productos: escribe las licencias o elige un plan.' };
@@ -160,6 +170,7 @@ export function buildQuoteRecord(raw: unknown): QuoteRecordOutcome {
           contract: result.totals.contract,
           warnings: result.warnings.map((warning) => warning.message),
           approval,
+          hubspotCompanyId: payload.hubspotCompanyId ?? null,
         },
       },
     };
@@ -201,6 +212,7 @@ export function buildQuoteRecord(raw: unknown): QuoteRecordOutcome {
         contract: result.main.contract,
         warnings: result.warnings.map((warning) => warning.message),
         approval: null,
+        hubspotCompanyId: payload.hubspotCompanyId ?? null,
       },
     },
   };

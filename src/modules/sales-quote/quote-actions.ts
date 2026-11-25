@@ -205,6 +205,7 @@ export interface SalesQuoteRow {
   createdById: string;
   createdByName: string;
   clientName: string | null;
+  accountId: string | null;
   accountName: string | null;
   countryName: string;
   version: PricingVersion;
@@ -326,6 +327,7 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
     createdById: row.created_by,
     createdByName: nameOf(users.get(row.created_by)),
     clientName: row.client_name,
+    accountId: row.account_id,
     accountName: row.account_id ? (accounts.get(row.account_id) ?? null) : null,
     countryName: findQuoteCountry(row.country_code)?.name ?? row.country_code,
     version: row.pricing_version,
@@ -348,33 +350,6 @@ export async function getSalesQuotesBoard(): Promise<SalesQuotesBoard> {
     canApprove: decidableTypes.length > 0,
     storageMissing: false,
   };
-}
-
-// ── Empresa (opcional) ───────────────────────────────────────────────────────
-
-export interface QuoteAccountOption {
-  id: string;
-  name: string;
-  countryCode: string | null;
-}
-
-/** Empresas que la persona puede ver (RLS de su sesión), por nombre. */
-export async function searchQuoteAccounts(query: string): Promise<QuoteAccountOption[]> {
-  const me = await getCurrentActiveUser();
-  const text = (typeof query === 'string' ? query : '').trim().replace(/[%_,()]/g, ' ').slice(0, 80);
-  if (!me || text.length < 2) return [];
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('accounts')
-    .select('id, name, country_code')
-    .ilike('name', `%${text}%`)
-    .order('name')
-    .limit(8);
-  return ((data ?? []) as Array<{ id: string; name: string; country_code: string | null }>).map((account) => ({
-    id: account.id,
-    name: account.name,
-    countryCode: account.country_code,
-  }));
 }
 
 // ── Aprobadores (Configuración → Cotizador) ──────────────────────────────────
