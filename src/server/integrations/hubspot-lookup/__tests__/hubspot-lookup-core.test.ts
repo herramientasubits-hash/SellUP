@@ -244,3 +244,55 @@ describe('«Creado en HubSpot» en la actividad', () => {
     assert.equal(createdActivityItem('1', null, null), null);
   });
 });
+
+// ── Búsqueda por todos los criterios (dueña 25-11) ───────────────────────────
+import { buildHubSpotLookupPlan, mergeLookupHits } from '../hubspot-lookup-core';
+import { parseSearchCriteria } from '@/modules/global-search/search-criteria';
+
+type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value: string }> };
+
+describe('plan de búsqueda en HubSpot por criterio', () => {
+  it('un nombre: sólo el texto libre de empresas y de contactos, sin lecturas por ID', () => {
+    const plan = buildHubSpotLookupPlan(parseSearchCriteria('Sportium'));
+    assert.equal(plan.companySearches.length, 1);
+    assert.equal(plan.companySearches[0].query, 'Sportium');
+    assert.equal(plan.contactSearches[0].query, 'Sportium');
+    assert.deepEqual(plan.companyIds, []);
+  });
+
+  it('una web: se busca el dominio limpio', () => {
+    const plan = buildHubSpotLookupPlan(parseSearchCriteria('https://www.sportium.co/es'));
+    assert.equal(plan.companySearches[0].query, 'sportium.co');
+  });
+
+  it('un NIT: filtro por número fiscal (también sin dígito de verificación) antes que el texto libre', () => {
+    const plan = buildHubSpotLookupPlan(parseSearchCriteria('900.123.456-7'));
+    const groups = plan.companySearches[0].filterGroups as FilterGroup[];
+    const values = groups.map((g) => `${g.filters[0].propertyName}=${g.filters[0].value}`);
+    assert.ok(values.includes('identificaci_n_fiscal=*9001234567*'));
+    assert.ok(values.includes('identificaci_n_fiscal=*900123456*'));
+    assert.ok(values.some((v) => v.startsWith('rfc_mx_=')));
+    assert.ok(groups.length <= 5);
+    assert.equal(plan.companySearches.at(-1)?.query, '900.123.456-7');
+  });
+
+  it('un teléfono: contactos por teléfono y celular con sus últimos dígitos', () => {
+    const plan = buildHubSpotLookupPlan(parseSearchCriteria('+57 300 123 4567'));
+    const groups = plan.contactSearches[0].filterGroups as FilterGroup[];
+    assert.deepEqual(
+      groups.map((g) => g.filters[0].propertyName),
+      ['hs_searchable_calculated_phone_number', 'hs_searchable_calculated_mobile_number', 'phone', 'mobilephone'],
+    );
+    assert.ok(groups.every((g) => g.filters[0].value === '*01234567'));
+  });
+
+  it('un número largo: además se lee como Company ID y Contact ID; uno corto, no', () => {
+    assert.deepEqual(buildHubSpotLookupPlan(parseSearchCriteria('10325097785')).companyIds, ['10325097785']);
+    assert.deepEqual(buildHubSpotLookupPlan(parseSearchCriteria('1234')).contactIds, []);
+  });
+
+  it('une sin repetir, en orden de certeza y con tope', () => {
+    const merged = mergeLookupHits([[{ id: '1' }], [{ id: '2' }, { id: '1' }], [{ id: '3' }]], 2);
+    assert.deepEqual(merged.map((m) => m.id), ['1', '2']);
+  });
+});

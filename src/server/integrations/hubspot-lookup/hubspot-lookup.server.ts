@@ -14,12 +14,13 @@ import {
   HUBSPOT_LOOKUP_COMPANY_PROPERTIES,
   HUBSPOT_LOOKUP_CONTACT_PROPERTIES,
   associationIds,
-  buildLookupSearchBody,
+  buildHubSpotLookupPlan,
   createdActivityItem,
   isHubSpotObjectId,
   mapHubSpotActivity,
   mapHubSpotCompany,
   mapHubSpotContact,
+  mergeLookupHits,
   ownerDisplayName,
   sortAndTrimActivity,
   type HubSpotActivityItem,
@@ -37,6 +38,7 @@ import {
   type HubSpotPropertyGroupDefinition,
   type HubSpotPropertySection,
 } from './hubspot-properties-core';
+import { parseSearchCriteria } from '@/modules/global-search/search-criteria';
 
 const HUBSPOT_API = 'https://api.hubapi.com';
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -91,19 +93,58 @@ async function optional<T>(run: () => Promise<T>, fallback: T, label: string): P
 
 // ── Búsqueda ────────────────────────────────────────────────────────────────
 
+/** Una búsqueda que falla no tumba las demás; si fallan todas, HubSpot no está disponible. */
+async function settledLists<T>(runs: ReadonlyArray<Promise<T[]>>, what: string): Promise<T[][]> {
+  const settled = await Promise.allSettled(runs);
+  const ok = settled.filter((r): r is PromiseFulfilledResult<T[]> => r.status === 'fulfilled').map((r) => r.value);
+  if (ok.length === 0 && settled.length > 0) {
+    const first = settled[0] as PromiseRejectedResult;
+    throw first.reason instanceof HubSpotLookupError ? first.reason : new HubSpotLookupError('unavailable', `${what}: ${String(first.reason)}`);
+  }
+  settled.forEach((r) => {
+    if (r.status === 'rejected') console.warn(`[hubspot-lookup] ${what}:`, r.reason instanceof Error ? r.reason.message : r.reason);
+  });
+  return ok;
+}
+
+async function searchObjects(token: string, objectType: 'companies' | 'contacts', body: unknown): Promise<RawObject[]> {
+  // Rutas literales: la guarda estática de «0 escrituras» sólo admite búsquedas y lecturas.
+  const res =
+    objectType === 'companies'
+      ? await hubspotPost(token, '/crm/v3/objects/companies/search', body)
+      : await hubspotPost(token, '/crm/v3/objects/contacts/search', body);
+  return (await readJson<{ results?: RawObject[] }>(res, `búsqueda de ${objectType}`)).results ?? [];
+}
+
+/**
+ * Búsqueda general en HubSpot por lo escrito: texto libre (nombre, dominio, correo…), número
+ * fiscal, teléfono e ID (ver `buildHubSpotLookupPlan`). Sólo lectura.
+ */
 export async function searchHubSpotCompaniesAndContacts(
   query: string,
 ): Promise<{ companies: HubSpotCompanyView[]; contacts: HubSpotContactView[] }> {
   const token = await requireToken();
-  const [companies, contacts] = await Promise.all([
-    hubspotPost(token, '/crm/v3/objects/companies/search', buildLookupSearchBody(query, HUBSPOT_LOOKUP_COMPANY_PROPERTIES))
-      .then((res) => readJson<{ results?: RawObject[] }>(res, 'búsqueda de empresas')),
-    hubspotPost(token, '/crm/v3/objects/contacts/search', buildLookupSearchBody(query, HUBSPOT_LOOKUP_CONTACT_PROPERTIES))
-      .then((res) => readJson<{ results?: RawObject[] }>(res, 'búsqueda de contactos')),
+  const plan = buildHubSpotLookupPlan(parseSearchCriteria(query));
+  const [companyLists, contactLists] = await Promise.all([
+    settledLists<RawObject>(
+      [
+        batchRead(token, 'companies', plan.companyIds, HUBSPOT_LOOKUP_COMPANY_PROPERTIES),
+        ...plan.companySearches.map((body) => searchObjects(token, 'companies', body)),
+      ],
+      'búsqueda de empresas',
+    ),
+    settledLists<RawObject>(
+      [
+        batchRead(token, 'contacts', plan.contactIds, HUBSPOT_LOOKUP_CONTACT_PROPERTIES),
+        ...plan.contactSearches.map((body) => searchObjects(token, 'contacts', body)),
+      ],
+      'búsqueda de contactos',
+    ),
   ]);
+  const valid = (lists: RawObject[][]) => lists.map((list) => list.filter((r) => isHubSpotObjectId(r.id)));
   return {
-    companies: (companies.results ?? []).filter((r) => isHubSpotObjectId(r.id)).map((r) => mapHubSpotCompany(r.id, r.properties)),
-    contacts: (contacts.results ?? []).filter((r) => isHubSpotObjectId(r.id)).map((r) => mapHubSpotContact(r.id, r.properties)),
+    companies: mergeLookupHits(valid(companyLists)).map((r) => mapHubSpotCompany(r.id, r.properties)),
+    contacts: mergeLookupHits(valid(contactLists)).map((r) => mapHubSpotContact(r.id, r.properties)),
   };
 }
 
