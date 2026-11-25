@@ -1108,7 +1108,11 @@ export async function runDiscardCandidate(
 
   const candidate = await deps.loadCandidate(candidateId.trim());
   if (!candidate) return { ok: false, error: MSG.notFound };
-  if (candidate.status !== 'pending_review') return { ok: false, error: MSG.notPending };
+  // Un posible duplicado también se puede rechazar (Bryan 25-11, «Contactos de otras fuentes»):
+  // si no se fusiona, rechazarlo es la forma de sacarlo de la cola. Queda en «Rechazados» igual.
+  if (candidate.status !== 'pending_review' && candidate.status !== 'duplicate') {
+    return { ok: false, error: MSG.notPending };
+  }
 
   const reason = cleanString(rawReason) ?? 'Otro';
 
