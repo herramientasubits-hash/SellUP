@@ -587,10 +587,9 @@ export function AccountDetailSheet({
                   {/* Contactos */}
                   <TabsContent value="contactos">
                     {(() => {
-                      // Sin contactos en SellUp, los de HubSpot van PRIMERO (Sportium 25-11).
-                      const hubspotFirst = data.contacts.length === 0;
+                      // Orden fijo (Bryan 25-11): Contactos → resumen → otras fuentes → HubSpot.
                       const hubspotBlock = data.account.hubspot_company_id && hubspotContacts.state && (
-                        <div className={hubspotFirst ? 'mb-4' : 'mt-4'}>
+                        <div className="mt-4">
                           <HubSpotContactsSection
                             state={hubspotContacts.state}
                             onRetry={hubspotContacts.reload}
@@ -602,7 +601,6 @@ export function AccountDetailSheet({
                       );
                       return (
                         <>
-                          {hubspotFirst && hubspotBlock}
                           <ContactsTab
                             accountId={data.account.id}
                             contacts={data.contacts}
@@ -621,7 +619,7 @@ export function AccountDetailSheet({
                               onOpenContact={openContactDetail}
                             />
                           </div>
-                          {!hubspotFirst && hubspotBlock}
+                          {hubspotBlock}
                         </>
                       );
                     })()}

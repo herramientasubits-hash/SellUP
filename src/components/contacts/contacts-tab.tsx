@@ -67,18 +67,6 @@ export function ContactsTab({
 }: ContactsTabProps) {
   return (
     <div className="space-y-4">
-      {/* Summary mini-cards: primero cuántos hay y de qué tipo; la lista viene debajo. */}
-      {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
-          rejilla responde al ancho de su contenedor, no al de la ventana. */}
-      <div className="@container">
-        <div className="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
-          <MetricCard compact title="Total" value={summary.total} tone="neutral" icon={<Users />} />
-          <MetricCard compact title="Decisores" value={summary.decision_makers} tone="brand" icon={<Crown />} />
-          <MetricCard compact title="Champions" value={summary.champions} tone="positive" icon={<Target />} />
-          <MetricCard compact title="Inactivos" value={summary.inactive_or_archived} tone="neutral" icon={<Archive />} />
-        </div>
-      </div>
-
       {/* La lista en UN solo marco (`TableShell`): título con su total, la acción
           de agregar a la derecha, la tabla a sangre y, sin contactos, el vacío
           dentro del mismo marco. Antes eran un encabezado suelto y una tarjeta. */}
@@ -127,6 +115,19 @@ export function ContactsTab({
           </TableBody>
         </Table>
       </TableShell>
+
+      {/* Tarjetas de resumen DEBAJO de la tabla: primero los contactos, luego cuántos hay y de
+          qué tipo (Bryan 25-11). */}
+      {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
+          rejilla responde al ancho de su contenedor, no al de la ventana. */}
+      <div className="@container">
+        <div className="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
+          <MetricCard compact title="Total" value={summary.total} tone="neutral" icon={<Users />} />
+          <MetricCard compact title="Decisores" value={summary.decision_makers} tone="brand" icon={<Crown />} />
+          <MetricCard compact title="Champions" value={summary.champions} tone="positive" icon={<Target />} />
+          <MetricCard compact title="Inactivos" value={summary.inactive_or_archived} tone="neutral" icon={<Archive />} />
+        </div>
+      </div>
     </div>
   );
 }
