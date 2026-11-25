@@ -270,9 +270,15 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
         </FormSection>
 
         {main.lines.length > 0 && (
-          <FormSection title="Otros plazos" description="Referencia: el mismo cliente con otro plazo. Cambia solo el descuento por plazo.">
+          <FormSection title="Otros plazos" description="Referencia: el mismo cliente con otro plazo. Cambia solo el descuento por plazo; el ahorro es frente a contratar año a año.">
             <OtherTermsTable
-              rows={result.terms.map((term) => ({ years: term.years, multiYear: term.multiYear, perYear: term.totalPerYear, contract: term.contract }))}
+              rows={result.terms.map((term) => ({
+                years: term.years,
+                multiYear: term.multiYear,
+                perYear: term.totalPerYear,
+                contract: term.contract,
+                savings: result.oneYear.totalPerYear * term.years - term.contract,
+              }))}
               money={money}
             />
           </FormSection>
@@ -286,6 +292,9 @@ export function Quote2026View({ countries, initialInput, initialClientName = "",
           { label: "Licencias y Selección por año", value: main.subscriptionPerYear },
           { label: "LMS AI por año", value: main.servicesPerYear },
           { label: "Total por año", value: main.totalPerYear },
+          ...(input.years > 1
+            ? [{ label: "Ahorro frente a contratar año a año", value: (result.oneYear.totalPerYear - main.totalPerYear) * input.years }]
+            : []),
         ]}
         contract={main.contract}
         years={input.years}
