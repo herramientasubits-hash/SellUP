@@ -17,6 +17,7 @@ import {
   mainNavItems,
   canAccessNavItem,
   getVisibleNavItems,
+  DASHBOARDS_ROUTE,
   PROSPECTOS_TAB_ROUTE,
   GROWTH_ROUTE,
   QUOTES_ROUTE,
@@ -51,6 +52,14 @@ describe('navigation visibility — canAccessNavItem', () => {
     assert.equal(canAccessNavItem(adminItem, sellerCtx), false);
     assert.equal(canAccessNavItem(adminItem, managerCtx), false);
     assert.equal(canAccessNavItem(adminItem, leadCtx), false);
+  });
+});
+
+describe('navigation visibility — Tableros (TABLEROS-1, dueño 25-11)', () => {
+  it('todos los roles ven «Tableros»: cada uno con su alcance (la página lo aplica)', () => {
+    for (const ctx of [adminCtx, sellerCtx, managerCtx, leadCtx, { isAdmin: false, roleKey: 'growth' }]) {
+      assert.ok(hrefs(getVisibleNavItems(mainNavItems, ctx)).includes(DASHBOARDS_ROUTE), String(ctx.roleKey));
+    }
   });
 });
 
