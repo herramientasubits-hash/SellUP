@@ -20,10 +20,12 @@ export function AccountContactsTabClient({
   accountId,
   contacts,
   summary,
+  hasHubSpotCompany = false,
 }: {
   accountId: string;
   contacts: Contact[];
   summary: ContactsSummary;
+  hasHubSpotCompany?: boolean;
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -42,6 +44,7 @@ export function AccountContactsTabClient({
         summary={summary}
         onViewContact={view}
         onContactsChanged={() => router.refresh()}
+        hasHubSpotCompany={hasHubSpotCompany}
       />
       <ContactDetailSheet
         contactId={selectedId}

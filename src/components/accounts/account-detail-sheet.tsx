@@ -584,24 +584,35 @@ export function AccountDetailSheet({
 
                   {/* Contactos */}
                   <TabsContent value="contactos">
-                    <ContactsTab
-                      accountId={data.account.id}
-                      contacts={data.contacts}
-                      summary={data.contactsSummary}
-                      onViewContact={openContactDetail}
-                      onContactsChanged={() => loadData(data.account.id)}
-                    />
-                    {data.account.hubspot_company_id && hubspotContacts.state && (
-                      <div className="mt-4">
-                        <HubSpotContactsSection
-                          state={hubspotContacts.state}
-                          onRetry={hubspotContacts.reload}
-                          onlyMissing
-                          onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
-                          importingId={importingContactId}
-                        />
-                      </div>
-                    )}
+                    {(() => {
+                      // Sin contactos en SellUp, los de HubSpot van PRIMERO (Sportium 25-11).
+                      const hubspotFirst = data.contacts.length === 0;
+                      const hubspotBlock = data.account.hubspot_company_id && hubspotContacts.state && (
+                        <div className={hubspotFirst ? 'mb-4' : 'mt-4'}>
+                          <HubSpotContactsSection
+                            state={hubspotContacts.state}
+                            onRetry={hubspotContacts.reload}
+                            onlyMissing
+                            onImport={data.account.pipeline_status === 'archived' ? undefined : handleImportHubSpotContact}
+                            importingId={importingContactId}
+                          />
+                        </div>
+                      );
+                      return (
+                        <>
+                          {hubspotFirst && hubspotBlock}
+                          <ContactsTab
+                            accountId={data.account.id}
+                            contacts={data.contacts}
+                            summary={data.contactsSummary}
+                            onViewContact={openContactDetail}
+                            onContactsChanged={() => loadData(data.account.id)}
+                            hasHubSpotCompany={!!data.account.hubspot_company_id}
+                          />
+                          {!hubspotFirst && hubspotBlock}
+                        </>
+                      );
+                    })()}
                   </TabsContent>
 
                   {/* Primer contacto (Agente 3): la investigación y las preparaciones juntas */}
