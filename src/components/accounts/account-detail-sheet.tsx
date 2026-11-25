@@ -72,6 +72,7 @@ import {
   useHubSpotActivity,
 } from '@/components/hubspot/hubspot-activity';
 import { HubSpotContactsSection, useHubSpotAccountContacts } from '@/components/hubspot/hubspot-contacts-section';
+import { AccountOtherSourcesContacts } from './account-other-sources-contacts-section';
 import { HubSpotPropertiesDisclosure } from '@/components/hubspot/hubspot-properties-section';
 import { importHubSpotContact } from '@/modules/hubspot-lookup/actions';
 import { importedContactToastDescription, OPEN_IMPORTED_CONTACT_LABEL } from '@/modules/hubspot-lookup/import-copy';
@@ -609,6 +610,16 @@ export function AccountDetailSheet({
                             onContactsChanged={() => loadData(data.account.id)}
                             hasHubSpotCompany={!!data.account.hubspot_company_id}
                           />
+                          {/* Agente 1 (Bryan 25-11) — lo de Apollo, Lusha y otras fuentes que espera decisión. */}
+                          <div className="mt-4">
+                            <AccountOtherSourcesContacts
+                              accountId={data.account.id}
+                              archived={data.account.pipeline_status === 'archived'}
+                              enabled={tab === 'contactos'}
+                              onContactsChanged={() => loadData(data.account.id)}
+                              onOpenContact={openContactDetail}
+                            />
+                          </div>
                           {!hubspotFirst && hubspotBlock}
                         </>
                       );
