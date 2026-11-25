@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, Pencil, Archive } from "@/icons";
+import { MoreHorizontal, Pencil, Archive, RotateCcw } from "@/icons";
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import {
 import type { InternalUserOption } from '@/modules/accounts/types';
 import { AccountEditDrawer } from './account-edit-drawer';
 import { ArchiveAccountDialog } from './archive-account-dialog';
+import { RestoreAccountDialog } from './restore-account-dialog';
 import { useNavAccess } from '@/components/layout/nav-access-context';
 
 interface AccountDetailActionsProps {
@@ -30,10 +31,12 @@ interface AccountDetailActionsProps {
    * quien lo aloja decide (el panel lateral se cierra).
    */
   onArchived?: () => void;
+  /** La empresa está archivada: en vez de «Archivar», «Restaurar» (sólo admin). */
+  archived?: boolean;
 }
 
 /**
- * El menú «Más acciones» de la empresa: editar y archivar. El estado ya no se cambia
+ * El menú «Más acciones» de la empresa: editar y archivar (o restaurar, si ya está archivada). El estado ya no se cambia
  * a mano: avanza con lo que hacen los agentes (Agente 3: «Investigación en curso» y
  * «Lista para contacto»).
  */
@@ -42,12 +45,19 @@ export function AccountDetailActions({
   users,
   onChanged,
   onArchived,
+  archived = false,
 }: AccountDetailActionsProps) {
   const router = useRouter();
   // Archivar es sólo de admin (decisión 6); respeta «Ver como…». El servidor lo exige igual.
   const { isAdmin } = useNavAccess();
   const [editOpen, setEditOpen] = React.useState(false);
   const [archiveOpen, setArchiveOpen] = React.useState(false);
+  const [restoreOpen, setRestoreOpen] = React.useState(false);
+
+  function handleRestored() {
+    router.refresh();
+    onChanged?.();
+  }
 
   function handleArchived() {
     if (onArchived) {
@@ -74,7 +84,16 @@ export function AccountDetailActions({
             <Pencil className="h-3.5 w-3.5" />
             Editar empresa
           </DropdownMenuItem>
-          {isAdmin ? (
+          {isAdmin && archived ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setRestoreOpen(true)}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                Restaurar empresa
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {isAdmin && !archived ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onClick={() => setArchiveOpen(true)}>
@@ -101,6 +120,12 @@ export function AccountDetailActions({
         accountId={archiveOpen ? accountId : null}
         onClose={() => setArchiveOpen(false)}
         onArchived={handleArchived}
+      />
+
+      <RestoreAccountDialog
+        accountId={restoreOpen ? accountId : null}
+        onClose={() => setRestoreOpen(false)}
+        onRestored={handleRestored}
       />
     </>
   );

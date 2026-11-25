@@ -93,3 +93,34 @@ describe('¿ya está en esa lista?', () => {
     assert.equal(isSameListView('http://app/pipeline', '/accounts?tab=prospectos'), false);
   });
 });
+
+// ── Empresas y contactos desde cualquier pantalla (dueña 25-11) ──────────────
+import { sellUpSearchItem as itemFor } from '../sellup-search-items';
+
+describe('empresas y contactos de SellUp en la búsqueda general', () => {
+  it('una empresa abre su ficha lateral con el mismo id que la ya cargada', () => {
+    const opened: string[] = [];
+    const item = itemFor(
+      { kind: 'account', id: 'acc-1', title: 'Sportium', meta: [], keywords: [] },
+      () => opened.push('page'),
+      (kind, id) => opened.push(`${kind}:${id}`),
+    );
+    assert.equal(item.id, 'account-acc-1');
+    assert.equal(item.group, 'Empresas');
+    item.onSelect?.();
+    assert.deepEqual(opened, ['account:acc-1']);
+  });
+
+  it('lo que lleva otra persona se ve, sin enlace', () => {
+    const item = itemFor(
+      { kind: 'contact', id: 'c-1', title: 'Ana', meta: ['Sportium', 'En SellUp la lleva Carla'], keywords: [], locked: true },
+      () => assert.fail('no se abre'),
+      () => assert.fail('no se abre'),
+    );
+    assert.equal(item.group, 'Contactos');
+    assert.equal(item.disabled, true);
+    assert.equal(item.href, undefined);
+    assert.equal(item.onSelect, undefined);
+    assert.equal(item.actionLabel, 'Sin acceso');
+  });
+});

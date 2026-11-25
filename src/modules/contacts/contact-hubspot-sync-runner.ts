@@ -37,6 +37,7 @@ import type { HubSpotSyncMethod } from './contact-hubspot-sync-state';
 import {
   getHubSpotContactSyncConnection,
   findHubSpotContactByEmail,
+  findHubSpotContactsForIdentity,
   createHubSpotContact,
   updateHubSpotContact,
   associateHubSpotContactWithCompany,
@@ -111,6 +112,8 @@ export async function buildContactHubSpotSyncDeps(
 
     checkConnection: getHubSpotContactSyncConnection,
     findHubSpotContactByEmail,
+    // Dueña 25-11 — sin correo: la misma persona por LinkedIn o por nombre en su empresa.
+    findHubSpotContactsForIdentity,
     createHubSpotContact,
     // CUT-2 — PATCH sobre el id durable. Dependencia separada de la creación a propósito.
     updateHubSpotContact,

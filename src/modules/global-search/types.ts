@@ -2,12 +2,13 @@
  * Búsqueda general en TODO SellUp (dueña 17-11: «que ese buscador busque también en todo
  * SellUp: por revisar, búsquedas, descartadas, de empresas y contactos, todo»).
  *
- * Las empresas y los contactos aprobados ya se cargan al abrir el buscador; esto es lo
- * demás, que se busca en el servidor por lo escrito (con el alcance de cada lista).
+ * Todo se busca en el servidor por lo escrito, desde cualquier pantalla: empresas y
+ * contactos (por nombre, ID, número fiscal, dominio, correo y teléfono — ver
+ * `search-criteria.ts`) y las demás listas (con el alcance de cada una).
  */
 
 /** Qué es lo encontrado y, así, a dónde lleva. */
-export type SellUpRecordKind = 'prospect' | 'discarded_company' | 'search' | 'contact_candidate';
+export type SellUpRecordKind = 'account' | 'contact' | 'prospect' | 'discarded_company' | 'search' | 'contact_candidate';
 
 /** Estado del candidato de contacto: su cola en Contactos. */
 export type ContactCandidateQueue = 'pending_review' | 'duplicate' | 'discarded';
@@ -20,6 +21,11 @@ export interface SellUpRecordHit {
   keywords: string[];
   /** Sólo candidatos de contacto: en qué cola está. */
   queue?: ContactCandidateQueue;
+  /**
+   * Empresa o contacto que lleva alguien fuera del alcance de quien busca: se muestra
+   * («En SellUp la lleva …», en `meta`) pero no se abre.
+   */
+  locked?: boolean;
 }
 
 export interface SellUpRecordsResult {

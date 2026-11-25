@@ -211,6 +211,11 @@ export const HUBSPOT_SYNC_ERROR_CODES = {
   hubspotUpdateFailed: 'hubspot_update_failed',
   /** El PATCH entró en HubSpot pero SellUp no pudo guardar el estado resultante. */
   localStateFailed: 'local_state_failed',
+  /**
+   * Sin correo y con varias personas del mismo nombre en su empresa en HubSpot (dueña 25-11):
+   * no se creó para no duplicar ni vincular a la persona equivocada.
+   */
+  ambiguousWithoutEmail: 'ambiguous_without_email',
 } as const;
 
 export type HubSpotSyncErrorCode =

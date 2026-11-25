@@ -84,10 +84,12 @@ const NAV_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
 };
 
 const SEARCH_OBJECTS_HINT =
-  "Registros: empresas y contactos, por revisar, descartados y búsquedas de SellUp, y también HubSpot.";
+  "Busca en todo SellUp y en HubSpot, desde cualquier pantalla: nombre, ID, NIT, dominio, correo o teléfono.";
 
 /** Nombres de las listas de SellUp, para avisar cuál no respondió. */
 const SELLUP_KIND_LABEL: Record<string, string> = {
+  account: "empresas",
+  contact: "contactos",
   prospect: "empresas por revisar",
   discarded_company: "empresas descartadas",
   search: "búsquedas",
@@ -121,7 +123,7 @@ async function searchEverywhere(
   if (hubspot.status === "rejected") notices.push("HubSpot no respondió: se muestra lo de SellUp.");
   return {
     items: [
-      ...(sellup.status === "fulfilled" ? sellUpSearchItems(sellup.value.hits, openSellUp) : []),
+      ...(sellup.status === "fulfilled" ? sellUpSearchItems(sellup.value.hits, openSellUp, openDrawer) : []),
       ...(hubspot.status === "fulfilled" ? hubspot.value : []),
     ],
     notice: notices.length > 0 ? notices.join(" ") : null,

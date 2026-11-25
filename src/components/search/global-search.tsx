@@ -35,6 +35,8 @@ export interface SearchObjectItem {
   onSelect?: () => void;
   /** Etiqueta de la acción a la derecha; «Abrir» si no se dice otra cosa. */
   actionLabel?: string;
+  /** Se muestra pero no se abre (p. ej. lo lleva alguien fuera del alcance de quien busca). */
+  disabled?: boolean;
 }
 
 /**
@@ -353,11 +355,13 @@ export function GlobalSearch({
     run();
   };
 
-  const openObject = (item: SearchObjectItem) =>
+  const openObject = (item: SearchObjectItem) => {
+    if (item.disabled) return;
     close(() => {
       if (item.onSelect) item.onSelect();
       else if (item.href) router.push(item.href);
     });
+  };
 
   // El tabulador cambia de alcance en vez de sacar el foco del campo, que es
   // lo que anuncia la barra de atajos.
@@ -490,6 +494,7 @@ export function GlobalSearch({
                       title={item.title}
                       meta={item.meta}
                       action={item.actionLabel ?? "Abrir"}
+                      disabled={item.disabled}
                       onSelect={() => openObject(item)}
                     />
                   ))}
@@ -579,6 +584,7 @@ function SearchRow({
   description,
   action,
   ariaLabel,
+  disabled,
   onSelect,
 }: {
   value: string;
@@ -589,6 +595,7 @@ function SearchRow({
   description?: string;
   action?: React.ReactNode;
   ariaLabel?: string;
+  disabled?: boolean;
   onSelect: () => void;
 }) {
   // Etiqueta explícita: los «·» y «›» que separan las partes son decorativos,
@@ -598,6 +605,7 @@ function SearchRow({
     <CommandItem
       value={value}
       aria-label={label}
+      disabled={disabled}
       onSelect={onSelect}
       className="items-start gap-2.5 px-2.5 py-2 data-[selected=true]:before:absolute data-[selected=true]:before:inset-y-1 data-[selected=true]:before:left-0 data-[selected=true]:before:w-0.5 data-[selected=true]:before:rounded-full data-[selected=true]:before:bg-primary"
     >
