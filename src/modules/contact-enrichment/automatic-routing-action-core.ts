@@ -83,6 +83,11 @@ export interface RunAutomaticContactEnrichmentForRequestResult {
   /** Candidatos que siguen en «Por revisar» de búsquedas anteriores de la misma empresa. */
   previousPendingReviewCandidates?: number;
   /**
+   * CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 — contactos de esta búsqueda que, según Apollo o la web, ya
+   * trabajan en otra empresa. Siguen en «Por revisar», aparte, y nunca se aprueban solos.
+   */
+  contactsNoLongerAtCompany?: number;
+  /**
    * Bryan 04-11 — contactos aprobados de la empresa (esta búsqueda y las anteriores, con el
    * alcance del vendedor). Ausente si no se pudo contar.
    */

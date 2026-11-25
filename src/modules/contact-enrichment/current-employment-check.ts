@@ -16,6 +16,8 @@ export const CURRENT_EMPLOYMENT_METADATA_KEY = 'current_employment';
 const MAX_CURRENT_ROLES = 5;
 /** Largo mínimo para aceptar que un nombre de empresa contiene al otro. */
 const MIN_CONTAINED_NAME_LENGTH = 4;
+/** Largo mínimo para comparar nombres escritos juntos («lae» = «la e» sería casualidad). */
+const MIN_COMPACT_NAME_LENGTH = 5;
 
 export interface CurrentRole {
   organization_id: string | null;
@@ -165,15 +167,60 @@ export function normalizeCompanyNameForMatch(value: string | null | undefined): 
   return joined || null;
 }
 
+/** Un nombre que en realidad es un dominio («empresasdragon.com»): se queda con su marca. */
+const DOMAIN_LIKE = /^[a-z0-9-]+(\.[a-z]{2,})+$/;
+
+/** Marca de un dominio: «https://www.colinealcorp.com/» ⇒ «colinealcorp». */
+function domainBrand(value: string | null | undefined): string | null {
+  const host = domainOf(value);
+  const brand = host?.split('.')[0]?.replace(/[^a-z0-9]/g, '') ?? '';
+  return brand || null;
+}
+
+/**
+ * El nombre escrito todo junto, con y sin sufijo societario: «Colineal Corp» ⇒ «colinealcorp» y
+ * «colineal». Apollo escribe a veces la marca pegada («ColinealCorp», Colineal 25-11).
+ */
+function compactCompanyNameVariants(value: string | null | undefined): Set<string> {
+  const text = clean(value);
+  const variants = new Set<string>();
+  if (!text) return variants;
+  const lowered = text.toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  if (DOMAIN_LIKE.test(lowered)) {
+    const brand = domainBrand(lowered);
+    if (brand) variants.add(brand);
+    return variants;
+  }
+  const full = normalizeText(text).replace(/ /g, '');
+  const stripped = normalizeCompanyNameForMatch(text)?.replace(/ /g, '');
+  for (const variant of [full, stripped]) {
+    if (variant && variant.length >= MIN_COMPACT_NAME_LENGTH) variants.add(variant);
+  }
+  return variants;
+}
+
+function sharesCompactVariant(a: Set<string>, b: Set<string>): boolean {
+  for (const variant of a) if (b.has(variant)) return true;
+  return false;
+}
+
 export function companyNamesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   const left = normalizeCompanyNameForMatch(a);
   const right = normalizeCompanyNameForMatch(b);
   if (!left || !right) return false;
   if (left === right) return true;
+  if (sharesCompactVariant(compactCompanyNameVariants(a), compactCompanyNameVariants(b))) return true;
   const [shorter, longer] = left.length <= right.length ? [left, right] : [right, left];
   if (shorter.length < MIN_CONTAINED_NAME_LENGTH) return false;
   // Palabra completa: «eglo» está en «eglo iluminacion chile», pero «gas» no está en «vegas».
   return ` ${longer} `.includes(` ${shorter} `);
+}
+
+/** El nombre de la empresa es la marca del dominio de la ficha («ColinealCorp» y colinealcorp.com). */
+export function companyMatchesDomainBrand(name: string | null | undefined, domain: string | null | undefined): boolean {
+  const brand = domainBrand(domain);
+  if (!brand || brand.length < MIN_COMPACT_NAME_LENGTH) return false;
+  return compactCompanyNameVariants(name).has(brand);
 }
 
 /** Dos cargos dicen lo mismo (ignora tildes, mayúsculas y signos; uno puede contener al otro). */
@@ -199,10 +246,13 @@ function roleAtCompany(input: AssessCurrentEmploymentInput, snapshot: CurrentEmp
   const org = snapshot.organization;
   const orgIsCompany =
     !!org &&
-    ((!!expectedDomain && !!org.domain && org.domain === expectedDomain) || companyNamesMatch(org.name, input.companyName));
+    ((!!expectedDomain && !!org.domain && org.domain === expectedDomain) ||
+      companyNamesMatch(org.name, input.companyName) ||
+      companyMatchesDomainBrand(org.name, expectedDomain));
 
   for (const role of snapshot.roles) {
     if (companyNamesMatch(role.organization_name, input.companyName)) return role;
+    if (companyMatchesDomainBrand(role.organization_name, expectedDomain)) return role;
     if (orgIsCompany && org?.id && role.organization_id === org.id) return role;
   }
   // Apollo dice que su organización actual es la empresa, aunque el historial la nombre distinto.

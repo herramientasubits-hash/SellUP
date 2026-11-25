@@ -354,7 +354,8 @@ async function runSpendActions(action: DecodedAction, userId: string, failures: 
       continue;
     }
     const routed = await runAutomaticContactEnrichmentForRequestCore(created.requestId, userId, new Date().toISOString());
-    await completeContactSearch(created.requestId, routed);
+    // Varias empresas seguidas: sólo Apollo (rápido) comprueba si siguen en la empresa.
+    await completeContactSearch(created.requestId, routed, { triggeredBy: userId, employmentSweepBudgetMs: 30_000 });
     failures.set(`ok:${account.id}`, 'búsqueda hecha: revisa Contactos › Por revisar');
   }
 }

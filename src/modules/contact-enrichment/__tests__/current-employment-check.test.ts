@@ -15,6 +15,7 @@ import {
   CURRENT_EMPLOYMENT_METADATA_KEY,
   CURRENT_EMPLOYMENT_SNAPSHOT_KEY,
   assessCurrentEmployment,
+  companyMatchesDomainBrand,
   companyNamesMatch,
   extractCurrentEmployment,
   normalizeCompanyNameForMatch,
@@ -63,6 +64,24 @@ describe('nombres de empresa y cargos', () => {
     assert.equal(companyNamesMatch(null, 'Cygnus'), false);
   });
 
+  it('el mismo nombre escrito junto o separado (Colineal 25-11)', () => {
+    assert.equal(companyNamesMatch('ColinealCorp', 'Colineal Corp'), true);
+    assert.equal(companyNamesMatch('Empresas Dragón', 'empresasdragon.com'), true);
+    assert.equal(companyNamesMatch('GO CORP', 'Colineal Corp'), false);
+    assert.equal(companyNamesMatch('Automotores Toyota Colombia', 'TOYOTA CH'), false);
+    // Muy corto para comparar pegado: no se arriesga.
+    assert.equal(companyNamesMatch('LAE', 'L.A.E. Corp'), true);
+    assert.equal(companyNamesMatch('Lae', 'La E'), false);
+  });
+
+  it('la marca del dominio de la ficha también identifica a la empresa', () => {
+    assert.equal(companyMatchesDomainBrand('ColinealCorp', 'colinealcorp.com'), true);
+    assert.equal(companyMatchesDomainBrand('Colineal Corp', 'https://www.colinealcorp.com/'), true);
+    assert.equal(companyMatchesDomainBrand('GO CORP', 'colinealcorp.com'), false);
+    assert.equal(companyMatchesDomainBrand('Abc', 'abc.com'), false);
+    assert.equal(companyMatchesDomainBrand('ColinealCorp', null), false);
+  });
+
   it('cargos iguales salvo mayúsculas, tildes o un agregado', () => {
     assert.equal(titlesMatch('Gerente de Recursos Humanos', 'gerente de recursos humanos'), true);
     assert.equal(titlesMatch('HR Manager', 'HR Manager Chile'), true);
@@ -105,6 +124,20 @@ describe('assessCurrentEmployment', () => {
     assert.equal(check.current_title, 'HR Analyst');
     assert.equal(check.previous_title, 'Human Resources Manager');
     assert.equal(titleAfterEmploymentCheck(check, 'Human Resources Manager'), 'HR Analyst');
+  });
+
+  it('Apollo escribe la empresa pegada y con otro dominio ⇒ sigue en la empresa (Colineal 25-11)', () => {
+    const check = assessCurrentEmployment({
+      snapshot: snapshot({
+        roles: [{ organization_id: 'org-c', organization_name: 'ColinealCorp', title: 'Head of Human Resources', start_date: '2023-03-01' }],
+        organization: { id: 'org-c', name: 'ColinealCorp', domain: 'colineal.com' },
+      }),
+      shownTitle: 'Head of Human Resources',
+      companyName: 'Colineal Corp',
+      companyDomain: 'colinealcorp.com',
+      checkedAt: NOW,
+    });
+    assert.equal(check.status, 'confirmed');
   });
 
   it('trabajo actual en otra empresa ⇒ posiblemente ya no está y el cargo NO se cambia', () => {

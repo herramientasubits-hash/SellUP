@@ -72,6 +72,11 @@ export interface AutomaticRoutingUiResult {
   hubspotAutoApprovedEarlierContacts?: number;
   /** Pendientes en «Por revisar» de búsquedas anteriores de la misma empresa. */
   previousPendingReviewCandidates?: number;
+  /**
+   * CONTACT-CURRENT-EMPLOYMENT-SWEEP-1 — contactos de esta búsqueda que, según Apollo o la web, ya
+   * trabajan en otra empresa. Siguen en «Por revisar», aparte, y nunca se aprueban solos.
+   */
+  contactsNoLongerAtCompany?: number;
   /** Contactos aprobados de la empresa, de esta búsqueda y de las anteriores. */
   approvedContactsTotal?: number;
 }
