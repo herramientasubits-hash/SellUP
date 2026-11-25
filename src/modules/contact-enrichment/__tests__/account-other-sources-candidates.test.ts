@@ -211,8 +211,13 @@ describe('cableado de «Contactos de otras fuentes»', () => {
     const src = read('src/components/accounts/account-detail-sheet.tsx');
     const contacts = src.indexOf('<ContactsTab');
     const others = src.indexOf('<AccountOtherSourcesContacts');
-    const hubspot = src.indexOf('<HubSpotContactsSection');
-    assert.ok(contacts > 0 && others > contacts && hubspot > others, 'orden de los tres bloques');
+    // Con contactos en SellUp, HubSpot se pinta al final; sin contactos va PRIMERO
+    // (Sportium 25-11, PR #925): el bloque se arma una vez y se pinta en uno de los dos lugares.
+    const hubspotAfter = src.indexOf('{!hubspotFirst && hubspotBlock}');
+    const hubspotBefore = src.indexOf('{hubspotFirst && hubspotBlock}');
+    assert.ok(contacts > 0 && others > contacts && hubspotAfter > others, 'orden de los tres bloques');
+    assert.ok(hubspotBefore > 0 && hubspotBefore < contacts, 'sin contactos, HubSpot va primero');
+    assert.match(src, /const hubspotFirst = data\.contacts\.length === 0;/);
     assert.match(src, /enabled=\{tab === 'contactos'\}/);
   });
 
@@ -220,7 +225,10 @@ describe('cableado de «Contactos de otras fuentes»', () => {
     const tab = read('src/components/contacts/account-contacts-tab-client.tsx');
     assert.ok(tab.indexOf('<ContactsTab') < tab.indexOf('<AccountOtherSourcesContacts'));
     const page = read('src/app/(sellup)/accounts/[accountId]/page.tsx');
-    assert.ok(page.indexOf('<AccountContactsTabClient') < page.indexOf('<AccountHubSpotContacts'));
+    // Con contactos en SellUp, HubSpot va después; sin contactos va primero (PR #925).
+    const list = page.indexOf('<AccountContactsTabClient');
+    assert.ok(list < page.indexOf('hubspotCompanyId && contacts.length > 0'));
+    assert.ok(page.indexOf('hubspotCompanyId && contacts.length === 0') < list);
     assert.match(page, /archived=\{isArchived\}/);
   });
 

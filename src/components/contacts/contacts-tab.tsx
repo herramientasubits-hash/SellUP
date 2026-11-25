@@ -32,7 +32,18 @@ interface ContactsTabProps {
   onViewContact?: (contactId: string) => void;
   /** Called after any mutation so a parent sheet can reload its data. */
   onContactsChanged?: () => void;
+  /**
+   * La empresa tiene ficha en HubSpot: sus contactos se listan aparte («Contactos en
+   * HubSpot»). El vacío lo dice, para que «Sin contactos» no se lea como «no tiene»
+   * (feedback Sportium 25-11: en pantalla chica no se veía la sección de HubSpot).
+   */
+  hasHubSpotCompany?: boolean;
 }
+
+export const EMPTY_CONTACTS_DESCRIPTION =
+  'Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha.';
+export const EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION =
+  'Todavía no hay contactos en SellUp. Los de su ficha de HubSpot aparecen en «Contactos en HubSpot»: tráelos con «Traer», agrégalos a mano o búscalos con Apollo o Lusha.';
 
 // ── Estilos de estado ─────────────────────────────────────────
 
@@ -52,6 +63,7 @@ export function ContactsTab({
   summary,
   onViewContact,
   onContactsChanged,
+  hasHubSpotCompany = false,
 }: ContactsTabProps) {
   return (
     <div className="space-y-4">
@@ -85,7 +97,7 @@ export function ContactsTab({
             variant="plain"
             icon={Users}
             title="Sin contactos todavía"
-            description="Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha."
+            description={hasHubSpotCompany ? EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION : EMPTY_CONTACTS_DESCRIPTION}
           />
         }
       >
