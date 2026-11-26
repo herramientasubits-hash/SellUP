@@ -41,9 +41,9 @@ interface ContactsTabProps {
 }
 
 export const EMPTY_CONTACTS_DESCRIPTION =
-  'Todavía no hay contactos asociados a esta cuenta. Agrega un contacto manualmente o, más adelante, enriquécelo con Apollo o Lusha.';
+  'Agrégalos a mano o búscalos con Apollo o Lusha.';
 export const EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION =
-  'Todavía no hay contactos en SellUp. Los de su ficha de HubSpot aparecen en «Contactos en HubSpot»: tráelos con «Traer», agrégalos a mano o búscalos con Apollo o Lusha.';
+  'Tráelos desde «Contactos en HubSpot» con «Traer» o búscalos con Apollo o Lusha.';
 
 // ── Estilos de estado ─────────────────────────────────────────
 
@@ -67,25 +67,13 @@ export function ContactsTab({
 }: ContactsTabProps) {
   return (
     <div className="space-y-4">
-      {/* Summary mini-cards: primero cuántos hay y de qué tipo; la lista viene debajo. */}
-      {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
-          rejilla responde al ancho de su contenedor, no al de la ventana. */}
-      <div className="@container">
-        <div className="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
-          <MetricCard compact title="Total" value={summary.total} tone="neutral" icon={<Users />} />
-          <MetricCard compact title="Decisores" value={summary.decision_makers} tone="brand" icon={<Crown />} />
-          <MetricCard compact title="Champions" value={summary.champions} tone="positive" icon={<Target />} />
-          <MetricCard compact title="Inactivos" value={summary.inactive_or_archived} tone="neutral" icon={<Archive />} />
-        </div>
-      </div>
-
       {/* La lista en UN solo marco (`TableShell`): título con su total, la acción
           de agregar a la derecha, la tabla a sangre y, sin contactos, el vacío
           dentro del mismo marco. Antes eran un encabezado suelto y una tarjeta. */}
       <TableShell
         title={
           <>
-            Contactos
+            Contactos aprobados
             {contacts.length > 0 && <Badge variant="neutral">{contacts.length}</Badge>}
           </>
         }
@@ -94,9 +82,9 @@ export function ContactsTab({
         empty={contacts.length === 0}
         emptyState={
           <EmptyState
-            variant="plain"
+            variant="compact"
             icon={Users}
-            title="Sin contactos todavía"
+            title="Sin contactos aprobados"
             description={hasHubSpotCompany ? EMPTY_CONTACTS_WITH_HUBSPOT_DESCRIPTION : EMPTY_CONTACTS_DESCRIPTION}
           />
         }
@@ -127,6 +115,22 @@ export function ContactsTab({
           </TableBody>
         </Table>
       </TableShell>
+
+      {/* Tarjetas de resumen DEBAJO de la tabla: primero los contactos, luego cuántos hay y de
+          qué tipo (Bryan 25-11). */}
+      {/* La pestaña vive tanto en la página como en el drawer de la cuenta: la
+          rejilla responde al ancho de su contenedor, no al de la ventana. */}
+      {/* Sin contactos no se pintan: cuatro ceros sólo ocupan pantalla (Bryan 25-11). */}
+      {summary.total > 0 && (
+        <div className="@container">
+          <div className="grid grid-cols-2 gap-4 @3xl:grid-cols-4">
+            <MetricCard compact title="Total" value={summary.total} tone="neutral" icon={<Users />} />
+            <MetricCard compact title="Decisores" value={summary.decision_makers} tone="brand" icon={<Crown />} />
+            <MetricCard compact title="Champions" value={summary.champions} tone="positive" icon={<Target />} />
+            <MetricCard compact title="Inactivos" value={summary.inactive_or_archived} tone="neutral" icon={<Archive />} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

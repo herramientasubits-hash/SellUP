@@ -116,7 +116,8 @@ export function HubSpotContactsSection({
         />
       ) : state.status === 'not_found' ? null : contacts.length === 0 ? (
         <EmptyState
-          variant="plain"
+          variant="compact"
+          className="px-0"
           icon={Users}
           title={onlyMissing ? 'Todos están en SellUp' : 'Sin contactos en HubSpot'}
           description={
