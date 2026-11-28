@@ -336,4 +336,77 @@ describe('searchLushaContactsV3', () => {
     assert.ok(result.errorMessage, 'Debe haber errorMessage');
     assert.ok(!result.errorMessage?.includes(FAKE_KEY), 'El errorMessage no debe exponer la API key');
   });
+
+  // --- LUSHA-BILLING-1: el cobro viene en `billing`, y NOT_FOUND no es resultado ---
+
+  it('lee los créditos de billing.creditsCharged (formato real de v3)', async () => {
+    mockFetch(async () =>
+      makeResponse(200, {
+        results: [{ id: 'lp-1', fullName: 'Ana Ruiz' }],
+        billing: { creditsCharged: 1, resultsReturned: 1, lowBalance: false },
+      })
+    );
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.status, 'success');
+    assert.equal(result.creditsCharged, 1);
+    assert.equal(result.lowBalance, false);
+    assert.deepEqual(result.billingShape, { creditsCharged: 'number', resultsReturned: 'number', lowBalance: 'boolean' });
+  });
+
+  it('sin billing ni creditsCharged: créditos null, nunca 0 inventado', async () => {
+    mockFetch(async () => makeResponse(200, { results: [{ id: 'lp-1' }] }));
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.creditsCharged, null);
+  });
+
+  it('billing.creditsCharged = 0 se respeta como 0', async () => {
+    mockFetch(async () => makeResponse(200, { results: [], billing: { creditsCharged: 0 } }));
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.status, 'no_results');
+    assert.equal(result.creditsCharged, 0);
+  });
+
+  it('una sola fila con error NOT_FOUND ⇒ no_results, 0 resultados y conserva el cobro', async () => {
+    mockFetch(async () =>
+      makeResponse(200, {
+        results: [{ error: { code: 'NOT_FOUND', message: 'Contact not found' } }],
+        billing: { creditsCharged: 1, resultsReturned: 0 },
+      })
+    );
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 'no_results');
+    assert.equal(result.resultsReturned, 0);
+    assert.equal(result.creditsCharged, 1);
+    assert.equal(result.notFoundCount, 1);
+    assert.equal(result.sanitizedResults, undefined);
+  });
+
+  it('2 encontradas y 1 NOT_FOUND ⇒ success con 2 resultados', async () => {
+    mockFetch(async () =>
+      makeResponse(200, {
+        results: [
+          { id: 'a', fullName: 'Uno' },
+          { error: 'NOT_FOUND' },
+          { id: 'b', fullName: 'Dos' },
+        ],
+        billing: { creditsCharged: 2 },
+      })
+    );
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.status, 'success');
+    assert.equal(result.resultsReturned, 2);
+    assert.equal(result.sanitizedResults?.length, 2);
+    assert.deepEqual(result.sanitizedResults?.map((r) => r.id), ['a', 'b']);
+    assert.equal(result.notFoundCount, 1);
+    assert.equal(result.creditsCharged, 2);
+  });
+
+  it('billing.lowBalance = true se expone', async () => {
+    mockFetch(async () =>
+      makeResponse(200, { results: [{ id: 'a' }], billing: { creditsCharged: 1, lowBalance: true } })
+    );
+    const result = await searchLushaContactsV3(MINIMAL_INPUT);
+    assert.equal(result.lowBalance, true);
+  });
 });
