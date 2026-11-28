@@ -40,6 +40,7 @@ import { NotificationBell } from "@/components/notifications/notification-bell";
 import { DrawerShell } from "@/components/shared/drawer-shell";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AccountMenu } from "@/components/layout/account-menu";
+import { MyCreditsPanel } from "@/components/layout/my-credits-panel";
 import { HEADER_ICON_BUTTON } from "@/components/layout/header-icon";
 import { useSidebar } from "@/components/layout/sidebar-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -417,6 +418,7 @@ export function AppHeader({ user, initialUnreadCount = 0, navAccess, processCent
           roleLabel={roleLabel(navAccess)}
           rolePreview={navAccess.rolePreview}
           onLogout={handleSignOut}
+          creditsSlot={<MyCreditsPanel />}
         />
       </div>
     </header>

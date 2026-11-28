@@ -2097,6 +2097,39 @@ export async function executeContactEnrichmentLushaRun(
 
   const rawResultsCount = searchResult.resultsReturned ?? 0;
 
+  // LUSHA-BILLING-1 — la búsqueda que Lusha respondió bien (con o sin resultados) cobra
+  // créditos y hasta ahora no dejaba fila de gasto: solo la dejaba el error. Sin esta fila
+  // esos créditos no restaban del cupo de quien lanzó la búsqueda. El USD sigue
+  // desconocido a propósito (contrato 17B.4X.4A): solo se registran los créditos.
+  if (searchResult.ok) {
+    const searchCostComponent = lushaSearchUnknownCostComponent();
+    await logProviderUsage({
+      agent_run_id: agentRunId,
+      agent_run_step_id: searchStep?.id,
+      provider_key: 'lusha',
+      operation_key: 'lusha_contact_search',
+      ...(typeof searchResult.creditsCharged === 'number'
+        ? { credits_used: searchResult.creditsCharged }
+        : {}),
+      results_returned: rawResultsCount,
+      estimated_cost_usd: searchCostComponent.estimatedCostUsd,
+      real_cost_usd: searchCostComponent.realCostUsd,
+      status: 'success',
+      triggered_by: triggeredBy,
+      duration_ms: searchDurationMs,
+      metadata: {
+        endpoint: 'contacts_search',
+        request_id: searchResult.requestId ?? null,
+        search_status: searchResult.status,
+        not_found_count: searchResult.notFoundCount ?? 0,
+        low_balance: searchResult.lowBalance === true,
+        billing_shape: searchResult.billingShape ?? null,
+        cost: searchCostComponent.costTrace,
+        hito: 'LUSHA-BILLING-1',
+      },
+    });
+  }
+
   // Path A — provider error: real failure, not a no-results case.
   // Must terminate with failed status; must NOT continue to candidate flow.
   if (!searchResult.ok) {

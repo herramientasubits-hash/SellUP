@@ -325,7 +325,17 @@ export type LushaContactSearchResult = {
   requestId?: string | null;
   rateLimit?: Record<string, string | null>;
   resultsReturned: number;
+  /**
+   * Créditos que Lusha cobró por la petición. Lusha v3 los manda en
+   * `billing.creditsCharged` (no a nivel superior). null ⇒ no lo informó; nunca 0 inventado.
+   */
   creditsCharged?: number | null;
+  /** Nombres y tipos de los campos de `billing` (sin valores), para auditar el formato. */
+  billingShape?: Record<string, string> | null;
+  /** `billing.lowBalance`: a la cuenta de Lusha le quedan pocos créditos. */
+  lowBalance?: boolean;
+  /** Filas que Lusha devolvió con `error` (p. ej. NOT_FOUND): no son resultados. */
+  notFoundCount?: number;
   rawShape?: Record<string, unknown>;
   sanitizedResults?: Array<{
     id: string | null;
@@ -408,20 +418,41 @@ export async function searchLushaContactsV3(input: {
     const requestId =
       typeof raw['requestId'] === 'string' ? raw['requestId'] : headerRequestId;
 
-    if (contacts.length === 0) {
+    // LUSHA-BILLING-1 — Lusha v3 manda el cobro en `billing.creditsCharged`. Leerlo solo a
+    // nivel superior dejaba `credits_used = NULL` en TODA búsqueda, y el presupuesto por
+    // persona cuenta NULL como 0: las búsquedas de Lusha no restaban del cupo de nadie.
+    // Mismo helper que ya usa el enrich.
+    const creditsCharged = extractTopLevelCreditsCharged(raw);
+    const { billingShape } = extractLushaBilling(raw['billing']);
+    const billingObj =
+      raw['billing'] && typeof raw['billing'] === 'object' && !Array.isArray(raw['billing'])
+        ? (raw['billing'] as Record<string, unknown>)
+        : null;
+    const lowBalance = billingObj?.['lowBalance'] === true;
+
+    // Lusha devuelve una fila por persona pedida; las que no encuentra vienen con `error`
+    // (NOT_FOUND…). No son resultados: contarlas inflaba `results_returned` y marcaba
+    // «success» una búsqueda que no encontró a nadie.
+    const found = contacts.filter((c) => !c['error']);
+    const notFoundCount = contacts.length - found.length;
+
+    if (found.length === 0) {
       return {
         ok: true,
         status: 'no_results',
         httpStatus: response.status,
         resultsReturned: 0,
-        creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+        creditsCharged,
+        billingShape,
+        lowBalance,
+        notFoundCount,
         rawShape: buildRawShape(raw),
         rateLimit,
         requestId,
       };
     }
 
-    const sanitizedResults = contacts.map((c) => ({
+    const sanitizedResults = found.map((c) => ({
       id: typeof c['id'] === 'string' ? c['id'] : null,
       fullName: pickString(c, ['fullName', 'name', 'full_name']) ?? null,
       title: pickString(c, ['title', 'jobTitle', 'job_title']) ?? null,
@@ -438,7 +469,10 @@ export async function searchLushaContactsV3(input: {
       status: 'success',
       httpStatus: response.status,
       resultsReturned: sanitizedResults.length,
-      creditsCharged: typeof raw['creditsCharged'] === 'number' ? raw['creditsCharged'] : null,
+      creditsCharged,
+      billingShape,
+      lowBalance,
+      notFoundCount,
       rawShape: buildRawShape(raw),
       sanitizedResults,
       rateLimit,

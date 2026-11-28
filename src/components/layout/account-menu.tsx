@@ -31,6 +31,11 @@ export interface AccountMenuProps {
   onLogout?: () => void;
   /** «Ver como…» otro rol: sólo para la persona autorizada. */
   rolePreview?: RolePreviewState;
+  /**
+   * «Mis créditos»: el consumo por fuente de la persona. Va entre su tarjeta y las
+   * acciones; se monta sólo con el menú abierto.
+   */
+  creditsSlot?: React.ReactNode;
 }
 
 /** Hasta dos iniciales del nombre, para cuando no hay foto. */
@@ -65,9 +70,10 @@ function UserAvatar({
  * AccountMenu — port de Thema `app-shell/AccountMenu.tsx`.
  *
  * Quién eres y como quién miras: una sola puerta en la esquina de la cabecera.
- * El chip enseña la cara, el nombre y el rol; el menú que abre es identidad y
- * salida, nada más. Thema también cambia aquí de empresa y de rol: en SellUp
- * no hay ni varias empresas ni rol que asumir, así que esas filas no existen.
+ * El chip enseña la cara, el nombre y el rol; el menú que abre es identidad,
+ * «Mis créditos» (lo que la persona lleva gastado por fuente) y salida. Thema
+ * también cambia aquí de empresa y de rol: en SellUp no hay ni varias empresas ni
+ * rol que asumir, así que esas filas no existen.
  *
  * Lo que NO vive aquí: el tema y la configuración. Son de la plataforma, no de
  * la cuenta, y cuelgan del menú de la marca (`WorkspaceMenu`).
@@ -77,6 +83,7 @@ export function AccountMenu({
   roleLabel,
   onLogout,
   rolePreview,
+  creditsSlot,
 }: AccountMenuProps) {
   const [open, setOpen] = React.useState(false);
   const [previewOpen, setPreviewOpen] = React.useState(false);
@@ -133,6 +140,13 @@ export function AccountMenu({
               )}
             </span>
           </div>
+
+          {creditsSlot && (
+            <>
+              <DropdownMenuSeparator />
+              {creditsSlot}
+            </>
+          )}
 
           {rolePreview?.allowed && (
             <>
